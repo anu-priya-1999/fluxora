@@ -11,7 +11,7 @@ const server = createApiServer(config);
 
 await getPool().query("SELECT 1");
 
-server.listen(config.port, () => {
+server.listen(config.port, "0.0.0.0", () => {
   console.log(`Fluxora API listening on port ${config.port}`);
 });
 
