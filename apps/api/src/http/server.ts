@@ -64,6 +64,11 @@ async function handleRequest(
   const path = url.pathname;
   const method = req.method ?? "GET";
 
+  if (path === "/healthz" && method === "GET") {
+    await healthCheck(res);
+    return;
+  }
+
   if (path === "/api/v1/telemetry/dummy" && method === "GET") {
     await dummyTelemetry(req, res);
     return;
@@ -297,4 +302,22 @@ function logUnexpected(error: unknown): void {
   }
 
   console.error(error.message);
+}
+
+async function healthCheck(res: http.ServerResponse): Promise<void> {
+  try {
+    await getPool().query("SELECT 1");
+
+    sendJson(res, 200, {
+      status: "ok",
+      service: "fluxora-api",
+    });
+  } catch (error) {
+    logUnexpected(error);
+
+    sendJson(res, 503, {
+      status: "unhealthy",
+      service: "fluxora-api",
+    });
+  }
 }

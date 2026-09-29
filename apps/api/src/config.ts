@@ -16,7 +16,7 @@ export function loadAuthConfig(
   }
 
   return {
-    port: readPort(env.API_PORT),
+    port: readPort(env.PORT ?? env.API_PORT),
   };
 }
 
