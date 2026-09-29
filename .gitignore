@@ -1,0 +1,38 @@
+﻿# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+.next/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Private personal workspace
+learning/
+prompts/
+
+# Local development
+*.local
+
+# Local OpenTelemetry Collector artifacts
+.observability/collector-output.txt
+.observability/otelcol.exe
+.observability/otelcol.tar.gz

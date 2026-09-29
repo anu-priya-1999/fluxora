@@ -1,0 +1,24 @@
+{
+  "name": "@fluxora/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "node --experimental-strip-types --import ./src/telemetry.ts src/server.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@clerk/backend": "^3.20.1",
+    "@fluxora/db": "workspace:*",
+    "@fluxora/observability": "workspace:*",
+    "@fluxora/shared-types": "workspace:*",
+    "@opentelemetry/instrumentation": "0.222.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "typescript": "~5.9.2"
+  }
+}

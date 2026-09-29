@@ -1,0 +1,37 @@
+﻿---
+description: Standard Cursor implementation workflow for Fluxora.
+alwaysApply: false
+---
+
+# Fluxora Implementation Workflow
+
+For every non-trivial implementation task:
+
+## Before coding
+
+1. Inspect the repository.
+2. Read the relevant architecture documents.
+3. Identify existing conventions.
+4. State the files that will change.
+5. Identify dependencies and risks.
+
+## During coding
+
+- make the smallest coherent change
+- avoid unrelated refactors
+- preserve architecture boundaries
+- prefer existing abstractions
+- keep deterministic logic deterministic
+
+## After coding
+
+1. Run tests.
+2. Run typecheck.
+3. Run lint.
+4. Run build when relevant.
+5. Inspect the final diff.
+6. Report files changed.
+7. Report verification performed.
+8. Report known limitations.
+
+Never claim verification that was not actually run.

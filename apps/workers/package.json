@@ -1,0 +1,20 @@
+{
+  "name": "@fluxora/workers",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@fluxora/db": "workspace:*",
+    "@fluxora/observability": "workspace:*",
+    "@fluxora/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2"
+  }
+}

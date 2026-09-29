@@ -1,0 +1,37 @@
+﻿---
+description: Fluxora architecture and implementation-boundary rules.
+alwaysApply: false
+---
+
+# Fluxora Architecture Rule
+
+Use:
+
+`docs/architecture/`
+
+as the authoritative architecture package.
+
+Relevant primary references include:
+
+- `03-architecture-principles.md`
+- `04-system-architecture-diagrams.md`
+- `05-component-responsibilities.md`
+- `06-database-schema.md`
+- `07-api-architecture.md`
+- `08-event-schema.md`
+- `09-ai-architecture.md`
+- `10-frontend-architecture.md`
+- `11-security-architecture.md`
+- `12-testing-strategy.md`
+- `17-implementation-roadmap.md`
+- `18-decision-log.md`
+
+Before making an architecture-sensitive implementation change, inspect the relevant source document.
+
+Prefer the documented MVP architecture.
+
+PostgreSQL remains the MVP graph/system-of-record database.
+
+Evidence is cross-cutting and must remain traceable.
+
+Do not introduce Neo4j, Kafka, Kubernetes, or additional infrastructure without an explicit documented trigger.

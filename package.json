@@ -1,0 +1,21 @@
+{
+  "name": "fluxora",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "db:migrate": "pnpm --filter @fluxora/db migrate",
+    "api:start": "pnpm --filter @fluxora/api start",
+    "typecheck": "pnpm -r --if-present typecheck",
+    "build": "pnpm -r --if-present build",
+    "dev": "pnpm -r --if-present dev",
+    "lint": "pnpm -r --if-present lint",
+    "format": "pnpm -r --if-present format"    
+  },
+  "devDependencies": {
+    "typescript": "~5.9.2"
+  }
+}
