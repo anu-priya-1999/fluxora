@@ -37,6 +37,7 @@ const authorizedParties = (
   .filter(Boolean);
 
 export function createApiServer(_config: AuthConfig): http.Server {
+  void _config;
   return http.createServer((req, res) => {
     void handleRequest(req, res).catch((error: unknown) => {
       if (res.headersSent) {

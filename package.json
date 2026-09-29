@@ -12,10 +12,15 @@
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
     "dev": "pnpm -r --if-present dev",
-    "lint": "pnpm -r --if-present lint",
-    "format": "pnpm -r --if-present format"    
+    "lint": "eslint .",
+    "format": "pnpm -r --if-present format",
+    "test": "pnpm -r --if-present test"
   },
   "devDependencies": {
-    "typescript": "~5.9.2"
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.6",
+    "typescript": "~5.9.2",
+    "typescript-eslint": "^8.71.0"
   }
 }

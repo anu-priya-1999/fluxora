@@ -1,10 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import type {
-  ObjectMetadata,
-  ObjectStorageClient,
-} from "./client.ts";
+import type { ObjectMetadata, ObjectStorageClient } from "./client.ts";
 
 export interface FilesystemObjectStorageOptions {
   rootDirectory: string;
@@ -43,8 +40,10 @@ export class FilesystemObjectStorage implements ObjectStorageClient {
   async put(
     key: string,
     body: Uint8Array,
-    _options?: ObjectMetadata,
+    options?: ObjectMetadata,
   ): Promise<void> {
+    void options;
+
     const filePath = this.resolveKey(key);
 
     await fs.mkdir(path.dirname(filePath), {
