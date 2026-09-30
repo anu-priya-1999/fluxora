@@ -222,8 +222,8 @@ Step 4 — Next.js + Clerk auth UI/dashboard            ✅ COMPLETE
 Step 5 — Redis + object storage + secrets abstraction ✅ COMPLETE
 Step 6 — PostgreSQL job queue + worker harness        ✅ COMPLETE
 Step 7 — OpenTelemetry                                ✅ COMPLETE
-Step 8 — CI/CD                                        ⏭ NEXT
-Step 9 — Local-dev compose/seed skeleton              ⏳
+Step 8 — CI/CD                                        ✅ COMPLETE
+Step 9 — Local-dev compose/seed skeleton              ⏳ NEXT
 ```
 
 Phase 1 includes:
@@ -254,8 +254,6 @@ Phase 1 does not yet include:
 - runtime telemetry
 
 The implementation roadmap remains the authority for phase boundaries.
-
----
 
 ## 8. Current Repository Shape
 
@@ -744,6 +742,61 @@ HTTP request duration metric                ✅
 
 The local Collector uses the debug exporter for verification. This proves the application-to-Collector telemetry path; a production observability backend is not required for this local acceptance test.
 
+Step 8 local quality verification completed:
+
+```text
+pnpm lint                                      ✅
+pnpm typecheck                                 ✅
+pnpm test                                      ✅
+7 tests passed, 0 failed                      ✅
+pnpm build                                     ✅
+Next.js production build                       ✅
+```
+
+The CI workflow was executed successfully on `main` for both the CI foundation commit and the hosted-runtime commit:
+
+```text
+CI #1 — 741de67 — passed ✅
+CI #2 — 83b6602 — passed ✅
+```
+
+The deployed frontend was manually smoke-tested on Vercel:
+
+```text
+homepage renders                              ✅
+/sign-in loads                                ✅
+Continue with GitHub                          ✅
+authenticated landing page                   ✅
+/dashboard protected route                   ✅
+```
+
+The API was prepared for a hosted runtime and verified locally with a Render-like `PORT`:
+
+```text
+PORT=4100                                       ✅
+server binds to 0.0.0.0                         ✅
+GET /healthz                                   200 ✅
+health response status = ok                    ✅
+```
+
+Render deployment verification completed:
+
+```text
+Render service: fluxora-api                   ✅ LIVE
+Branch: main                                   ✅
+Plan: Free                                     ✅
+Region: Singapore                              ✅
+Health check: /healthz                         ✅
+Auto-deploy: On Commit                         ✅
+Hosted PostgreSQL                              ✅
+Production environment variables configured   ✅
+Hosted /healthz request verified               ✅
+```
+
+The hosted `/healthz` endpoint performs `SELECT 1`, so the successful response verified both API reachability and API-to-hosted-PostgreSQL connectivity.
+
+Step 8 therefore meets the current implementation acceptance criteria for the CI/CD foundation and hosted frontend/API baseline. Full staging promotion, automated E2E gates, production smoke-test automation, and rollback orchestration remain future hardening work rather than claims of completion in Step 8.
+
 ## 18. Job Architecture — Implemented
 
 The MVP uses a PostgreSQL-backed job queue and transactional outbox-compatible worker foundation.
@@ -784,25 +837,25 @@ The worker harness dispatches jobs through a typed handler registry and handles 
 
 ## 19. Current Next Implementation Target
 
-### Phase 1 — Step 8
+### Phase 1 — Step 9
 
-Implement the CI/CD foundation.
+Implement the local-development compose/seed skeleton.
 
 Current target:
 
 ```text
-CI
- ↓
-lint + typecheck + unit tests
- ↓
-build
- ↓
-preview deployment per PR
+Docker Compose / local service definition
+        ↓
+PostgreSQL + Redis + object storage + supporting local services
+        ↓
+seed data / deterministic bootstrap
+        ↓
+repeatable local development environment
 ```
 
-Do not implement Step 9 while completing Step 8.
+Do not move into Step 10 while completing Step 9.
 
-Do not mark Step 8 complete until the workflow is actually executed successfully.
+Do not replace the production deployment decisions already validated in Step 8; Step 9 is specifically about repeatable local development infrastructure.
 
 ## 20. Security Model
 
@@ -894,21 +947,218 @@ Target production observability areas remain:
 
 ---
 
-## 22. CI/CD
+## 22. CI/CD — Implemented Foundation
 
-CI/CD is a later Phase 1 step.
+Step 8 established a working CI/CD and hosted-deployment foundation.
 
-Planned checks include:
+### 22.1 Continuous Integration
 
-- lint
-- typecheck
-- unit tests
-- build
-- preview deployment per PR
+GitHub Actions workflow:
 
-Do not claim CI/CD completion until the actual workflow has been executed successfully.
+```text
+.github/workflows/ci.yml
+```
 
----
+Triggers:
+
+```yaml
+on:
+  pull_request:
+  push:
+    branches: [main]
+```
+
+Current quality-gate sequence:
+
+```text
+checkout
+  ↓
+pnpm 10.34.5
+  ↓
+Node 24
+  ↓
+pnpm install --frozen-lockfile
+  ↓
+pnpm lint
+  ↓
+pnpm typecheck
+  ↓
+pnpm test
+  ↓
+pnpm build
+```
+
+The CI workflow is intentionally repository-root based because Fluxora is a pnpm workspace and the API/frontend depend on internal workspace packages.
+
+The workflow uses:
+
+```text
+pnpm/action-setup@v4
+setup-node@v7
+```
+
+with dependency caching through pnpm.
+
+### 22.2 Frontend delivery
+
+```text
+GitHub main
+   ↓
+Vercel
+   ↓
+apps/web
+```
+
+The Vercel project uses `apps/web` as its project root. Clerk environment variables are configured in Vercel for the hosted web application.
+
+Hosted smoke verification established that authentication and the protected dashboard work on the deployed frontend.
+
+### 22.3 API delivery
+
+```text
+GitHub main
+   ↓
+Render Web Service
+   ↓
+apps/api
+```
+
+Current Render configuration:
+
+```text
+service: fluxora-api
+branch: main
+runtime: Node
+root directory: repository root
+region: Singapore
+plan: Free
+auto-deploy: On Commit
+health check: /healthz
+```
+
+The API intentionally does not have a `build` script in `apps/api/package.json`. It currently executes TypeScript directly with Node's native strip-types runtime.
+
+Therefore the hosted build command is:
+
+```text
+pnpm install --frozen-lockfile && pnpm db:migrate && pnpm --filter @fluxora/api typecheck
+```
+
+and the start command is:
+
+```text
+pnpm --filter @fluxora/api start
+```
+
+This keeps database migration, type validation, and runtime startup explicit instead of inventing a compiled `dist/` build that the API does not currently use.
+
+### 22.4 Runtime and health model
+
+The API reads `PORT` with fallback to the local `API_PORT` default and binds to:
+
+```text
+0.0.0.0
+```
+
+This is required for the hosted service to receive traffic.
+
+The `/healthz` route is intentionally unauthenticated and performs:
+
+```sql
+SELECT 1
+```
+
+before returning:
+
+```json
+{
+  "status": "ok",
+  "service": "fluxora-api"
+}
+```
+
+This makes the health check an application-level readiness check rather than a process-only check.
+
+### 22.5 Production configuration boundary
+
+Local and hosted runtime configuration remain separate:
+
+```text
+local .env
+NODE_ENV=development
+
+Render environment
+NODE_ENV=production
+```
+
+Hosted secrets/configuration are stored in Render environment variables rather than committed to Git.
+
+Current API runtime variables include:
+
+```text
+DATABASE_URL
+CLERK_SECRET_KEY
+CLERK_AUTHORIZED_PARTIES
+NODE_ENV
+```
+
+`PORT` is provided by the hosted runtime and is not hard-coded as a production constant.
+
+### 22.6 Database delivery
+
+The hosted API uses a hosted PostgreSQL instance rather than the developer's local PostgreSQL at `localhost:5432`.
+
+The local database remains:
+
+```text
+localhost:5432/fluxora_dev
+```
+
+The hosted deployment uses the hosted database connection URL through `DATABASE_URL`.
+
+This separation is deliberate:
+
+```text
+local machine
+    ↓
+local PostgreSQL
+
+Render
+    ↓
+hosted PostgreSQL
+```
+
+A local `localhost` database must not be treated as a production database endpoint.
+
+### 22.7 Deployment behavior
+
+The current Step 8 baseline is:
+
+```text
+commit to main
+     ↓
+GitHub Actions quality gates
+     ↓
+Vercel / Render deployment mechanisms
+     ↓
+health / smoke verification
+```
+
+This is a real deployment foundation, but it is not yet the final enterprise promotion system.
+
+Future hardening can add:
+
+```text
+PR preview E2E gates
+staging environment
+manual promotion
+production smoke tests
+automated rollback policy
+migration safety gates
+worker deployment pipeline
+```
+
+Those are explicitly future work unless implemented by a later roadmap step.
 
 ## 23. Learning-First Development
 
@@ -939,7 +1189,10 @@ learning/
 │   ├── 2. Backend Foundation.md
 │   ├── 3. PostgreSQL & DB.md
 │   ├── 4. Infrastructure Foundation.md
-│   └── 5. OpenTelemetry Observability.md
+|   ├── 5. PostgreSQL Job Queue, Distributed Workers & Failure 
+|   |      Handling
+│   ├── 6. OpenTelemetry Observability.md
+│   └── 7. CI-CD and Production Deployment.md
 └── phase-01/
     ├── step-01-monorepo.md
     ├── step-02-database.md
@@ -947,7 +1200,8 @@ learning/
     ├── step-04-nextjs-clerk.md
     ├── step-05-infrastructure.md
     ├── step-06-job-queue-worker-harness.md
-    └── step-07-opentelemetry.md
+    ├── step-07-opentelemetry.md
+    └── step-08-ci-cd.md
 ```
 
 ---
@@ -998,117 +1252,3 @@ When uncertain:
 7. Do not silently expand scope.
 8. Do not hide uncertainty.
 9. Do not claim tests passed unless they actually passed.
-10. Stop and revisit the architecture when implementation would change a documented architectural boundary.
-
----
-
-## 27. Current Foundation Status
-
-```text
-FOUNDATION
-
-Monorepo                         ✅
-PostgreSQL + tenancy + RLS       ✅
-Clerk authentication             ✅
-Next.js auth/dashboard           ✅
-Redis abstraction                ✅
-Object storage abstraction       ✅
-Secrets abstraction              ✅
-Step 5 runtime tests             ✅
-PostgreSQL job queue             ✅
-Worker harness                   ✅
-Job runtime verification         ✅
-
-OpenTelemetry                    ✅ Step 7
-CI/CD                            ⏭ Step 8
-Local compose/seed               ⏳ Step 9
-```
-
-## 28. Product Status
-
-Product-specific code intelligence has not yet started.
-
-```text
-GitHub App integration           ⬜
-Repository ingestion             ⬜
-Snapshot ingestion               ⬜
-Language/framework detection     ⬜
-Symbol extraction                ⬜
-Import/export graph              ⬜
-Graph construction               ⬜
-Evidence engine                  ⬜
-Impact analysis                  ⬜
-Simulation engine                ⬜
-AI reasoning                     ⬜
-Architecture Explorer            ⬜
-Runtime telemetry                ⬜
-```
-
-These remain later roadmap work.
-
----
-
-## 29. Complete Current Mental Model
-
-```text
-                             USER
-                               ↓
-                             WEB
-                               ↓
-                            CLERK
-                               ↓
-                   authenticated identity
-                               ↓
-                              API
-                               ↓
-              Fluxora User + Organization + Role
-                               ↓
-                         tenant context
-                               ↓
-                   ┌───────────┼───────────┐
-                   ↓           ↓           ↓
-                  DB       Infrastructure  API logic
-                   ↓           │
-              PostgreSQL       │
-                + RLS          │
-                               │
-              ┌────────────────┼────────────────┐
-              ↓                ↓                ↓
-            Redis           Storage           Secrets
-              ↓                ↓                ↓
-          local/prod       local/prod       local/prod
-```
-
-Asynchronous execution:
-
-```text
-WEB
- ↓
-API
- ↓
-PostgreSQL job
- ↓
-Worker
- ↓
-Repository ingestion
- ↓
-Static analysis
- ↓
-Graph
- ↓
-Evidence
- ↓
-Impact analysis
- ↓
-Simulation
- ↓
-AI explanation
-```
-
-The deterministic software model remains the authority. AI sits above it.
-
----
-
-## 30. Current One-Line State
-
-> Fluxora has completed the first seven foundation steps: monorepo, PostgreSQL tenancy/RLS, Clerk authentication, Next.js authentication UI/dashboard, production-compatible Redis/object-storage/secrets infrastructure boundaries, the PostgreSQL-backed job queue plus worker harness with runtime verification, and OpenTelemetry traces/metrics/logs verified end-to-end through a local Collector; the next implementation target is CI/CD (Step 8).
