@@ -11,5 +11,11 @@ export {
   type User,
 } from "./tenant.ts";
 export type { AuthSessionResponse, AuthenticatedPrincipal } from "./auth.ts";
+export {
+  GITHUB_INSTALLATION_COMPLETION_PATH,
+  isCanonicalGithubId,
+  type CompleteGithubInstallationRequest,
+  type GithubInstallation,
+} from "./github.ts";
 
 export * from "./jobs.ts";

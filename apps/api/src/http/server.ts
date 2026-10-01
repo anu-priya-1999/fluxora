@@ -14,32 +14,24 @@ import {
   provisionGithubUser,
   UserNotFoundError,
 } from "@fluxora/db";
-import type { User } from "@fluxora/shared-types";
-import { createClerkClient, verifyToken } from "@clerk/backend";
+import { isCanonicalGithubId, type User } from "@fluxora/shared-types";
 
-import type { AuthConfig } from "../config.ts";
+import {
+  authenticateClerkToken,
+  getClerkGithubIdentity,
+} from "../auth/clerk.ts";
+import { loadGithubAppConfig, type GithubAppConfig } from "../github/config.ts";
+import { redactForLog } from "../github/redact.ts";
+import {
+  handleCompleteGithubInstallation,
+  isGithubInstallationPath,
+} from "./github-installations.ts";
 
-const clerkSecretKey = process.env.CLERK_SECRET_KEY;
+export function createApiServer(): http.Server {
+  const githubAppConfig = loadGithubAppConfig();
 
-if (!clerkSecretKey) {
-  throw new Error("CLERK_SECRET_KEY is required.");
-}
-
-const clerkClient = createClerkClient({
-  secretKey: clerkSecretKey,
-});
-
-const authorizedParties = (
-  process.env.CLERK_AUTHORIZED_PARTIES ?? "http://localhost:3000"
-)
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
-
-export function createApiServer(_config: AuthConfig): http.Server {
-  void _config;
   return http.createServer((req, res) => {
-    void handleRequest(req, res).catch((error: unknown) => {
+    void handleRequest(req, res, githubAppConfig).catch((error: unknown) => {
       if (res.headersSent) {
         return;
       }
@@ -59,6 +51,7 @@ export function createApiServer(_config: AuthConfig): http.Server {
 async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
+  githubAppConfig: GithubAppConfig | null,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -79,7 +72,12 @@ async function handleRequest(
     return;
   }
 
-  if (isAuthPath(path)) {
+  if (isGithubInstallationPath(path) && method === "POST") {
+    await handleCompleteGithubInstallation(req, res, githubAppConfig, sendJson);
+    return;
+  }
+
+  if (isKnownPath(path)) {
     sendJson(res, 405, {
       error: {
         code: "method_not_allowed",
@@ -131,17 +129,27 @@ async function currentUser(
   res: http.ServerResponse,
 ): Promise<void> {
   try {
-    const clerkUserId = await authenticateClerkRequest(
+    const clerkUserId = await authenticateClerkToken(
       headerValue(req.headers.authorization),
     );
 
-    const clerkUser = await clerkClient.users.getUser(clerkUserId);
+    const identity = await getClerkGithubIdentity(clerkUserId);
 
-    const githubAccount = clerkUser.externalAccounts.find(
-      (account) => account.provider === "github",
-    );
+    if (!identity.ok) {
+      sendJson(res, 403, {
+        error: {
+          code: identity.code,
+          message: identity.message,
+        },
+      });
+      return;
+    }
 
-    if (!githubAccount?.providerUserId) {
+    const githubUserId = Number(identity.githubUserId);
+    if (
+      !isCanonicalGithubId(identity.githubUserId) ||
+      !Number.isSafeInteger(githubUserId)
+    ) {
       sendJson(res, 403, {
         error: {
           code: "github_account_required",
@@ -151,35 +159,10 @@ async function currentUser(
       return;
     }
 
-    const email =
-      clerkUser.emailAddresses.find(
-        (address) => address.id === clerkUser.primaryEmailAddressId,
-      )?.emailAddress ?? githubAccount.emailAddress;
-
-    if (!email) {
-      sendJson(res, 403, {
-        error: {
-          code: "email_required",
-          message: "A verified email address is required.",
-        },
-      });
-      return;
-    }
-
-    const organizationName =
-      (githubAccount.username ??
-        clerkUser.username ??
-        [clerkUser.firstName, clerkUser.lastName]
-          .filter(Boolean)
-          .join(" ")
-          .trim()) ||
-      email.split("@")[0] ||
-      "Fluxora Organization";
-
     const provisioned = await provisionGithubUser(getPool(), {
-      githubUserId: Number(githubAccount.providerUserId),
-      email,
-      organizationName,
+      githubUserId,
+      email: identity.email,
+      organizationName: identity.organizationName,
     });
 
     let user: User;
@@ -224,33 +207,12 @@ async function currentUser(
   }
 }
 
-async function authenticateClerkRequest(
-  authorization: string | undefined,
-): Promise<string> {
-  if (!authorization?.startsWith("Bearer ")) {
-    throw new Error("Missing bearer token.");
-  }
-
-  const token = authorization.slice("Bearer ".length).trim();
-
-  if (!token) {
-    throw new Error("Missing bearer token.");
-  }
-
-  const payload = await verifyToken(token, {
-    secretKey: clerkSecretKey,
-    authorizedParties,
-  });
-
-  if (!payload.sub) {
-    throw new Error("Clerk token has no subject.");
-  }
-
-  return payload.sub;
-}
-
-function isAuthPath(path: string): boolean {
-  return path === "/api/v1/auth/me" || path === "/api/v1/telemetry/dummy";
+function isKnownPath(path: string): boolean {
+  return (
+    path === "/api/v1/auth/me" ||
+    path === "/api/v1/telemetry/dummy" ||
+    isGithubInstallationPath(path)
+  );
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {
@@ -296,12 +258,14 @@ function logUnexpected(error: unknown): void {
     return;
   }
 
-  if (/bearer\s+\S+/i.test(error.message) || error.message.includes("gho_")) {
+  const message = redactForLog(error.message);
+
+  if (message.includes("gho_") || message.length === 0) {
     console.error(error.name);
     return;
   }
 
-  console.error(error.message);
+  console.error(message);
 }
 
 async function healthCheck(res: http.ServerResponse): Promise<void> {

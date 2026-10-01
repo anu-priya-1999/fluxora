@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: fluxora_dev
+      POSTGRES_USER: fluxora
+      POSTGRES_PASSWORD: fluxora
+    ports:
+      - "5433:5432"
+    volumes:
+      - fluxora-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fluxora -d fluxora_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - fluxora-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: fluxora
+      MINIO_ROOT_PASSWORD: fluxora-local
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - fluxora-minio-data:/data
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: ["/bin/sh", "-c"]
+    command: >
+      until mc alias set local http://minio:9000 fluxora fluxora-local;
+      do sleep 2;
+      done;
+      mc mb --ignore-existing local/fluxora;
+      exit 0;
+
+volumes:
+  fluxora-postgres-data:
+  fluxora-redis-data:
+  fluxora-minio-data:

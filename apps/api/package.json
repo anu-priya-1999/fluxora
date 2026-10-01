@@ -8,7 +8,8 @@
   },
   "scripts": {
     "start": "node --experimental-strip-types --import ./src/telemetry.ts src/server.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test"
   },
   "dependencies": {
     "@clerk/backend": "^3.20.1",

@@ -7,7 +7,7 @@ import { createApiServer } from "./http/server.ts";
 loadRootEnv();
 
 const config = loadAuthConfig();
-const server = createApiServer(config);
+const server = createApiServer();
 
 await getPool().query("SELECT 1");
 

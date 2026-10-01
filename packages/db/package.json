@@ -8,7 +8,10 @@
   },
   "scripts": {
     "migrate": "node --experimental-strip-types src/cli/migrate.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test",
+    "seed": "node --experimental-strip-types src/cli/seed.ts",
+    "reset": "node --experimental-strip-types src/cli/reset.ts"
   },
   "dependencies": {
     "@fluxora/shared-types": "workspace:*",

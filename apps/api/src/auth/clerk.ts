@@ -37,26 +37,60 @@ export async function authenticateClerkToken(
   return payload.sub;
 }
 
-export async function getClerkGithubIdentity(clerkUserId: string) {
+export type ClerkGithubIdentity =
+  | {
+      ok: true;
+      githubUserId: string;
+      email: string;
+      organizationName: string;
+    }
+  | {
+      ok: false;
+      code: "github_account_required" | "email_required";
+      message: string;
+    };
+
+export async function getClerkGithubIdentity(
+  clerkUserId: string,
+): Promise<ClerkGithubIdentity> {
   const user = await clerkClient.users.getUser(clerkUserId);
 
   const github = user.externalAccounts.find(
     (account) => account.provider === "github",
   );
 
-  const email = user.primaryEmailAddress?.emailAddress;
-
-  if (!github?.providerUserId || !email) {
-    throw new Error("A verified GitHub account and email are required.");
+  if (!github?.providerUserId) {
+    return {
+      ok: false,
+      code: "github_account_required",
+      message: "A connected GitHub account is required.",
+    };
   }
 
+  const email =
+    user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
+      ?.emailAddress ?? github.emailAddress;
+
+  if (!email) {
+    return {
+      ok: false,
+      code: "email_required",
+      message: "A verified email address is required.",
+    };
+  }
+
+  const organizationName =
+    (github.username ??
+      user.username ??
+      [user.firstName, user.lastName].filter(Boolean).join(" ").trim()) ||
+    email.split("@")[0] ||
+    "Fluxora Organization";
+
   return {
+    ok: true,
     githubUserId: github.providerUserId,
     email,
-    organizationName:
-      [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-      email.split("@")[0] ||
-      "Fluxora Organization",
+    organizationName,
   };
 }
 

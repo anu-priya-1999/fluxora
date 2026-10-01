@@ -8,6 +8,8 @@
   },
   "scripts": {
     "db:migrate": "pnpm --filter @fluxora/db migrate",
+    "db:seed": "pnpm --filter @fluxora/db seed",
+    "db:reset": "pnpm --filter @fluxora/db reset",
     "api:start": "pnpm --filter @fluxora/api start",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
