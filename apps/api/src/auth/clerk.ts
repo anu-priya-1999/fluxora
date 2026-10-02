@@ -1,7 +1,9 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 
 const secretKey = process.env.CLERK_SECRET_KEY;
-const authorizedParties = (process.env.CLERK_AUTHORIZED_PARTIES ?? "http://localhost:3000")
+const authorizedParties = (
+  process.env.CLERK_AUTHORIZED_PARTIES ?? "http://localhost:3000"
+)
   .split(",")
   .map((value) => value.trim())
   .filter(Boolean);
@@ -55,9 +57,11 @@ export async function getClerkGithubIdentity(
 ): Promise<ClerkGithubIdentity> {
   const user = await clerkClient.users.getUser(clerkUserId);
 
-  const github = user.externalAccounts.find(
-    (account) => account.provider === "github",
-  );
+  const github = user.externalAccounts.find((account) => {
+    const provider = account.provider.toLowerCase();
+
+    return provider === "github" || provider === "oauth_github";
+  });
 
   if (!github?.providerUserId) {
     return {
@@ -68,8 +72,9 @@ export async function getClerkGithubIdentity(
   }
 
   const email =
-    user.emailAddresses.find((address) => address.id === user.primaryEmailAddressId)
-      ?.emailAddress ?? github.emailAddress;
+    user.emailAddresses.find(
+      (address) => address.id === user.primaryEmailAddressId,
+    )?.emailAddress ?? github.emailAddress;
 
   if (!email) {
     return {
@@ -93,4 +98,3 @@ export async function getClerkGithubIdentity(
     organizationName,
   };
 }
-
