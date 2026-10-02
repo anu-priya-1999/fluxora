@@ -19,6 +19,11 @@ import { parseGithubInstallationResponse } from "./parse-installation.ts";
 import { redactForLog } from "./redact.ts";
 import { githubInstallationHttpError } from "./http-error.ts";
 import { InstallationOwnershipError } from "./verify-installation.ts";
+import {
+  corsHeadersForAllowedOrigin,
+  githubInstallationPreflight,
+  loadAllowedWebOrigins,
+} from "../http/cors.ts";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -365,4 +370,60 @@ test("log redaction removes PEMs, bearer tokens, and JWTs", () => {
   assert.match(redacted, /Bearer \[redacted\]/);
   assert.match(redacted, /\[redacted private key\]/);
   assert.match(redacted, /\[redacted jwt\]/);
+});
+
+test("GitHub installation CORS allows only configured web origins", () => {
+  const allowed = loadAllowedWebOrigins({
+    CLERK_AUTHORIZED_PARTIES:
+      "https://fluxora-rho-cyan.vercel.app,http://localhost:3000",
+  });
+  const vercel = corsHeadersForAllowedOrigin(
+    "https://fluxora-rho-cyan.vercel.app",
+    allowed,
+  );
+  const local = corsHeadersForAllowedOrigin("http://localhost:3000", allowed);
+  const rejected = corsHeadersForAllowedOrigin("https://evil.example", allowed);
+
+  assert.equal(vercel?.["access-control-allow-origin"], "https://fluxora-rho-cyan.vercel.app");
+  assert.equal(local?.["access-control-allow-origin"], "http://localhost:3000");
+  assert.equal(rejected, undefined);
+  assert.equal(Object.values(vercel ?? {}).includes("*"), false);
+  assert.equal(vercel?.["access-control-allow-methods"], "GET, POST, OPTIONS");
+  assert.equal(
+    vercel?.["access-control-allow-headers"],
+    "Authorization, Content-Type",
+  );
+});
+
+test("GitHub installation OPTIONS preflight echoes the allowed origin", () => {
+  const allowed = loadAllowedWebOrigins({
+    CLERK_AUTHORIZED_PARTIES: "https://fluxora-rho-cyan.vercel.app",
+  });
+  const preflight = githubInstallationPreflight(
+    "https://fluxora-rho-cyan.vercel.app",
+    allowed,
+  );
+  const blocked = githubInstallationPreflight("https://evil.example", allowed);
+
+  assert.equal(preflight.status, 204);
+  assert.equal(
+    preflight.headers["access-control-allow-origin"],
+    "https://fluxora-rho-cyan.vercel.app",
+  );
+  assert.equal(preflight.headers["access-control-allow-methods"], "GET, POST, OPTIONS");
+  assert.equal(
+    preflight.headers["access-control-allow-headers"],
+    "Authorization, Content-Type",
+  );
+  assert.equal(blocked.status, 204);
+  assert.equal(blocked.headers["access-control-allow-origin"], undefined);
+});
+
+test("GitHub installation CORS defaults to the Clerk local web origin", () => {
+  const allowed = loadAllowedWebOrigins({});
+  const headers = corsHeadersForAllowedOrigin("http://localhost:3000", allowed);
+
+  assert.deepEqual(allowed, ["http://localhost:3000"]);
+  assert.equal(headers?.["access-control-allow-origin"], "http://localhost:3000");
+  assert.equal(corsHeadersForAllowedOrigin("*", allowed), undefined);
 });

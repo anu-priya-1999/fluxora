@@ -23,28 +23,36 @@ import {
 import { loadGithubAppConfig, type GithubAppConfig } from "../github/config.ts";
 import { redactForLog } from "../github/redact.ts";
 import {
+  corsHeadersForAllowedOrigin,
+  githubInstallationPreflight,
+  loadAllowedWebOrigins,
+} from "./cors.ts";
+import {
   handleCompleteGithubInstallation,
   isGithubInstallationPath,
 } from "./github-installations.ts";
 
 export function createApiServer(): http.Server {
   const githubAppConfig = loadGithubAppConfig();
+  const allowedWebOrigins = loadAllowedWebOrigins();
 
   return http.createServer((req, res) => {
-    void handleRequest(req, res, githubAppConfig).catch((error: unknown) => {
-      if (res.headersSent) {
-        return;
-      }
+    void handleRequest(req, res, githubAppConfig, allowedWebOrigins).catch(
+      (error: unknown) => {
+        if (res.headersSent) {
+          return;
+        }
 
-      logUnexpected(error);
+        logUnexpected(error);
 
-      sendJson(res, 500, {
-        error: {
-          code: "internal_error",
-          message: "Internal server error.",
-        },
-      });
-    });
+        sendJson(res, 500, {
+          error: {
+            code: "internal_error",
+            message: "Internal server error.",
+          },
+        });
+      },
+    );
   });
 }
 
@@ -52,6 +60,7 @@ async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
   githubAppConfig: GithubAppConfig | null,
+  allowedWebOrigins: readonly string[],
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -72,9 +81,35 @@ async function handleRequest(
     return;
   }
 
-  if (isGithubInstallationPath(path) && method === "POST") {
-    await handleCompleteGithubInstallation(req, res, githubAppConfig, sendJson);
-    return;
+  if (isGithubInstallationPath(path)) {
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(
+        headerValue(req.headers.origin),
+        allowedWebOrigins,
+      );
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(
+      res,
+      corsHeadersForAllowedOrigin(
+        headerValue(req.headers.origin),
+        allowedWebOrigins,
+      ),
+    );
+
+    if (method === "POST") {
+      await handleCompleteGithubInstallation(
+        req,
+        res,
+        githubAppConfig,
+        sendJson,
+      );
+      return;
+    }
   }
 
   if (isKnownPath(path)) {
@@ -213,6 +248,19 @@ function isKnownPath(path: string): boolean {
     path === "/api/v1/telemetry/dummy" ||
     isGithubInstallationPath(path)
   );
+}
+
+function applyCorsHeaders(
+  res: http.ServerResponse,
+  headers: Record<string, string> | undefined,
+): void {
+  if (headers === undefined) {
+    return;
+  }
+
+  for (const [name, value] of Object.entries(headers)) {
+    res.setHeader(name, value);
+  }
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {
