@@ -291,8 +291,12 @@ GRANT EXECUTE
   ON FUNCTION public.fluxora_provision_github_user(bigint, text, text)
   TO CURRENT_USER;
 
--- Transfer ownership so SECURITY DEFINER executes with the dedicated
--- NOLOGIN role rather than the application's database role.
+-- PostgreSQL requires the new function owner to have CREATE
+-- privilege on the function's schema during ownership transfer.
+-- Grant it only temporarily.
+GRANT CREATE ON SCHEMA public TO fluxora_bootstrap;
+
+-- Transfer ownership of the bootstrap functions to the NOLOGIN/NOBYPASSRLS role.
 ALTER FUNCTION public.fluxora_create_organization(text, public.plan_tier, bigint)
   OWNER TO fluxora_bootstrap;
 
@@ -302,7 +306,9 @@ ALTER FUNCTION public.fluxora_create_user(uuid, text, public.user_role, bigint)
 ALTER FUNCTION public.fluxora_provision_github_user(bigint, text, text)
   OWNER TO fluxora_bootstrap;
 
--- The application role no longer needs membership in the bootstrap role.
+-- The bootstrap role does not need CREATE on public after ownership transfer.
+REVOKE CREATE ON SCHEMA public FROM fluxora_bootstrap;
+
 REVOKE fluxora_bootstrap FROM CURRENT_USER;
 
 -- Keep the owner role itself non-login, non-superuser and non-BYPASSRLS.
