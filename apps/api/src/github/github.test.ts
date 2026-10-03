@@ -23,6 +23,7 @@ import {
   corsHeadersForAllowedOrigin,
   githubInstallationPreflight,
   loadAllowedWebOrigins,
+  rejectedCorsOriginForLog,
 } from "../http/cors.ts";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", {
@@ -417,6 +418,30 @@ test("GitHub installation OPTIONS preflight echoes the allowed origin", () => {
   );
   assert.equal(blocked.status, 204);
   assert.equal(blocked.headers["access-control-allow-origin"], undefined);
+});
+
+test("a per-deployment Vercel origin is rejected without echoing unsafe values", () => {
+  const allowed = loadAllowedWebOrigins({
+    CLERK_AUTHORIZED_PARTIES: "https://fluxora-rho-cyan.vercel.app",
+  });
+
+  assert.equal(
+    rejectedCorsOriginForLog(
+      "https://fluxora-9yp7s70sy-mera-baba.vercel.app",
+      allowed,
+    ),
+    "https://fluxora-9yp7s70sy-mera-baba.vercel.app",
+  );
+  assert.equal(
+    rejectedCorsOriginForLog("https://fluxora-rho-cyan.vercel.app", allowed),
+    undefined,
+  );
+  assert.equal(rejectedCorsOriginForLog(undefined, allowed), undefined);
+  assert.equal(
+    rejectedCorsOriginForLog("https://user:secret@evil.example", allowed),
+    "rejected",
+  );
+  assert.equal(rejectedCorsOriginForLog("not a url", allowed), "rejected");
 });
 
 test("GitHub installation CORS defaults to the Clerk local web origin", () => {

@@ -36,7 +36,7 @@ export async function completeGithubInstallationFromBrowser(input: {
   } catch {
     return {
       ok: false,
-      message: "GitHub installation could not be completed.",
+      message: "The Fluxora API could not be reached from this page.",
     };
   }
 
@@ -73,6 +73,16 @@ function messageForCode(code: string | undefined): string {
     case "github_account_required":
     case "email_required":
       return "Sign in with the GitHub account that owns the installation.";
+    case "github_unavailable":
+      return "GitHub could not be reached to verify the installation.";
+    case "insufficient_role":
+      return "Only an owner or admin can connect a GitHub installation.";
+    case "tenant_session_rejected":
+      return "The account could not be loaded for this organization.";
+    case "invalid_installation_id":
+      return "GitHub did not return a valid installation id.";
+    case "internal_error":
+      return "The installation could not be saved.";
     default:
       return "GitHub installation could not be completed.";
   }

@@ -26,6 +26,7 @@ import {
   corsHeadersForAllowedOrigin,
   githubInstallationPreflight,
   loadAllowedWebOrigins,
+  rejectedCorsOriginForLog,
 } from "./cors.ts";
 import {
   handleCompleteGithubInstallation,
@@ -82,24 +83,22 @@ async function handleRequest(
   }
 
   if (isGithubInstallationPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+    const rejectedOrigin = rejectedCorsOriginForLog(origin, allowedWebOrigins);
+    if (rejectedOrigin !== undefined) {
+      console.error(`github installation origin rejected: ${rejectedOrigin}`);
+    }
+
     if (method === "OPTIONS") {
-      const preflight = githubInstallationPreflight(
-        headerValue(req.headers.origin),
-        allowedWebOrigins,
-      );
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
       applyCorsHeaders(res, preflight.headers);
       res.writeHead(preflight.status, responseHeaders({}));
       res.end();
       return;
     }
 
-    applyCorsHeaders(
-      res,
-      corsHeadersForAllowedOrigin(
-        headerValue(req.headers.origin),
-        allowedWebOrigins,
-      ),
-    );
+    applyCorsHeaders(res, corsHeaders);
 
     if (method === "POST") {
       await handleCompleteGithubInstallation(

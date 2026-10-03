@@ -1,8 +1,15 @@
 import { auth } from "@clerk/nextjs/server";
 import { isCanonicalGithubId } from "@fluxora/shared-types";
+import { headers } from "next/headers";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
-import { readFluxoraApiUrl, readWebOrigin } from "../../../github/env";
+import {
+  githubSetupOriginRedirect,
+  readFluxoraApiUrl,
+  readRequestPublicOrigin,
+  readWebOrigin,
+} from "../../../github/env";
 import { GithubSetupCompletion } from "./github-setup-completion";
 
 export const runtime = "nodejs";
@@ -19,6 +26,25 @@ export default async function GithubSetupPage({
   const params = await searchParams;
   const installationId = oneParam(params.installation_id);
   const setupAction = oneParam(params.setup_action);
+  const originDecision = githubSetupOriginRedirect({
+    requestOrigin: readRequestPublicOrigin(await headers()),
+    installationId,
+    setupAction,
+  });
+
+  if (originDecision.type === "misconfigured") {
+    return (
+      <main>
+        <h1>GitHub setup</h1>
+        <p>Fluxora web origin is not configured.</p>
+      </main>
+    );
+  }
+
+  if (originDecision.type === "redirect") {
+    redirect(originDecision.url);
+  }
+
   const session = await auth();
 
   if (!session.isAuthenticated) {
