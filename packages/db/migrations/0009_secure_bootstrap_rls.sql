@@ -317,16 +317,6 @@ REVOKE CREATE ON SCHEMA public FROM fluxora_bootstrap;
 -- The migration/API role no longer needs membership in the bootstrap role.
 REVOKE fluxora_bootstrap FROM CURRENT_USER;
 
--- Keep the function search_path explicit.
-ALTER FUNCTION public.fluxora_create_organization(text, public.plan_tier, bigint)
-  SET search_path = pg_catalog, public, pg_temp;
-
-ALTER FUNCTION public.fluxora_create_user(uuid, text, public.user_role, bigint)
-  SET search_path = pg_catalog, public, pg_temp;
-
-ALTER FUNCTION public.fluxora_provision_github_user(bigint, text, text)
-  SET search_path = pg_catalog, public, pg_temp;
-
 -- Preserve forced RLS.
 ALTER TABLE public.organizations ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.organizations FORCE ROW LEVEL SECURITY;
