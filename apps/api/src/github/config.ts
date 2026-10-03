@@ -52,7 +52,7 @@ export function loadGithubAppConfig(
 }
 
 export function normalizePrivateKeyPem(value: string): string {
-  const normalized = value.replace(/\\n/g, "\n").trim();
+  const normalized = canonicalizePrivateKeyPem(value);
 
   if (
     !normalized.includes("BEGIN") ||
@@ -63,6 +63,43 @@ export function normalizePrivateKeyPem(value: string): string {
   }
 
   return normalized;
+}
+
+function canonicalizePrivateKeyPem(value: string): string {
+  let text = value.replace(/^\uFEFF/, "").trim();
+  text = unwrapMatchingQuotes(text);
+  text = text.replace(/\\n/g, "\n").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+  text = unwrapMatchingQuotes(text);
+
+  const match = text.match(
+    /^-----BEGIN ([A-Z0-9 ]*PRIVATE KEY)-----\s*([\s\S]+?)\s*-----END \1-----$/,
+  );
+  if (match === null || match[1] === undefined || match[2] === undefined) {
+    return text;
+  }
+
+  const label = match[1];
+  const body = match[2].replace(/\s+/g, "");
+  if (body.length === 0) {
+    return text;
+  }
+
+  const wrapped = body.match(/.{1,64}/g)?.join("\n") ?? body;
+  return `-----BEGIN ${label}-----\n${wrapped}\n-----END ${label}-----`;
+}
+
+function unwrapMatchingQuotes(value: string): string {
+  if (value.length < 2) {
+    return value;
+  }
+
+  const start = value[0];
+  const end = value[value.length - 1];
+  if ((start === '"' && end === '"') || (start === "'" && end === "'")) {
+    return value.slice(1, -1).trim();
+  }
+
+  return value;
 }
 
 function readPrivateKeyFile(filePath: string): string {

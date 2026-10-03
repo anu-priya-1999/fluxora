@@ -14,6 +14,7 @@ import { GithubInstallationIdError, parseGithubInstallationId, readGithubInstall
 import {
   createGithubAppJwt,
   decodeGithubAppJwtPayload,
+  GithubAppJwtError,
 } from "./jwt.ts";
 import { parseGithubInstallationResponse } from "./parse-installation.ts";
 import { redactForLog } from "./redact.ts";
@@ -31,6 +32,15 @@ const { privateKey, publicKey } = generateKeyPairSync("rsa", {
   privateKeyEncoding: { type: "pkcs8", format: "pem" },
   publicKeyEncoding: { type: "spki", format: "pem" },
 });
+const pkcs1PrivateKey = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  privateKeyEncoding: { type: "pkcs1", format: "pem" },
+  publicKeyEncoding: { type: "spki", format: "pem" },
+}).privateKey;
+const ed25519PrivateKey = generateKeyPairSync("ed25519", {
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+  publicKeyEncoding: { type: "spki", format: "pem" },
+}).privateKey;
 
 const now = new Date("2026-01-01T00:00:00.000Z");
 
@@ -77,6 +87,87 @@ test("escaped PEM newlines still sign a GitHub App JWT", () => {
   });
 
   assert.equal(decodeGithubAppJwtPayload(token).iss, "42");
+});
+
+test("quoted PKCS#1 env keys still load and sign a GitHub App JWT", () => {
+  const quoted = `"${pkcs1PrivateKey.trim().replace(/\n/g, "\\n")}"`;
+  const loaded = loadGithubAppConfig({
+    GITHUB_APP_ID: "42",
+    GITHUB_APP_PRIVATE_KEY: quoted,
+  });
+
+  assert.equal(loaded?.privateKeyPem.includes('"'), false);
+  assert.ok(loaded);
+
+  const token = createGithubAppJwt({
+    appId: loaded.appId,
+    privateKeyPem: loaded.privateKeyPem,
+    now,
+  });
+  assert.equal(decodeGithubAppJwtPayload(token).iss, "42");
+  assert.equal(token.includes("PRIVATE"), false);
+
+  const oneLine = loadGithubAppConfig({
+    GITHUB_APP_ID: "42",
+    GITHUB_APP_PRIVATE_KEY: pkcs1PrivateKey.replace(/\n/g, " "),
+  });
+  assert.ok(oneLine);
+  assert.equal(
+    decodeGithubAppJwtPayload(
+      createGithubAppJwt({
+        appId: oneLine.appId,
+        privateKeyPem: oneLine.privateKeyPem,
+        now,
+      }),
+    ).iss,
+    "42",
+  );
+});
+
+test("GitHub App JWT failures are classified without leaking key material", () => {
+  assert.throws(
+    () =>
+      createGithubAppJwt({
+        appId: "not-a-number",
+        privateKeyPem: privateKey,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof GithubAppJwtError);
+      assert.equal(error.reason, "invalid_app_id");
+      assert.equal(error.message.includes(privateKey), false);
+      return true;
+    },
+  );
+
+  const quotedPkcs1 = `"${pkcs1PrivateKey.trim()}"`;
+  assert.throws(
+    () =>
+      createGithubAppJwt({
+        appId: "42",
+        privateKeyPem: quotedPkcs1,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof GithubAppJwtError);
+      assert.equal(error.reason, "invalid_pem_parsing");
+      assert.equal(error.message.includes(quotedPkcs1), false);
+      assert.equal(error.message.includes("BEGIN"), false);
+      return true;
+    },
+  );
+
+  assert.throws(
+    () =>
+      createGithubAppJwt({
+        appId: "42",
+        privateKeyPem: ed25519PrivateKey,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof GithubAppJwtError);
+      assert.equal(error.reason, "unsupported_private_key_format");
+      assert.equal(error.message.includes(ed25519PrivateKey), false);
+      return true;
+    },
+  );
 });
 
 test("GitHub App config treats blank values as unset and rejects a non-pem", () => {
@@ -320,33 +411,48 @@ test("viewers cannot complete a GitHub installation", async () => {
 
 test("a bad private key becomes a misconfiguration error without echoing the key", async () => {
   const secret = "super-secret-key-material";
-  await assert.rejects(
-    () =>
-      completeInstallation({
-        role: "owner",
-        organizationId: "org-1",
-        githubUserId: "4242",
-        githubInstallationId: "555",
-        config: {
-          appId: "42",
-          privateKeyPem: secret,
-          apiBaseUrl: "https://api.github.com",
-        },
-        fetchImpl: async () => {
-          throw new Error("should not call GitHub");
-        },
-        writer: {
-          async save() {
-            throw new Error("should not save");
+  const errors: string[] = [];
+  const originalError = console.error;
+  console.error = (...args: unknown[]) => {
+    errors.push(args.map(String).join(" "));
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        completeInstallation({
+          role: "owner",
+          organizationId: "org-1",
+          githubUserId: "4242",
+          githubInstallationId: "555",
+          config: {
+            appId: "42",
+            privateKeyPem: secret,
+            apiBaseUrl: "https://api.github.com",
           },
-        },
-      }),
-    (error: unknown) => {
-      assert.ok(error instanceof GithubAppMisconfiguredError);
-      assert.equal(error.message.includes(secret), false);
-      return true;
-    },
-  );
+          fetchImpl: async () => {
+            throw new Error("should not call GitHub");
+          },
+          writer: {
+            async save() {
+              throw new Error("should not save");
+            },
+          },
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof GithubAppMisconfiguredError);
+        assert.equal(error.message.includes(secret), false);
+        return true;
+      },
+    );
+  } finally {
+    console.error = originalError;
+  }
+
+  assert.deepEqual(errors, [
+    "GitHub App JWT could not be created: invalid_pem_parsing",
+  ]);
+  assert.equal(errors.join("\n").includes(secret), false);
 });
 
 test("installation HTTP errors use stable codes and omit credentials", () => {

@@ -1,7 +1,7 @@
 import type { GithubInstallation, UserRole } from "@fluxora/shared-types";
 
 import type { GithubAppConfig } from "./config.ts";
-import { createGithubAppJwt } from "./jwt.ts";
+import { createGithubAppJwt, GithubAppJwtError } from "./jwt.ts";
 import { parseGithubInstallationId } from "./installation-id.ts";
 import {
   GithubAppRequestError,
@@ -60,7 +60,12 @@ export async function completeInstallation(
       privateKeyPem: input.config.privateKeyPem,
       ...(input.now === undefined ? {} : { now: input.now }),
     });
-  } catch {
+  } catch (error) {
+    const reason =
+      error instanceof GithubAppJwtError
+        ? error.reason
+        : "crypto_signing_failure";
+    console.error(`GitHub App JWT could not be created: ${reason}`);
     throw new GithubAppMisconfiguredError();
   }
 
