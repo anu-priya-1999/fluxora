@@ -1,0 +1,94 @@
+import {
+  getGithubInstallationByOrganizationId,
+  getPool,
+  getRepositoryById,
+  updateRepository,
+} from "@fluxora/db";
+import {
+  REPOSITORY_INGEST_JOB_TYPE,
+  type Job,
+} from "@fluxora/shared-types";
+
+import type { JobHandler } from "../handlers.ts";
+import { createGithubIngestClient } from "../github/client.ts";
+import { loadGithubAppConfig } from "../github/config.ts";
+import { redactForLog } from "../github/redact.ts";
+import { retryableIngestionError, permanentIngestionError } from "./errors.ts";
+import { ingestRepositoryJob } from "./ingest.ts";
+import type { RepositoryIngestDependencies } from "./ingest.ts";
+import { loadIngestLimits } from "./limits.ts";
+import { removeIngestWorkDir } from "./workdir.ts";
+
+export function createProductionIngestDependencies(
+  env: NodeJS.ProcessEnv = process.env,
+): RepositoryIngestDependencies {
+  const config = loadGithubAppConfig(env);
+  const pool = getPool();
+
+  return {
+    lookup: {
+      async getRepositoryById(organizationId, repositoryId) {
+        return getRepositoryById(pool, organizationId, repositoryId);
+      },
+      async getGithubInstallationId(organizationId) {
+        const installation = await getGithubInstallationByOrganizationId(
+          pool,
+          organizationId,
+        );
+        return installation === null ? null : installation.githubInstallationId;
+      },
+      async updateConnectionStatus(organizationId, repositoryId, status) {
+        await updateRepository(pool, organizationId, repositoryId, {
+          connectionStatus: status,
+        });
+      },
+    },
+    github:
+      config === null
+        ? missingGithubConfigClient()
+        : createGithubIngestClient({ config }),
+    limits: loadIngestLimits(env),
+  };
+}
+
+export function createRepositoryIngestHandler(
+  deps: RepositoryIngestDependencies,
+): JobHandler {
+  const removeWorkDir = deps.removeWorkDir ?? removeIngestWorkDir;
+
+  return async (job: Job): Promise<void> => {
+    if (job.type !== REPOSITORY_INGEST_JOB_TYPE) {
+      throw permanentIngestionError(
+        "invalid_payload",
+        `handler received unexpected job type ${job.type}`,
+      );
+    }
+
+    const result = await ingestRepositoryJob(job, deps);
+    try {
+      console.info(
+        redactForLog(
+          `[repository.ingest] completed job=${result.jobId} org=${result.organizationId} repo=${result.repositoryId} ref=${result.ref} commit=${result.commitSha} files=${result.fileCount} bytes=${result.sizeBytes}`,
+        ),
+      );
+    } finally {
+      await removeWorkDir(result.workDir);
+    }
+  };
+}
+
+function missingGithubConfigClient(): RepositoryIngestDependencies["github"] {
+  const missing = (): never => {
+    throw retryableIngestionError(
+      "misconfigured",
+      "GitHub App credentials are not configured on the worker",
+    );
+  };
+
+  return {
+    mintInstallationToken: missing,
+    getRepository: missing,
+    resolveCommit: missing,
+    downloadTarball: missing,
+  };
+}

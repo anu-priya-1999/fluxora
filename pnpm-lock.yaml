@@ -92,6 +92,9 @@ importers:
         specifier: workspace:*
         version: link:../../packages/shared-types
     devDependencies:
+      '@types/node':
+        specifier: ^24.3.0
+        version: 24.19.0
       typescript:
         specifier: ~5.9.2
         version: 5.9.3

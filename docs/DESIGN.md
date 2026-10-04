@@ -674,6 +674,14 @@ Step 10 — GitHub App installation + setup flow       IMPLEMENTED
 
 
 
+Step 11 — Repository, RepositorySnapshot, Commit     IMPLEMENTED
+
+
+
+Step 12 — Repository ingestion worker                IMPLEMENTED
+
+
+
 \`\`\`
 
 
@@ -773,6 +781,10 @@ Phase 1 does not yet include:
 The implementation roadmap remains the authority for phase boundaries.
 
 Step 10 implementation note: the final GitHub setup completion is a browser-side POST from the Vercel web origin to the Render API. The browser obtains the Clerk session token with `useAuth().getToken()`. Because the API is cross-origin from the web host, the GitHub installation endpoint handles `OPTIONS` preflight and scoped CORS using the same exact origins listed in `CLERK_AUTHORIZED_PARTIES`.
+
+Step 11 implementation note: Fluxora now stores tenant-owned `repositories` plus immutable `repository_snapshots` and `commits` under each repository. Child tables do not carry `organization_id`; RLS walks `Repository → Organization`. This step does not ingest GitHub trees, mint installation tokens, upload object storage, or add a connect API.
+
+Step 12 implementation note: the worker handles `repository.ingest`. It validates `job.organization_id` against the repository, mints a short-lived GitHub App installation token from the Step 10 installation row, fetches the GitHub tarball at the resolved commit, and extracts into an isolated temp directory with size, file-count, timeout, path-traversal, and symlink guards. It does not upload to object storage, persist `RepositorySnapshot`/`Commit` rows, expose a connect API, or push WebSocket progress.
 
 
 
@@ -2565,6 +2577,68 @@ Render PostgreSQL persistence
 
 The production acceptance test must confirm that the exact Vercel origin is present in the API's `CLERK_AUTHORIZED_PARTIES`, CORS allows that origin only, and the installation row is created or replayed idempotently in the hosted PostgreSQL database.
 
+**## 17.3 Step 11 Verification
+
+Step 11 local verification of the Repository / RepositorySnapshot / Commit data model:
+
+```text
+
+pnpm db:migrate       ✅ Applied 0010_grant_bootstrap_function_execute.sql and 0011_repositories_snapshots_commits.sql
+
+pnpm typecheck        ✅
+
+pnpm lint             ✅
+
+pnpm test             ✅ 46 passed, 0 failed
+
+pnpm build            ✅
+
+```
+
+Local PostgreSQL catalog check confirmed `repositories`, `repository_snapshots`, and `commits` exist with FORCE RLS, expected uniques/FKs/indexes, no `organization_id` on child tables, and no UPDATE policy on snapshots or commits.
+
+Focused Step 11 coverage includes:
+
+```text
+
+Static 0011 migration contract tests                 ✅
+Repository validation unit tests                    ✅
+PostgreSQL repository / snapshot / commit / RLS     ✅ (via non-bypass fluxora_rls_test role)
+
+```
+
+Step 11 does not ingest repositories. Step 12 is the `repository.ingest` worker: load tenant repository and GitHub installation, mint a short-lived installation token, fetch the tree at a ref, and materialize it into an isolated working directory. Object-storage upload, final `RepositorySnapshot` persistence, `POST /api/v1/repositories/connect`, and WebSocket progress remain Step 13+.
+
+**## 17.4 Step 12 Verification
+
+Step 12 local verification of the repository ingestion worker:
+
+```text
+
+pnpm typecheck        ✅
+
+pnpm lint             ✅
+
+pnpm test             ✅ 66 passed, 0 failed (20 of them Step 12 worker tests)
+
+pnpm build            ✅
+
+```
+
+Focused Step 12 coverage includes:
+
+```text
+
+repository.ingest payload and handler registration   ✅
+mocked GitHub token, ref, tarball ingest             ✅
+tenant mismatch, needs_reauth, rate-limit, invalid ref ✅
+archive path traversal, symlink, size limits, cleanup ✅
+JobWorker permanent vs retryable failure             ✅
+
+```
+
+Step 12 does not upload snapshots or add a connect API. Those remain Step 13+.
+
 ## 18. Job Architecture — Implemented**
 
 
@@ -2764,6 +2838,8 @@ The planned AWS production infrastructure migration is intentionally deferred un
 Step 10 is the GitHub App installation and setup flow. Repository ingestion, snapshots, workers, and webhooks remain later roadmap work.
 
 The next engineering activity is the next canonical Phase 2 roadmap step. AWS production migration is a later deployment-alignment activity, not a prerequisite for continuing the implementation roadmap.
+
+Step 11 adds the `Repository`, `RepositorySnapshot`, and `Commit` tables and tenant-safe data-access modules only. GitHub repository fetching, installation access tokens, and the ingestion worker are Step 12. S3 upload, `POST /api/v1/repositories/connect`, and WebSocket progress remain Step 13+.
 
 Step 9 does not introduce a new SQL migration because it does not change database schema; it adds local environment/bootstrap and data-lifecycle tooling.
 
@@ -3768,6 +3844,38 @@ interviews/3. Github App Installation Interview CheatSheet.md
 
 
 
+The Step 11 learning package includes:
+
+
+
+\`\`\`text
+
+learning/10. Repository Snapshot Commit Data Model.md
+
+learning/phase-02/step-11-repository-snapshot-commit.md
+
+learning/interviews/4. Step 11 Repository Snapshot Commit Interview CheatSheet.md
+
+\`\`\`
+
+
+
+The Step 12 learning package includes:
+
+
+
+\`\`\`text
+
+learning/notes/11. Repository Ingestion Worker.md
+
+learning/implementations/phase-02/step-12-repository-ingestion.md
+
+learning/interviews/5. Step 12 Repository Ingestion Worker Interview CheatSheet.md
+
+\`\`\`
+
+
+
 The personal learning note covers repeatable local development, migration-vs-seed boundaries, idempotency, reset safety, ES module evaluation, top-level calls, CLI/library separation, PostgreSQL pool ownership, and the debugging incident found during reset verification.
 
 
@@ -3793,6 +3901,14 @@ learning/
 
 
 ├── interviews/
+
+
+
+│   └── 4. Step 11 Repository Snapshot Commit Interview CheatSheet.md
+
+
+
+│   └── 5. Step 12 Repository Ingestion Worker Interview CheatSheet.md
 
 
 
@@ -3835,6 +3951,16 @@ learning/
 
 
 ├── 9. Github App Installation.md
+
+├── 10. Repository Snapshot Commit Data Model.md
+
+
+
+├── notes/11. Repository Ingestion Worker.md
+
+
+
+├── implementations/phase-02/step-12-repository-ingestion.md
 
 
 
@@ -3882,7 +4008,9 @@ learning/
 
 
 
-    └── step-10-github-app-installation.md
+    ├── step-10-github-app-installation.md
+
+    └── step-11-repository-snapshot-commit.md
 
 
 
@@ -4123,3 +4251,83 @@ The web server posts the Clerk session token only to a \`FLUXORA_API_URL\` that 
 
 
 Step 10 code and focused tests were added. \`pnpm typecheck\`, \`pnpm lint\`, \`pnpm test\`, \`pnpm build\`, and \`pnpm db:migrate\` were not run as part of this change.
+
+
+
+**## 28. Step 11 — Repository, RepositorySnapshot, and Commit**
+
+
+
+Step 11 adds the tenant-owned repository metadata model. It does not ingest repository contents.
+
+
+
+A \`Repository\` belongs to an \`Organization\`. \`github_repo_id\` is unique per organization so two Fluxora tenants may connect the same public GitHub repository. \`connection_status\` is \`pending | active | needs_reauth | error\`.
+
+
+
+\`RepositorySnapshot\` and \`Commit\` belong to \`Repository\`. They do not duplicate \`organization_id\`. Tenant access is enforced by RLS that exists through the parent repository (\`fluxora_repository_in_current_tenant\`).
+
+
+
+A snapshot is not a commit. A commit is git object metadata (sha, author, message, parents). A snapshot is an immutable packaged tree for one commit (\`commit_sha\`, \`ref\`, \`storage_uri\`, file/size stats). File bytes are not stored in PostgreSQL; \`storage_uri\` is the later object-storage pointer.
+
+
+
+Snapshots are insert-only: unique \`(repository_id, commit_sha)\`, no UPDATE RLS policy under FORCE RLS, identical replay returns the existing row, a different payload is rejected. Commits are similarly unique on \`(repository_id, sha)\` and have no UPDATE policy.
+
+
+
+Foreign keys use \`ON DELETE CASCADE\`. Foreign keys do not replace RLS: PostgreSQL FK checks bypass RLS, so child INSERT policies still require the parent repository to be in the current tenant.
+
+
+
+Data access lives in \`packages/db\` (\`repository.ts\`, \`repository-snapshot.ts\`, \`commit.ts\`) using existing \`withTenant\` session configuration. Local integration tests set \`FLUXORA_DATABASE_ROLE=fluxora_rls_test\` so \`withTenant\` runs \`SET LOCAL ROLE\` as a \`NOBYPASSRLS\` role; a local superuser would otherwise bypass FORCE RLS. Step 10 GitHub installation code is unchanged.
+
+
+
+**## 29. Step 12 — Repository Ingestion Worker**
+
+
+
+Step 12 implements the \`repository.ingest\` job handler on the existing PostgreSQL job queue and \`JobWorker\`. It does not add a new queue, object storage upload, snapshot persistence, or a connect API.
+
+
+
+The payload is \`{ repositoryId, ref, commitSha? }\`. \`organization_id\` stays on the Job. The worker loads the repository with that tenant id before any GitHub call. \`commitSha\` is optional and is resolved from GitHub for \`ref\`; when supplied it must match the resolved SHA. Idempotency uses the existing jobs unique \`(organization_id, idempotency_key)\` with key \`repository.ingest:{repositoryId}:{commitSha}\`. Retry re-fetches into a new temp directory and does not insert snapshot rows.
+
+
+
+GitHub App authentication reuses the Step 10 installation row. The worker mints a GitHub App JWT, then a short-lived installation access token for that operation only. Tokens are not stored. Clerk session tokens are not used. Archive download follows GitHub's tarball redirect without forwarding the installation token to \`codeload.github.com\`.
+
+
+
+Contents are extracted into \`os.tmpdir()/fluxora-ingest-*\`. Extraction is bounded (file count, uncompressed bytes, compressed bytes, wall-clock timeout). Path traversal, absolute paths, symlinks, hard links, and device files are permanent security failures. Repository files are never executed, evaluated, or imported.
+
+
+
+Failure classification:
+
+
+
+\- GitHub 401/403 (non-rate-limit) or missing installation → \`connection_status = needs_reauth\`, permanent job failure (no \`retryFailedJob\`)
+
+
+
+\- rate limit / 5xx / network → retryable via existing \`failJob\` + \`retryFailedJob\`
+
+
+
+\- invalid ref / commitSha mismatch / too large / unsafe archive → \`connection_status = error\`, permanent
+
+
+
+\- unexpected errors → existing JobWorker retry path
+
+
+
+Successful Step 12 materialization sets \`connection_status = active\`. \`last_indexed_at\` is unchanged. The in-memory result (\`workDir\`, \`commitSha\`, file/size stats) is what Step 13 will upload; the handler deletes the temp directory in \`finally\`.
+
+
+
+The worker process entrypoint is \`apps/workers/src/run.ts\` (\`pnpm --filter @fluxora/workers start\`). No new deployment topology was added.

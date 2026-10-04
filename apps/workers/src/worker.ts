@@ -12,13 +12,22 @@ import {
 } from "@fluxora/db";
 import type { Job } from "@fluxora/shared-types";
 
+import { isRetryableJobError } from "./errors.ts";
 import type { JobHandlerRegistry } from "./handlers.ts";
+
+export interface WorkerJobStore {
+  claimNextJob: typeof claimNextJob;
+  completeJob: typeof completeJob;
+  failJob: typeof failJob;
+  retryFailedJob: typeof retryFailedJob;
+}
 
 export interface WorkerOptions {
   workerId: string;
   handlers: JobHandlerRegistry;
   pollIntervalMs?: number;
   retryDelaySeconds?: number;
+  jobStore?: WorkerJobStore;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -42,6 +51,7 @@ export class JobWorker {
   private readonly handlers: JobHandlerRegistry;
   private readonly pollIntervalMs: number;
   private readonly retryDelaySeconds: number;
+  private readonly jobStore: WorkerJobStore;
 
   constructor(options: WorkerOptions) {
     if (options.workerId.trim().length === 0) {
@@ -67,10 +77,16 @@ export class JobWorker {
     this.handlers = options.handlers;
     this.pollIntervalMs = options.pollIntervalMs ?? 1000;
     this.retryDelaySeconds = options.retryDelaySeconds ?? 5;
+    this.jobStore = options.jobStore ?? {
+      claimNextJob,
+      completeJob,
+      failJob,
+      retryFailedJob,
+    };
   }
 
   async runOnce(): Promise<boolean> {
-    const job = await claimNextJob(this.workerId);
+    const job = await this.jobStore.claimNextJob(this.workerId);
 
     if (job === null) {
       return false;
@@ -137,7 +153,7 @@ export class JobWorker {
       }
 
       try {
-        await completeJob(job.id, this.workerId);
+        await this.jobStore.completeJob(job.id, this.workerId);
       } catch (error) {
         markSpanError(span, error);
 
@@ -156,10 +172,14 @@ export class JobWorker {
   }
 
   private async handleFailure(job: Job, error: unknown): Promise<void> {
-    const failed = await failJob(job.id, this.workerId, getErrorMessage(error));
+    const failed = await this.jobStore.failJob(
+      job.id,
+      this.workerId,
+      getErrorMessage(error),
+    );
 
-    if (failed.status === "failed") {
-      await retryFailedJob(failed.id, this.retryDelaySeconds);
+    if (failed.status === "failed" && isRetryableJobError(error)) {
+      await this.jobStore.retryFailedJob(failed.id, this.retryDelaySeconds);
     }
   }
 }

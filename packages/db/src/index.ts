@@ -22,12 +22,40 @@ export {
   GithubInstallationAccountMismatchError,
   GithubInstallationConflictError,
   GithubInstallationValidationError,
+  getGithubInstallationByOrganizationId,
   planGithubInstallationWrite,
   saveGithubInstallation,
   type InstallationWritePlan,
   type SaveGithubInstallationInput,
   type SaveGithubInstallationResult,
 } from "./repositories/github-installation.ts";
+export {
+  RepositoryConflictError,
+  RepositoryValidationError,
+  createRepository,
+  getRepositoryByGithubRepoId,
+  getRepositoryById,
+  listRepositories,
+  updateRepository,
+  type CreateRepositoryInput,
+  type UpdateRepositoryInput,
+} from "./repositories/repository.ts";
+export {
+  RepositorySnapshotImmutableError,
+  RepositorySnapshotValidationError,
+  createRepositorySnapshot,
+  getRepositorySnapshotById,
+  listRepositorySnapshots,
+  type CreateRepositorySnapshotInput,
+} from "./repositories/repository-snapshot.ts";
+export {
+  CommitConflictError,
+  CommitValidationError,
+  createCommit,
+  getCommitById,
+  listCommits,
+  type CreateCommitInput,
+} from "./repositories/commit.ts";
 /** Workspace package identifier. */
 export const packageName = "@fluxora/db" as const;
 export * from "./repositories/job.ts";

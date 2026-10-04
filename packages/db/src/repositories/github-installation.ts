@@ -93,6 +93,15 @@ export function planGithubInstallationWrite(
   return { action: "refresh" };
 }
 
+export async function getGithubInstallationByOrganizationId(
+  pool: pg.Pool,
+  organizationId: string,
+): Promise<GithubInstallation | null> {
+  return withTenant(pool, organizationId, async (client) => {
+    return selectInstallation(client, organizationId, false);
+  });
+}
+
 export async function saveGithubInstallation(
   pool: pg.Pool,
   input: SaveGithubInstallationInput,
@@ -100,7 +109,7 @@ export async function saveGithubInstallation(
   assertInput(input);
 
   return withTenant(pool, input.organizationId, async (client) => {
-    const existing = await selectInstallation(client, input.organizationId);
+    const existing = await selectInstallation(client, input.organizationId, true);
     return applyPlan(client, input, existing);
   });
 }
@@ -141,7 +150,7 @@ async function applyPlan(
       throw error;
     }
 
-    const raced = await selectInstallation(client, input.organizationId);
+    const raced = await selectInstallation(client, input.organizationId, true);
     if (raced === null) {
       throw new GithubInstallationConflictError();
     }
@@ -191,6 +200,7 @@ async function writeWithSavepoint<T>(
 async function selectInstallation(
   client: pg.PoolClient,
   organizationId: string,
+  forUpdate: boolean,
 ): Promise<GithubInstallation | null> {
   const result = await client.query<GithubInstallationRow>(
     `SELECT
@@ -204,7 +214,7 @@ async function selectInstallation(
        updated_at
      FROM github_installations
      WHERE organization_id = $1
-     FOR UPDATE`,
+     ${forUpdate ? "FOR UPDATE" : ""}`,
     [organizationId],
   );
 
