@@ -1,6 +1,7 @@
 import type { Job, RepositoryIngestJobPayload } from "@fluxora/shared-types";
 import { parseRepositoryIngestJobPayload } from "@fluxora/shared-types";
-import type { Repository } from "@fluxora/shared-types";
+import type { Repository, RepositorySnapshot } from "@fluxora/shared-types";
+import type { ObjectStorageClient } from "@fluxora/infrastructure";
 
 import { getTracer, markSpanError, markSpanSuccess } from "@fluxora/observability";
 
@@ -9,6 +10,8 @@ import { redactForLog } from "../github/redact.ts";
 import { extractTarGz } from "./archive.ts";
 import { IngestionError, permanentIngestionError } from "./errors.ts";
 import type { IngestLimits } from "./limits.ts";
+import { persistPackagedSnapshot } from "./persist-snapshot.ts";
+import type { SnapshotStore } from "./snapshot-store.ts";
 import { createIngestWorkDir, removeIngestWorkDir } from "./workdir.ts";
 
 const tracer = getTracer("@fluxora/workers");
@@ -23,6 +26,10 @@ export interface RepositoryIngestResult {
   fileCount: number;
   sizeBytes: number;
   fullName: string;
+  snapshotId: string;
+  storageUri: string;
+  sha256: string;
+  snapshot: RepositorySnapshot;
 }
 
 export interface RepositoryLookup {
@@ -42,8 +49,12 @@ export interface RepositoryIngestDependencies {
   lookup: RepositoryLookup;
   github: GithubIngestClient;
   limits: IngestLimits;
+  storage: ObjectStorageClient;
+  objectStorageUri: (key: string) => string;
+  snapshots: SnapshotStore;
   createWorkDir?: () => Promise<string>;
   removeWorkDir?: (directory: string) => Promise<void>;
+  createSnapshotId?: () => string;
 }
 
 export async function ingestRepository(input: {
@@ -125,6 +136,21 @@ export async function ingestRepository(input: {
       signal,
     );
 
+    const persisted = await persistPackagedSnapshot({
+      organizationId,
+      repositoryId: repository.id,
+      commitSha: commit.sha,
+      ref: payload.ref,
+      workDir,
+      fileCount: extracted.fileCount,
+      limits: deps.limits,
+      storage: deps.storage,
+      objectStorageUri: deps.objectStorageUri,
+      snapshots: deps.snapshots,
+      createSnapshotId: deps.createSnapshotId,
+      signal,
+    });
+
     await deps.lookup.updateConnectionStatus(
       organizationId,
       repository.id,
@@ -133,8 +159,10 @@ export async function ingestRepository(input: {
 
     span.setAttributes({
       "fluxora.ingest.commit_sha": commit.sha,
-      "fluxora.ingest.file_count": extracted.fileCount,
-      "fluxora.ingest.size_bytes": extracted.totalBytes,
+      "fluxora.ingest.file_count": persisted.snapshot.fileCount,
+      "fluxora.ingest.size_bytes": Number(persisted.snapshot.sizeBytes),
+      "fluxora.ingest.snapshot_id": persisted.snapshot.id,
+      "fluxora.ingest.sha256": persisted.snapshot.sha256,
       "fluxora.ingest.duration_ms": Date.now() - started,
     });
     markSpanSuccess(span);
@@ -146,9 +174,13 @@ export async function ingestRepository(input: {
       ref: payload.ref,
       commitSha: commit.sha,
       workDir,
-      fileCount: extracted.fileCount,
-      sizeBytes: extracted.totalBytes,
+      fileCount: persisted.snapshot.fileCount,
+      sizeBytes: Number(persisted.snapshot.sizeBytes),
       fullName: repoInfo.fullName,
+      snapshotId: persisted.snapshot.id,
+      storageUri: persisted.snapshot.storageUri,
+      sha256: persisted.snapshot.sha256,
+      snapshot: persisted.snapshot,
     };
   } catch (error) {
     if (workDir !== undefined) {

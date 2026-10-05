@@ -70,6 +70,9 @@ async function ensureRlsTestRole(pool: ReturnType<typeof getPool>): Promise<void
 const SHA_A = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const SHA_B = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const SHA_C = "cccccccccccccccccccccccccccccccccccccccc";
+const SNAPSHOT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const CHECKSUM_A = "a".repeat(64);
+const CHECKSUM_B = "b".repeat(64);
 
 test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) => {
   const pool = getPool();
@@ -143,26 +146,33 @@ test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) 
     assert.ok(repository);
 
     const snapshot = await createRepositorySnapshot(pool, {
+      id: SNAPSHOT_ID,
       organizationId: orgA.id,
       repositoryId: repository.id,
       commitSha: SHA_A,
       ref: "refs/heads/main",
-      storageUri: `s3://fluxora-snapshots/${orgA.id}/${repository.id}/${SHA_A}`,
+      storageUri: `s3://fluxora-snapshots/${orgA.id}/${repository.id}/${SNAPSHOT_ID}/snapshot.tar.gz`,
+      sha256: CHECKSUM_A,
       fileCount: 12,
       sizeBytes: "4096",
     });
+
+    assert.equal(snapshot.id, SNAPSHOT_ID);
+    assert.equal(snapshot.sha256, CHECKSUM_A);
 
     const replay = await createRepositorySnapshot(pool, {
       organizationId: orgA.id,
       repositoryId: repository.id,
       commitSha: SHA_A,
       ref: "refs/heads/main",
-      storageUri: `s3://fluxora-snapshots/${orgA.id}/${repository.id}/${SHA_A}`,
+      storageUri: `filesystem://${orgA.id}/${repository.id}/different-id/snapshot.tar.gz`,
+      sha256: CHECKSUM_A,
       fileCount: 12,
       sizeBytes: "4096",
     });
 
     assert.equal(replay.id, snapshot.id);
+    assert.equal(replay.storageUri, snapshot.storageUri);
 
     await assert.rejects(
       () =>
@@ -171,8 +181,9 @@ test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) 
           repositoryId: repository.id,
           commitSha: SHA_A,
           ref: "refs/heads/main",
-          storageUri: `s3://fluxora-snapshots/${orgA.id}/${repository.id}/${SHA_A}`,
-          fileCount: 99,
+          storageUri: snapshot.storageUri,
+          sha256: CHECKSUM_B,
+          fileCount: 12,
           sizeBytes: "4096",
         }),
       RepositorySnapshotImmutableError,
@@ -261,6 +272,7 @@ test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) 
         commitSha: "dddddddddddddddddddddddddddddddddddddddd",
         ref: "refs/heads/main",
         storageUri: "s3://fluxora-snapshots/other",
+        sha256: CHECKSUM_A,
         fileCount: 1,
         sizeBytes: "1",
       }),

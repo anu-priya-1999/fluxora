@@ -27,7 +27,8 @@ export interface Repository {
 
 /**
  * Immutable snapshot of one repository commit's tree.
- * File bytes live at `storageUri` (object storage in later steps), not in PostgreSQL.
+ * File bytes live at `storageUri` (object storage), not in PostgreSQL.
+ * `sha256` is the hex digest of the exact uploaded archive bytes.
  */
 export interface RepositorySnapshot {
   id: string;
@@ -35,6 +36,7 @@ export interface RepositorySnapshot {
   commitSha: string;
   ref: string;
   storageUri: string;
+  sha256: string;
   fileCount: number;
   sizeBytes: string;
   createdAt: Date;

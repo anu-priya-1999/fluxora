@@ -27,6 +27,23 @@ test("repository create rejects an invalid GitHub repo id", async () => {
   );
 });
 
+test("snapshot create rejects a checksum that is not 64 lowercase hex characters", async () => {
+  await assert.rejects(
+    () =>
+      createRepositorySnapshot(unusedPool, {
+        organizationId: "00000000-0000-0000-0000-000000000001",
+        repositoryId: "00000000-0000-0000-0000-000000000002",
+        commitSha: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ref: "main",
+        storageUri: "s3://bucket/key",
+        sha256: "ABCDEF" + "a".repeat(58),
+        fileCount: 1,
+        sizeBytes: "1",
+      }),
+    RepositorySnapshotValidationError,
+  );
+});
+
 test("snapshot create rejects a non-sha commit", async () => {
   await assert.rejects(
     () =>
@@ -36,6 +53,7 @@ test("snapshot create rejects a non-sha commit", async () => {
         commitSha: "not-a-sha",
         ref: "main",
         storageUri: "s3://bucket/key",
+        sha256: "a".repeat(64),
         fileCount: 1,
         sizeBytes: "1",
       }),

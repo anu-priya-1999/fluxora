@@ -10,7 +10,9 @@ export type IngestionErrorCode =
   | "unsafe_archive"
   | "timeout"
   | "github_unavailable"
-  | "misconfigured";
+  | "misconfigured"
+  | "object_storage"
+  | "snapshot_conflict";
 
 export interface IngestionErrorDetails {
   fileCount?: number;

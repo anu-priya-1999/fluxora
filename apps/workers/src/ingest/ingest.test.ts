@@ -5,12 +5,16 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
-import type { Job, Repository } from "@fluxora/shared-types";
+import type { Job, Repository, RepositorySnapshot } from "@fluxora/shared-types";
 import {
   parseRepositoryIngestJobPayload,
   REPOSITORY_INGEST_JOB_TYPE,
   repositoryIngestIdempotencyKey,
 } from "@fluxora/shared-types";
+import type { ObjectMetadata, ObjectStorageClient } from "@fluxora/infrastructure";
+import { snapshotObjectKey } from "@fluxora/infrastructure";
+import type { CreateRepositorySnapshotInput } from "@fluxora/db";
+import { RepositorySnapshotImmutableError } from "@fluxora/db";
 
 import type { GithubIngestClient } from "../github/client.ts";
 import { createDefaultJobHandlers } from "../handlers.ts";
@@ -21,6 +25,8 @@ import {
   type RepositoryIngestDependencies,
   type RepositoryLookup,
 } from "./ingest.ts";
+import { SNAPSHOT_OBJECT_NAME } from "./persist-snapshot.ts";
+import type { SnapshotStore } from "./snapshot-store.ts";
 import { gzipTar } from "./tar-fixture.ts";
 import { createIngestWorkDir, removeIngestWorkDir } from "./workdir.ts";
 
@@ -28,6 +34,7 @@ const ORG = "11111111-1111-4111-8111-111111111111";
 const OTHER_ORG = "22222222-2222-4222-8222-222222222222";
 const REPO = "33333333-3333-4333-8333-333333333333";
 const SHA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const SNAPSHOT_ID = "55555555-5555-4555-8555-555555555555";
 
 const repository: Repository = {
   id: REPO,
@@ -92,6 +99,83 @@ function lookupMock(
   };
 }
 
+class MemoryObjectStorage implements ObjectStorageClient {
+  readonly objects = new Map<string, Uint8Array>();
+  readonly deleted: string[] = [];
+  failPut = false;
+
+  async put(key: string, body: Uint8Array, _options?: ObjectMetadata): Promise<void> {
+    this.objects.set(key, body);
+    if (this.failPut) {
+      throw new Error("upload failed");
+    }
+  }
+
+  async get(key: string): Promise<Uint8Array> {
+    const value = this.objects.get(key);
+    if (value === undefined) {
+      throw new Error(`missing object ${key}`);
+    }
+    return value;
+  }
+
+  async exists(key: string): Promise<boolean> {
+    return this.objects.has(key);
+  }
+
+  async delete(key: string): Promise<boolean> {
+    const existed = this.objects.delete(key);
+    if (existed) {
+      this.deleted.push(key);
+    }
+    return existed;
+  }
+
+  async close(): Promise<void> {
+    return undefined;
+  }
+}
+
+function snapshotStoreMock(
+  seed?: RepositorySnapshot[],
+): SnapshotStore & { rows: RepositorySnapshot[] } {
+  const rows = [...(seed ?? [])];
+  return {
+    rows,
+    async create(input: CreateRepositorySnapshotInput): Promise<RepositorySnapshot> {
+      const existing = rows.find(
+        (row) =>
+          row.repositoryId === input.repositoryId && row.commitSha === input.commitSha,
+      );
+      if (existing !== undefined) {
+        if (
+          existing.ref !== input.ref.trim() ||
+          existing.sha256 !== input.sha256 ||
+          existing.fileCount !== input.fileCount ||
+          existing.sizeBytes !== input.sizeBytes
+        ) {
+          throw new RepositorySnapshotImmutableError();
+        }
+        return existing;
+      }
+
+      const created: RepositorySnapshot = {
+        id: input.id ?? "99999999-9999-4999-8999-999999999999",
+        repositoryId: input.repositoryId,
+        commitSha: input.commitSha,
+        ref: input.ref.trim(),
+        storageUri: input.storageUri.trim(),
+        sha256: input.sha256,
+        fileCount: input.fileCount,
+        sizeBytes: input.sizeBytes,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      };
+      rows.push(created);
+      return created;
+    },
+  };
+}
+
 function githubMock(
   options?: {
     token?: string;
@@ -145,16 +229,25 @@ function deps(input?: {
   lookup?: RepositoryLookup;
   github?: GithubIngestClient;
   maxTotalBytes?: number;
+  maxArchiveBytes?: number;
+  storage?: MemoryObjectStorage;
+  snapshots?: SnapshotStore;
+  createSnapshotId?: () => string;
 }): RepositoryIngestDependencies {
+  const storage = input?.storage ?? new MemoryObjectStorage();
   return {
     lookup: input?.lookup ?? lookupMock(),
     github: input?.github ?? githubMock(),
     limits: {
       maxFileCount: 50,
       maxTotalBytes: input?.maxTotalBytes ?? 10_000,
-      maxArchiveBytes: 20_000,
+      maxArchiveBytes: input?.maxArchiveBytes ?? 20_000,
       timeoutMs: 5_000,
     },
+    storage,
+    objectStorageUri: (key) => `filesystem://${key}`,
+    snapshots: input?.snapshots ?? snapshotStoreMock(),
+    createSnapshotId: input?.createSnapshotId ?? (() => SNAPSHOT_ID),
   };
 }
 
@@ -177,23 +270,39 @@ test("parseRepositoryIngestJobPayload requires repositoryId and ref and accepts 
   );
 });
 
-test("successful ingestion mints an installation token, resolves the ref, and marks the repository active", async () => {
+test("successful ingestion mints an installation token, persists an immutable snapshot, and marks the repository active", async () => {
   const seenAuth: string[] = [];
   const statuses: string[] = [];
+  const storage = new MemoryObjectStorage();
+  const snapshots = snapshotStoreMock();
   const result = await ingestRepositoryJob(
     ingestJob({ repositoryId: REPO, ref: "main" }),
     deps({
       lookup: lookupMock({ statuses }),
       github: githubMock({ seenAuth, token: "ghs_live" }),
+      storage,
+      snapshots,
     }),
   );
 
   try {
     assert.equal(result.commitSha, SHA);
     assert.equal(result.fileCount, 1);
+    assert.equal(result.snapshotId, SNAPSHOT_ID);
+    assert.match(result.sha256, /^[0-9a-f]{64}$/);
+    assert.equal(
+      result.storageUri,
+      `filesystem://${snapshotObjectKey(ORG, REPO, SNAPSHOT_ID, SNAPSHOT_OBJECT_NAME)}`,
+    );
     assert.equal(await readFile(path.join(result.workDir, "README.md"), "utf8"), "# demo");
     assert.deepEqual(statuses, ["active"]);
     assert.ok(seenAuth.includes("ghs_live"));
+    assert.equal(snapshots.rows.length, 1);
+    assert.equal(snapshots.rows[0]?.sha256, result.sha256);
+    assert.equal(snapshots.rows[0]?.storageUri, result.storageUri);
+    assert.equal(snapshots.rows[0]?.fileCount, 1);
+    assert.equal(snapshots.rows[0]?.sizeBytes, String(result.sizeBytes));
+    assert.equal(storage.objects.size, 1);
     assert.equal(
       repositoryIngestIdempotencyKey(REPO, SHA),
       `${REPOSITORY_INGEST_JOB_TYPE}:${REPO}:${SHA}`,
@@ -387,9 +496,16 @@ test("handler registry includes repository.ingest", () => {
   assert.equal(typeof handlers["test.echo"], "function");
 });
 
-test("re-running successful ingestion only updates status and does not require new durable rows", async () => {
+test("re-running successful ingestion is idempotent and does not replace the snapshot object", async () => {
   const statuses: string[] = [];
-  const shared = deps({ lookup: lookupMock({ statuses }) });
+  const storage = new MemoryObjectStorage();
+  const snapshots = snapshotStoreMock();
+  const shared = deps({
+    lookup: lookupMock({ statuses }),
+    storage,
+    snapshots,
+    createSnapshotId: () => crypto.randomUUID(),
+  });
   const first = await ingestRepositoryJob(
     ingestJob({ repositoryId: REPO, ref: "main", commitSha: SHA }),
     shared,
@@ -401,4 +517,8 @@ test("re-running successful ingestion only updates status and does not require n
   );
   await rm(second.workDir, { recursive: true, force: true });
   assert.deepEqual(statuses, ["active", "active"]);
+  assert.equal(first.snapshotId, second.snapshotId);
+  assert.equal(first.sha256, second.sha256);
+  assert.equal(snapshots.rows.length, 1);
+  assert.equal(storage.objects.size, 1);
 });

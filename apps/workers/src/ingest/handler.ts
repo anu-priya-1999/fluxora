@@ -1,9 +1,11 @@
 import {
+  createRepositorySnapshot,
   getGithubInstallationByOrganizationId,
   getPool,
   getRepositoryById,
   updateRepository,
 } from "@fluxora/db";
+import type { ObjectStorageClient } from "@fluxora/infrastructure";
 import {
   REPOSITORY_INGEST_JOB_TYPE,
   type Job,
@@ -17,13 +19,23 @@ import { retryableIngestionError, permanentIngestionError } from "./errors.ts";
 import { ingestRepositoryJob } from "./ingest.ts";
 import type { RepositoryIngestDependencies } from "./ingest.ts";
 import { loadIngestLimits } from "./limits.ts";
+import {
+  createObjectStorageClient,
+  loadObjectStorageConfig,
+  objectStorageUri,
+} from "./storage-config.ts";
 import { removeIngestWorkDir } from "./workdir.ts";
 
 export function createProductionIngestDependencies(
   env: NodeJS.ProcessEnv = process.env,
 ): RepositoryIngestDependencies {
   const config = loadGithubAppConfig(env);
+  const storageConfig = loadObjectStorageConfig(env);
   const pool = getPool();
+  const storage =
+    storageConfig === null
+      ? missingObjectStorageClient()
+      : createObjectStorageClient(storageConfig);
 
   return {
     lookup: {
@@ -48,6 +60,22 @@ export function createProductionIngestDependencies(
         ? missingGithubConfigClient()
         : createGithubIngestClient({ config }),
     limits: loadIngestLimits(env),
+    storage,
+    objectStorageUri: (key) => {
+      if (storageConfig === null) {
+        throw retryableIngestionError(
+          "misconfigured",
+          "object storage is not configured on the worker",
+        );
+      }
+
+      return objectStorageUri(storageConfig, key);
+    },
+    snapshots: {
+      create(input) {
+        return createRepositorySnapshot(pool, input);
+      },
+    },
   };
 }
 
@@ -68,7 +96,7 @@ export function createRepositoryIngestHandler(
     try {
       console.info(
         redactForLog(
-          `[repository.ingest] completed job=${result.jobId} org=${result.organizationId} repo=${result.repositoryId} ref=${result.ref} commit=${result.commitSha} files=${result.fileCount} bytes=${result.sizeBytes}`,
+          `[repository.ingest] completed job=${result.jobId} org=${result.organizationId} repo=${result.repositoryId} ref=${result.ref} commit=${result.commitSha} snapshot=${result.snapshotId} files=${result.fileCount} bytes=${result.sizeBytes}`,
         ),
       );
     } finally {
@@ -90,5 +118,22 @@ function missingGithubConfigClient(): RepositoryIngestDependencies["github"] {
     getRepository: missing,
     resolveCommit: missing,
     downloadTarball: missing,
+  };
+}
+
+function missingObjectStorageClient(): ObjectStorageClient {
+  const missing = async (): Promise<never> => {
+    throw retryableIngestionError(
+      "misconfigured",
+      "object storage is not configured on the worker",
+    );
+  };
+
+  return {
+    put: missing,
+    get: missing,
+    exists: missing,
+    delete: missing,
+    close: async () => undefined,
   };
 }

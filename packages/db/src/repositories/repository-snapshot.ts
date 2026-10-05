@@ -5,6 +5,9 @@ import { withTenant } from "../tenant.ts";
 
 const WRITE_SAVEPOINT = "fluxora_repository_snapshot_write";
 const GIT_SHA = /^[0-9a-f]{40}$/;
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export class RepositorySnapshotValidationError extends Error {
   constructor() {
@@ -21,11 +24,13 @@ export class RepositorySnapshotImmutableError extends Error {
 }
 
 export interface CreateRepositorySnapshotInput {
+  id?: string;
   organizationId: string;
   repositoryId: string;
   commitSha: string;
   ref: string;
   storageUri: string;
+  sha256: string;
   fileCount: number;
   sizeBytes: string;
 }
@@ -36,6 +41,7 @@ interface SnapshotRow {
   commit_sha: string;
   ref: string;
   storage_uri: string;
+  sha256: string;
   file_count: number;
   size_bytes: string;
   created_at: Date;
@@ -47,6 +53,7 @@ const SNAPSHOT_COLUMNS = `
   commit_sha,
   ref,
   storage_uri,
+  sha256,
   file_count,
   size_bytes::text AS size_bytes,
   created_at
@@ -143,26 +150,54 @@ async function insertSnapshot(
   client: pg.PoolClient,
   input: CreateRepositorySnapshotInput,
 ): Promise<RepositorySnapshot> {
-  const result = await client.query<SnapshotRow>(
-    `INSERT INTO repository_snapshots (
-       repository_id,
-       commit_sha,
-       ref,
-       storage_uri,
-       file_count,
-       size_bytes
-     )
-     VALUES ($1::uuid, $2, $3, $4, $5, $6::bigint)
-     RETURNING ${SNAPSHOT_COLUMNS}`,
-    [
-      input.repositoryId,
-      input.commitSha,
-      input.ref.trim(),
-      input.storageUri.trim(),
-      input.fileCount,
-      input.sizeBytes,
-    ],
-  );
+  const result =
+    input.id === undefined
+      ? await client.query<SnapshotRow>(
+          `INSERT INTO repository_snapshots (
+             repository_id,
+             commit_sha,
+             ref,
+             storage_uri,
+             sha256,
+             file_count,
+             size_bytes
+           )
+           VALUES ($1::uuid, $2, $3, $4, $5, $6, $7::bigint)
+           RETURNING ${SNAPSHOT_COLUMNS}`,
+          [
+            input.repositoryId,
+            input.commitSha,
+            input.ref.trim(),
+            input.storageUri.trim(),
+            input.sha256,
+            input.fileCount,
+            input.sizeBytes,
+          ],
+        )
+      : await client.query<SnapshotRow>(
+          `INSERT INTO repository_snapshots (
+             id,
+             repository_id,
+             commit_sha,
+             ref,
+             storage_uri,
+             sha256,
+             file_count,
+             size_bytes
+           )
+           VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8::bigint)
+           RETURNING ${SNAPSHOT_COLUMNS}`,
+          [
+            input.id,
+            input.repositoryId,
+            input.commitSha,
+            input.ref.trim(),
+            input.storageUri.trim(),
+            input.sha256,
+            input.fileCount,
+            input.sizeBytes,
+          ],
+        );
 
   const row = result.rows[0];
   if (row === undefined) {
@@ -213,6 +248,7 @@ function mapSnapshotRow(row: SnapshotRow): RepositorySnapshot {
     commitSha: row.commit_sha,
     ref: row.ref,
     storageUri: row.storage_uri,
+    sha256: row.sha256,
     fileCount: row.file_count,
     sizeBytes: row.size_bytes,
     createdAt: row.created_at,
@@ -225,7 +261,7 @@ function sameSnapshotPayload(
 ): boolean {
   return (
     existing.ref === input.ref.trim() &&
-    existing.storageUri === input.storageUri.trim() &&
+    existing.sha256 === input.sha256 &&
     existing.fileCount === input.fileCount &&
     existing.sizeBytes === input.sizeBytes
   );
@@ -233,9 +269,11 @@ function sameSnapshotPayload(
 
 function assertCreateInput(input: CreateRepositorySnapshotInput): void {
   if (
+    (input.id !== undefined && !UUID.test(input.id)) ||
     !GIT_SHA.test(input.commitSha) ||
     input.ref.trim().length === 0 ||
     input.storageUri.trim().length === 0 ||
+    !SHA256_HEX.test(input.sha256) ||
     !Number.isInteger(input.fileCount) ||
     input.fileCount < 0 ||
     !/^[0-9]+$/.test(input.sizeBytes)

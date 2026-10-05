@@ -9,13 +9,14 @@
   "scripts": {
     "start": "node --experimental-strip-types src/run.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test --test-force-exit src/github/client.test.ts src/ingest/archive.test.ts src/ingest/ingest.test.ts src/worker.test.ts"
-
+    "test": "node --experimental-strip-types --test --test-force-exit src/github/client.test.ts src/ingest/archive.test.ts src/ingest/package-snapshot.test.ts src/ingest/storage-config.test.ts src/ingest/ingest.test.ts src/worker.test.ts"
   },
   "dependencies": {
     "@fluxora/db": "workspace:*",
+    "@fluxora/infrastructure": "workspace:*",
     "@fluxora/observability": "workspace:*",
-    "@fluxora/shared-types": "workspace:*"
+    "@fluxora/shared-types": "workspace:*",
+    "tar": "^7.5.22"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
