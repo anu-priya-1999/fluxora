@@ -85,6 +85,9 @@ importers:
       '@fluxora/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@fluxora/infrastructure':
+        specifier: workspace:*
+        version: link:../../packages/infrastructure
       '@fluxora/observability':
         specifier: workspace:*
         version: link:../../packages/observability

@@ -5,13 +5,17 @@ import path from "node:path";
 import { Readable } from "node:stream";
 import test from "node:test";
 
-import type { Job, Repository, RepositorySnapshot } from "@fluxora/shared-types";
+import type {
+  Job,
+  Repository,
+  RepositorySnapshot,
+} from "@fluxora/shared-types";
 import {
   parseRepositoryIngestJobPayload,
   REPOSITORY_INGEST_JOB_TYPE,
   repositoryIngestIdempotencyKey,
 } from "@fluxora/shared-types";
-import type { ObjectMetadata, ObjectStorageClient } from "@fluxora/infrastructure";
+import type { ObjectStorageClient } from "@fluxora/infrastructure";
 import { snapshotObjectKey } from "@fluxora/infrastructure";
 import type { CreateRepositorySnapshotInput } from "@fluxora/db";
 import { RepositorySnapshotImmutableError } from "@fluxora/db";
@@ -69,13 +73,11 @@ function ingestJob(payload: Job["payload"], organizationId = ORG): Job {
   };
 }
 
-function lookupMock(
-  options?: {
-    repository?: Repository | null;
-    installationId?: string | null;
-    statuses?: string[];
-  },
-): RepositoryLookup {
+function lookupMock(options?: {
+  repository?: Repository | null;
+  installationId?: string | null;
+  statuses?: string[];
+}): RepositoryLookup {
   const statuses = options?.statuses ?? [];
   return {
     async getRepositoryById(organizationId, repositoryId) {
@@ -104,7 +106,7 @@ class MemoryObjectStorage implements ObjectStorageClient {
   readonly deleted: string[] = [];
   failPut = false;
 
-  async put(key: string, body: Uint8Array, _options?: ObjectMetadata): Promise<void> {
+  async put(key: string, body: Uint8Array): Promise<void> {
     this.objects.set(key, body);
     if (this.failPut) {
       throw new Error("upload failed");
@@ -142,10 +144,13 @@ function snapshotStoreMock(
   const rows = [...(seed ?? [])];
   return {
     rows,
-    async create(input: CreateRepositorySnapshotInput): Promise<RepositorySnapshot> {
+    async create(
+      input: CreateRepositorySnapshotInput,
+    ): Promise<RepositorySnapshot> {
       const existing = rows.find(
         (row) =>
-          row.repositoryId === input.repositoryId && row.commitSha === input.commitSha,
+          row.repositoryId === input.repositoryId &&
+          row.commitSha === input.commitSha,
       );
       if (existing !== undefined) {
         if (
@@ -176,15 +181,13 @@ function snapshotStoreMock(
   };
 }
 
-function githubMock(
-  options?: {
-    token?: string;
-    commitSha?: string;
-    archive?: Buffer;
-    failures?: Partial<Record<keyof GithubIngestClient, () => never>>;
-    seenAuth?: string[];
-  },
-): GithubIngestClient {
+function githubMock(options?: {
+  token?: string;
+  commitSha?: string;
+  archive?: Buffer;
+  failures?: Partial<Record<keyof GithubIngestClient, () => never>>;
+  seenAuth?: string[];
+}): GithubIngestClient {
   const archive =
     options?.archive ??
     gzipTar([
@@ -265,7 +268,10 @@ test("parseRepositoryIngestJobPayload requires repositoryId and ref and accepts 
     { repositoryId: REPO, ref: "main", commitSha: SHA },
   );
   assert.equal(
-    parseRepositoryIngestJobPayload({ repositoryId: "not-a-uuid", ref: "main" }),
+    parseRepositoryIngestJobPayload({
+      repositoryId: "not-a-uuid",
+      ref: "main",
+    }),
     null,
   );
 });
@@ -294,7 +300,10 @@ test("successful ingestion mints an installation token, persists an immutable sn
       result.storageUri,
       `filesystem://${snapshotObjectKey(ORG, REPO, SNAPSHOT_ID, SNAPSHOT_OBJECT_NAME)}`,
     );
-    assert.equal(await readFile(path.join(result.workDir, "README.md"), "utf8"), "# demo");
+    assert.equal(
+      await readFile(path.join(result.workDir, "README.md"), "utf8"),
+      "# demo",
+    );
     assert.deepEqual(statuses, ["active"]);
     assert.ok(seenAuth.includes("ghs_live"));
     assert.equal(snapshots.rows.length, 1);

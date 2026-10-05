@@ -3,7 +3,11 @@ import { parseRepositoryIngestJobPayload } from "@fluxora/shared-types";
 import type { Repository, RepositorySnapshot } from "@fluxora/shared-types";
 import type { ObjectStorageClient } from "@fluxora/infrastructure";
 
-import { getTracer, markSpanError, markSpanSuccess } from "@fluxora/observability";
+import {
+  getTracer,
+  markSpanError,
+  markSpanSuccess,
+} from "@fluxora/observability";
 
 import type { GithubIngestClient } from "../github/client.ts";
 import { redactForLog } from "../github/redact.ts";
@@ -90,9 +94,8 @@ export async function ingestRepository(input: {
       );
     }
 
-    const installationId = await deps.lookup.getGithubInstallationId(
-      organizationId,
-    );
+    const installationId =
+      await deps.lookup.getGithubInstallationId(organizationId);
     if (installationId === null) {
       throw permanentIngestionError(
         "github_auth",
@@ -129,12 +132,7 @@ export async function ingestRepository(input: {
       deps.limits,
       signal,
     );
-    const extracted = await extractTarGz(
-      archive,
-      workDir,
-      deps.limits,
-      signal,
-    );
+    const extracted = await extractTarGz(archive, workDir, deps.limits, signal);
 
     const persisted = await persistPackagedSnapshot({
       organizationId,
@@ -147,7 +145,9 @@ export async function ingestRepository(input: {
       storage: deps.storage,
       objectStorageUri: deps.objectStorageUri,
       snapshots: deps.snapshots,
-      createSnapshotId: deps.createSnapshotId,
+      ...(deps.createSnapshotId === undefined
+        ? {}
+        : { createSnapshotId: deps.createSnapshotId }),
       signal,
     });
 
@@ -244,7 +244,11 @@ async function applyFailureStatus(
   }
 
   await lookup
-    .updateConnectionStatus(organizationId, repositoryId, error.repositoryStatus)
+    .updateConnectionStatus(
+      organizationId,
+      repositoryId,
+      error.repositoryStatus,
+    )
     .catch(() => undefined);
 }
 

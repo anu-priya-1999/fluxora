@@ -25,10 +25,6 @@ coverage/
 .DS_Store
 Thumbs.db
 
-# Private personal workspace
-learning/
-prompts/
-
 # Local development
 *.local
 

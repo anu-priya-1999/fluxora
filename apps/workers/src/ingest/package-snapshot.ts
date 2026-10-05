@@ -6,12 +6,9 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createGzip } from "node:zlib";
 
-import tar from "tar";
+import * as tar from "tar";
 
-import {
-  permanentIngestionError,
-  retryableIngestionError,
-} from "./errors.ts";
+import { permanentIngestionError, retryableIngestionError } from "./errors.ts";
 import type { IngestLimits } from "./limits.ts";
 
 export interface PackagedSnapshot {
@@ -55,26 +52,22 @@ export async function packageSnapshotArchive(
         portable: true,
         noMtime: true,
         prefix: "",
-        onWriteEntry(entry) {
-          entry.mtime = new Date(0);
-          entry.uid = 0;
-          entry.gid = 0;
-          entry.uname = "";
-          entry.gname = "";
-          entry.mode = entry.mode === undefined ? 0o644 : entry.mode & 0o777;
-        },
       },
       entries,
     );
 
-    await pipeline(
-      pack,
-      createGzip({ level: 6 }),
-      new GzipHeaderNormalizer(),
-      limiter,
-      createWriteStream(archivePath),
-      signal === undefined ? undefined : { signal },
-    );
+    const gzip = createGzip({ level: 6 });
+    const normalizer = new GzipHeaderNormalizer();
+    const output = createWriteStream(archivePath);
+
+    const downstream =
+      signal === undefined
+        ? pipeline(gzip, normalizer, limiter, output)
+        : pipeline(gzip, normalizer, limiter, output, { signal });
+
+    pack.pipe(gzip, { proxyErrors: true });
+
+    await Promise.all([pack.promise(), downstream]);
     packed = true;
   } catch (error) {
     await rm(archivePath, { force: true }).catch(() => undefined);
@@ -130,44 +123,52 @@ async function hashArchiveFile(
   let sizeBytes = 0;
   const startedAt = Date.now();
 
-  await pipeline(
-    createReadStream(archivePath),
-    new Transform({
-      transform(chunk: Buffer, _encoding, callback) {
-        if (signal?.aborted === true || Date.now() - startedAt > limits.timeoutMs) {
-          callback(
-            retryableIngestionError(
-              "timeout",
-              "repository snapshot packaging exceeded the configured time limit",
-            ),
-          );
-          return;
-        }
+  const source = createReadStream(archivePath);
 
-        sizeBytes += chunk.length;
-        if (sizeBytes > limits.maxArchiveBytes) {
-          callback(
-            permanentIngestionError(
-              "repository_too_large",
-              "repository snapshot exceeds the configured compressed size limit",
-              {
-                repositoryStatus: "error",
-                details: {
-                  sizeBytes,
-                  maxTotalBytes: limits.maxTotalBytes,
-                },
+  const transformer = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      if (
+        signal?.aborted === true ||
+        Date.now() - startedAt > limits.timeoutMs
+      ) {
+        callback(
+          retryableIngestionError(
+            "timeout",
+            "repository snapshot packaging exceeded the configured time limit",
+          ),
+        );
+        return;
+      }
+
+      sizeBytes += chunk.length;
+
+      if (sizeBytes > limits.maxArchiveBytes) {
+        callback(
+          permanentIngestionError(
+            "repository_too_large",
+            "repository snapshot exceeds the configured compressed size limit",
+            {
+              repositoryStatus: "error",
+              details: {
+                sizeBytes,
+                maxTotalBytes: limits.maxTotalBytes,
               },
-            ),
-          );
-          return;
-        }
+            },
+          ),
+        );
+        return;
+      }
 
-        hash.update(chunk);
-        callback(null, chunk);
-      },
-    }),
-    signal === undefined ? undefined : { signal },
-  );
+      hash.update(chunk);
+      callback(null, chunk);
+    },
+  });
+
+  if (signal === undefined) {
+    await pipeline(source, transformer);
+  } else {
+    await pipeline(source, transformer, { signal });
+  }
 
   return { sha256: hash.digest("hex"), sizeBytes };
 }
@@ -220,12 +221,13 @@ async function listRelativeFiles(root: string): Promise<string[]> {
 class ArchiveSizeLimiter extends Transform {
   private sizeBytes = 0;
   private readonly startedAt = Date.now();
+  private readonly limits: IngestLimits;
+  private readonly signal: AbortSignal | undefined;
 
-  constructor(
-    private readonly limits: IngestLimits,
-    private readonly signal: AbortSignal | undefined,
-  ) {
+  constructor(limits: IngestLimits, signal: AbortSignal | undefined) {
     super();
+    this.limits = limits;
+    this.signal = signal;
   }
 
   override _transform(
@@ -282,7 +284,11 @@ class GzipHeaderNormalizer extends Transform {
     }
 
     const copy = Buffer.from(chunk);
-    for (let index = 0; index < copy.length && this.headerBytes < 10; index += 1) {
+    for (
+      let index = 0;
+      index < copy.length && this.headerBytes < 10;
+      index += 1
+    ) {
       const headerIndex = this.headerBytes;
       if (headerIndex >= 4 && headerIndex <= 7) {
         copy[index] = 0;
