@@ -1,8 +1,16 @@
-**# Fluxora — DESIGN.md**
+**\*\*# Fluxora — DESIGN.md\*\***
 
 
 
-**## 1. Purpose**
+
+
+
+
+**\*\*## 1. Purpose\*\***
+
+
+
+
 
 
 
@@ -10,7 +18,15 @@ Fluxora is an AI-powered software digital twin.
 
 
 
+
+
+
+
 It builds a deterministic, queryable, evidence-backed model of a software system from source code, repository history, dependencies, APIs, infrastructure metadata, and later runtime telemetry.
+
+
+
+
 
 
 
@@ -18,23 +34,47 @@ Fluxora provides:
 
 
 
-\- Architecture Explorer
 
 
 
-\- Change-impact / blast-radius analysis
+
+\\- Architecture Explorer
 
 
 
-\- Deterministic scenario simulation
 
 
 
-\- Evidence-backed AI explanations
+
+\\- Change-impact / blast-radius analysis
 
 
 
-\- Architecture Q&A grounded in the software model
+
+
+
+
+\\- Deterministic scenario simulation
+
+
+
+
+
+
+
+\\- Evidence-backed AI explanations
+
+
+
+
+
+
+
+\\- Architecture Q&A grounded in the software model
+
+
+
+
 
 
 
@@ -42,19 +82,39 @@ Fluxora is deliberately not:
 
 
 
-\- a generic chatbot over GitHub
 
 
 
-\- an AI code-review wrapper
+
+\\- a generic chatbot over GitHub
 
 
 
-\- a linter
 
 
 
-\- an APM replacement
+
+\\- an AI code-review wrapper
+
+
+
+
+
+
+
+\\- a linter
+
+
+
+
+
+
+
+\\- an APM replacement
+
+
+
+
 
 
 
@@ -62,15 +122,31 @@ The central product principle is:
 
 
 
-\\> Build a deterministic, evidence-backed software model first. Use AI to explain and reason over verified evidence; never use the LLM as the source of truth.
 
 
 
-\---
+
+\\\\> Build a deterministic, evidence-backed software model first. Use AI to explain and reason over verified evidence; never use the LLM as the source of truth.
 
 
 
-**## 2. Source of Truth**
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 2. Source of Truth\*\***
+
+
+
+
 
 
 
@@ -78,7 +154,15 @@ The detailed architecture package under:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -86,7 +170,15 @@ docs/architecture/
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -94,11 +186,23 @@ is the canonical architectural source of truth.
 
 
 
+
+
+
+
 Canonical documents:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -106,7 +210,15 @@ Canonical documents:
 
 
 
+
+
+
+
 01-executive-summary.md
+
+
+
+
 
 
 
@@ -114,7 +226,15 @@ Canonical documents:
 
 
 
+
+
+
+
 03-architecture-principles.md
+
+
+
+
 
 
 
@@ -122,7 +242,15 @@ Canonical documents:
 
 
 
+
+
+
+
 05-component-responsibilities.md
+
+
+
+
 
 
 
@@ -130,7 +258,15 @@ Canonical documents:
 
 
 
+
+
+
+
 07-api-architecture.md
+
+
+
+
 
 
 
@@ -138,7 +274,15 @@ Canonical documents:
 
 
 
+
+
+
+
 09-ai-architecture.md
+
+
+
+
 
 
 
@@ -146,7 +290,15 @@ Canonical documents:
 
 
 
+
+
+
+
 11-security-architecture.md
+
+
+
+
 
 
 
@@ -154,7 +306,15 @@ Canonical documents:
 
 
 
+
+
+
+
 13-deployment-architecture.md
+
+
+
+
 
 
 
@@ -162,7 +322,15 @@ Canonical documents:
 
 
 
+
+
+
+
 15-scaling-strategy.md
+
+
+
+
 
 
 
@@ -170,7 +338,15 @@ Canonical documents:
 
 
 
+
+
+
+
 17-implementation-roadmap.md
+
+
+
+
 
 
 
@@ -178,7 +354,15 @@ Canonical documents:
 
 
 
+
+
+
+
 19-risks-and-mitigations.md
+
+
+
+
 
 
 
@@ -186,7 +370,15 @@ Canonical documents:
 
 
 
+
+
+
+
 21-demo-script.md
+
+
+
+
 
 
 
@@ -194,11 +386,23 @@ Canonical documents:
 
 
 
-\`\`\`
 
 
 
-\`DESIGN.md\` is only the compact, living implementation snapshot.
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+\\\`DESIGN.md\\\` is only the compact, living implementation snapshot.
+
+
+
+
 
 
 
@@ -206,39 +410,79 @@ It records:
 
 
 
-\- current implementation state
 
 
 
-\- active engineering constraints
+
+\\- current implementation state
 
 
 
-\- current technology decisions
 
 
 
-\- current development environment
+
+\\- active engineering constraints
 
 
 
-\- current implementation phase
 
 
 
-\- current next step
+
+\\- current technology decisions
 
 
 
-When \`DESIGN.md\` and the canonical architecture package appear to conflict, review the architecture package before changing the design.
 
 
 
-\---
+
+\\- current development environment
 
 
 
-**## 3. Product Definition**
+
+
+
+
+\\- current implementation phase
+
+
+
+
+
+
+
+\\- current next step
+
+
+
+
+
+
+
+When \\\`DESIGN.md\\\` and the canonical architecture package appear to conflict, review the architecture package before changing the design.
+
+
+
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 3. Product Definition\*\***
+
+
+
+
 
 
 
@@ -246,7 +490,15 @@ Fluxora models software relationships such as:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -254,7 +506,15 @@ Repository
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -262,7 +522,15 @@ Application
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -270,7 +538,15 @@ Package
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -278,7 +554,15 @@ Module
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -286,7 +570,15 @@ Symbol
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -294,7 +586,15 @@ API / Event / Database
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -302,7 +602,15 @@ Consumer
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -310,43 +618,87 @@ The model is deterministic, evidence-backed, and queryable.
 
 
 
+
+
+
+
 Fluxora is intended to answer questions such as:
 
 
 
-\- What depends on this function?
 
 
 
-\- What could break if this PR is merged?
+
+\\- What depends on this function?
 
 
 
-\- What is the blast radius of this change?
 
 
 
-\- What happens if a dependency becomes unavailable?
+
+\\- What could break if this PR is merged?
 
 
 
-\- Why is this component affected?
 
 
 
-\- What evidence supports this conclusion?
+
+\\- What is the blast radius of this change?
 
 
 
-\---
 
 
 
-**## 4. Core Architectural Invariants**
+
+\\- What happens if a dependency becomes unavailable?
 
 
 
-**### 4.1 Deterministic core**
+
+
+
+
+\\- Why is this component affected?
+
+
+
+
+
+
+
+\\- What evidence supports this conclusion?
+
+
+
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 4. Core Architectural Invariants\*\***
+
+
+
+
+
+
+
+**\*\*### 4.1 Deterministic core\*\***
+
+
+
+
 
 
 
@@ -354,35 +706,71 @@ The following must never depend on an LLM:
 
 
 
-\- dependency graph construction
 
 
 
-\- dependency relationship discovery
+
+\\- dependency graph construction
 
 
 
-\- graph traversal
 
 
 
-\- blast-radius calculation
+
+\\- dependency relationship discovery
 
 
 
-\- simulation propagation
 
 
 
-\- evidence provenance
+
+\\- graph traversal
 
 
 
-\- authorization
 
 
 
-\- tenant isolation
+
+\\- blast-radius calculation
+
+
+
+
+
+
+
+\\- simulation propagation
+
+
+
+
+
+
+
+\\- evidence provenance
+
+
+
+
+
+
+
+\\- authorization
+
+
+
+
+
+
+
+\\- tenant isolation
+
+
+
+
 
 
 
@@ -390,11 +778,23 @@ For identical input, deterministic analysis should produce reproducible results.
 
 
 
+
+
+
+
 The deterministic core must remain independently testable without an LLM.
 
 
 
-**### 4.2 AI boundary**
+
+
+
+
+**\*\*### 4.2 AI boundary\*\***
+
+
+
+
 
 
 
@@ -402,27 +802,55 @@ The AI layer may:
 
 
 
-\- explain deterministic findings
 
 
 
-\- narrate impact analysis
+
+\\- explain deterministic findings
 
 
 
-\- narrate simulation results
 
 
 
-\- answer architecture questions using verified context
+
+\\- narrate impact analysis
 
 
 
-\- summarize evidence
 
 
 
-\- provide explicitly labeled suggestions
+
+\\- narrate simulation results
+
+
+
+
+
+
+
+\\- answer architecture questions using verified context
+
+
+
+
+
+
+
+\\- summarize evidence
+
+
+
+
+
+
+
+\\- provide explicitly labeled suggestions
+
+
+
+
 
 
 
@@ -430,31 +858,63 @@ The AI layer must not:
 
 
 
-\- discover graph truth
 
 
 
-\- decide what depends on what
+
+\\- discover graph truth
 
 
 
-\- calculate blast radius
 
 
 
-\- determine simulation propagation
+
+\\- decide what depends on what
 
 
 
-\- determine authorization
 
 
 
-\- fabricate evidence
+
+\\- calculate blast radius
 
 
 
-\- mutate the deterministic graph as an authoritative source
+
+
+
+
+\\- determine simulation propagation
+
+
+
+
+
+
+
+\\- determine authorization
+
+
+
+
+
+
+
+\\- fabricate evidence
+
+
+
+
+
+
+
+\\- mutate the deterministic graph as an authoritative source
+
+
+
+
 
 
 
@@ -462,11 +922,23 @@ The LLM is an explanatory/reasoning layer over verified system facts.
 
 
 
-\---
 
 
 
-**## 5. Evidence Model**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 5. Evidence Model\*\***
+
+
+
+
 
 
 
@@ -474,11 +946,23 @@ Evidence is a cross-cutting concept.
 
 
 
+
+
+
+
 Relevant user-facing claims should be traceable through:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -486,7 +970,15 @@ source file
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -494,7 +986,15 @@ symbol
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -502,7 +1002,15 @@ relationship
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -510,7 +1018,15 @@ analysis run
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -518,7 +1034,15 @@ confidence / provenance
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -526,11 +1050,23 @@ If a deterministic claim cannot be supported by evidence, it should not be prese
 
 
 
-\---
 
 
 
-**## 6. Confidence and Provenance**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 6. Confidence and Provenance\*\***
+
+
+
+
 
 
 
@@ -538,27 +1074,55 @@ Static analysis of JavaScript and TypeScript is inherently incomplete.
 
 
 
+
+
+
+
 Examples include:
 
 
 
-\- dynamic imports
 
 
 
-\- dynamically constructed values
+
+\\- dynamic imports
 
 
 
-\- reflection-like patterns
 
 
 
-\- unusual framework behavior
+
+\\- dynamically constructed values
 
 
 
-\- unsupported syntax
+
+
+
+
+\\- reflection-like patterns
+
+
+
+
+
+
+
+\\- unusual framework behavior
+
+
+
+
+
+
+
+\\- unsupported syntax
+
+
+
+
 
 
 
@@ -566,7 +1130,15 @@ Known provenance categories include:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -574,7 +1146,15 @@ static-analysis
 
 
 
+
+
+
+
 inferred
+
+
+
+
 
 
 
@@ -582,11 +1162,23 @@ ai-hypothesis
 
 
 
+
+
+
+
 runtime-observed
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -594,19 +1186,39 @@ These categories must remain distinguishable.
 
 
 
+
+
+
+
 AI hypotheses must not become visually or semantically equivalent to statically established facts.
 
 
 
-\---
 
 
 
-**## 7. Current Implementation Phase**
+
+\\---
 
 
 
-**### Phase 1 — Foundation**
+
+
+
+
+**\*\*## 7. Current Implementation Phase\*\***
+
+
+
+
+
+
+
+**\*\*### Phase 1 — Foundation\*\***
+
+
+
+
 
 
 
@@ -614,11 +1226,23 @@ The goal of Phase 1 is to establish a deployable software foundation before prod
 
 
 
+
+
+
+
 Current progress:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -626,7 +1250,15 @@ Step 1 — Monorepo foundation                         ✅ COMPLETE
 
 
 
+
+
+
+
 Step 2 — PostgreSQL + Organization/User + RLS        ✅ COMPLETE
+
+
+
+
 
 
 
@@ -634,7 +1266,15 @@ Step 3 — Clerk authentication + identity mapping     ✅ COMPLETE
 
 
 
+
+
+
+
 Step 4 — Next.js + Clerk auth UI/dashboard            ✅ COMPLETE
+
+
+
+
 
 
 
@@ -642,7 +1282,15 @@ Step 5 — Redis + object storage + secrets abstraction ✅ COMPLETE
 
 
 
+
+
+
+
 Step 6 — PostgreSQL job queue + worker harness        ✅ COMPLETE
+
+
+
+
 
 
 
@@ -650,7 +1298,15 @@ Step 7 — OpenTelemetry                                ✅ COMP
 
 
 
+
+
+
+
 Step 8 — CI/CD                                        ✅ COMPLETE
+
+
+
+
 
 
 
@@ -658,7 +1314,15 @@ Step 9 — Local-dev compose/seed skeleton             ✅ COMPLETE
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -666,7 +1330,15 @@ Phase 2 progress:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -674,7 +1346,15 @@ Step 10 — GitHub App installation + setup flow       IMPLEMENTED
 
 
 
+
+
+
+
 Step 11 — Repository, RepositorySnapshot, Commit     IMPLEMENTED
+
+
+
+
 
 
 
@@ -682,7 +1362,19 @@ Step 12 — Repository ingestion worker                IMPLEMENTED
 
 
 
-\`\`\`
+Step 13 — Repository snapshot storage                ✅ COMPLETE
+
+
+
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -690,59 +1382,119 @@ Phase 1 includes:
 
 
 
-\- monorepo
 
 
 
-\- PostgreSQL
+
+\\- monorepo
 
 
 
-\- database migrations
 
 
 
-\- organization/user tenancy foundation
+
+\\- PostgreSQL
 
 
 
-\- managed authentication boundary
 
 
 
-\- PostgreSQL RLS
+
+\\- database migrations
 
 
 
-\- Redis abstraction
 
 
 
-\- object storage abstraction
+
+\\- organization/user tenancy foundation
 
 
 
-\- secrets abstraction
 
 
 
-\- job queue
+
+\\- managed authentication boundary
 
 
 
-\- worker harness
 
 
 
-\- observability
+
+\\- PostgreSQL RLS
 
 
 
-\- CI/CD foundation
 
 
 
-\- local development foundation
+
+\\- Redis abstraction
+
+
+
+
+
+
+
+\\- object storage abstraction
+
+
+
+
+
+
+
+\\- secrets abstraction
+
+
+
+
+
+
+
+\\- job queue
+
+
+
+
+
+
+
+\\- worker harness
+
+
+
+
+
+
+
+\\- observability
+
+
+
+
+
+
+
+\\- CI/CD foundation
+
+
+
+
+
+
+
+\\- local development foundation
+
+
+
+
 
 
 
@@ -750,50 +1502,105 @@ Phase 1 does not yet include:
 
 
 
-\- GitHub repository ingestion
 
 
 
-\- AST analysis
+
+\\- GitHub repository ingestion
 
 
 
-\- dependency graph construction
 
 
 
-\- impact analysis
+
+\\- AST analysis
 
 
 
-\- simulation engine
 
 
 
-\- AI reasoning
+
+\\- dependency graph construction
 
 
 
-\- runtime telemetry
+
+
+
+
+\\- impact analysis
+
+
+
+
+
+
+
+\\- simulation engine
+
+
+
+
+
+
+
+\\- AI reasoning
+
+
+
+
+
+
+
+\\- runtime telemetry
+
+
+
+
 
 
 
 The implementation roadmap remains the authority for phase boundaries.
 
-Step 10 implementation note: the final GitHub setup completion is a browser-side POST from the Vercel web origin to the Render API. The browser obtains the Clerk session token with `useAuth().getToken()`. Because the API is cross-origin from the web host, the GitHub installation endpoint handles `OPTIONS` preflight and scoped CORS using the same exact origins listed in `CLERK_AUTHORIZED_PARTIES`.
 
-Step 11 implementation note: Fluxora now stores tenant-owned `repositories` plus immutable `repository_snapshots` and `commits` under each repository. Child tables do not carry `organization_id`; RLS walks `Repository → Organization`. This step does not ingest GitHub trees, mint installation tokens, upload object storage, or add a connect API.
 
-Step 12 implementation note: the worker handles `repository.ingest`. It validates `job.organization_id` against the repository, mints a short-lived GitHub App installation token from the Step 10 installation row, fetches the GitHub tarball at the resolved commit, and extracts into an isolated temp directory with size, file-count, timeout, path-traversal, and symlink guards. It does not upload to object storage, persist `RepositorySnapshot`/`Commit` rows, expose a connect API, or push WebSocket progress.
+Step 10 implementation note: the final GitHub setup completion is a browser-side POST from the Vercel web origin to the Render API. The browser obtains the Clerk session token with \`useAuth().getToken()\`. Because the API is cross-origin from the web host, the GitHub installation endpoint handles \`OPTIONS\` preflight and scoped CORS using the same exact origins listed in \`CLERK_AUTHORIZED_PARTIES\`.
 
 
 
-
-**## 8. Current Repository Shape**
-
+Step 11 implementation note: Fluxora now stores tenant-owned \`repositories\` plus immutable \`repository_snapshots\` and \`commits\` under each repository. Child tables do not carry \`organization_id\`; RLS walks \`Repository → Organization\`. This step does not ingest GitHub trees, mint installation tokens, upload object storage, or add a connect API.
 
 
-\`\`\`text
+
+Step 12 implementation note: the worker handles \`repository.ingest\`. It validates \`job.organization_id\` against the repository, mints a short-lived GitHub App installation token from the Step 10 installation row, fetches the GitHub tarball at the resolved commit, and extracts into an isolated temp directory with size, file-count, timeout, path-traversal, and symlink guards. It does not upload to object storage, persist \`RepositorySnapshot\`/\`Commit\` rows, expose a connect API, or push WebSocket progress.
+
+
+
+Step 13 implementation note: the worker deterministically packages the Step 12 extracted repository tree as one \`snapshot.tar.gz\`, computes SHA-256 over the final archive bytes, uploads the archive through the existing object-storage abstraction, and persists immutable tenant-scoped \`RepositorySnapshot\` metadata in PostgreSQL. The object key is \`{organizationId}/{repositoryId}/{snapshotId}/snapshot.tar.gz\`. If database persistence fails after object upload, the uploaded object is deleted; partial local archives are also removed. Step 13 does not add the repository connect API, WebSocket progress, AST analysis, graph construction, or AI reasoning.
+
+
+
+
+
+
+
+
+
+**\*\*## 8. Current Repository Shape\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -801,7 +1608,15 @@ fluxora/
 
 
 
+
+
+
+
 ├── apps/
+
+
+
+
 
 
 
@@ -809,7 +1624,15 @@ fluxora/
 
 
 
+
+
+
+
 │   ├── web/
+
+
+
+
 
 
 
@@ -817,7 +1640,15 @@ fluxora/
 
 
 
+
+
+
+
 │
+
+
+
+
 
 
 
@@ -825,7 +1656,15 @@ fluxora/
 
 
 
+
+
+
+
 │   ├── db/
+
+
+
+
 
 
 
@@ -833,7 +1672,15 @@ fluxora/
 
 
 
+
+
+
+
 │   ├── observability/
+
+
+
+
 
 
 
@@ -841,7 +1688,15 @@ fluxora/
 
 
 
+
+
+
+
 │
+
+
+
+
 
 
 
@@ -849,7 +1704,15 @@ fluxora/
 
 
 
+
+
+
+
 │   └── architecture/
+
+
+
+
 
 
 
@@ -857,7 +1720,15 @@ fluxora/
 
 
 
+
+
+
+
 ├── learning/
+
+
+
+
 
 
 
@@ -865,7 +1736,15 @@ fluxora/
 
 
 
+
+
+
+
 ├── .cursor/
+
+
+
+
 
 
 
@@ -873,11 +1752,23 @@ fluxora/
 
 
 
+
+
+
+
 └── package.json
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -885,7 +1776,15 @@ Mental model:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -893,23 +1792,47 @@ apps     = applications/services that run
 
 
 
+
+
+
+
 packages = reusable internal building blocks
 
 
 
-\`\`\`
 
 
 
-\---
+
+\\\`\\\`\\\`
 
 
 
-**## 9. Application Boundaries**
 
 
 
-**### \`apps/web\`**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 9. Application Boundaries\*\***
+
+
+
+
+
+
+
+**\*\*### \\\`apps/web\\\`\*\***
+
+
+
+
 
 
 
@@ -917,43 +1840,87 @@ Responsibilities:
 
 
 
-\- Next.js application
 
 
 
-\- authentication UI
+
+\\- Next.js application
 
 
 
-\- organization dashboard
 
 
 
-\- repository UI
+
+\\- authentication UI
 
 
 
-\- Architecture Explorer
 
 
 
-\- node inspection
+
+\\- organization dashboard
 
 
 
-\- PR impact reports
 
 
 
-\- simulation views
+
+\\- repository UI
 
 
 
-\- architecture Q&A
 
 
 
-\- organization settings
+
+\\- Architecture Explorer
+
+
+
+
+
+
+
+\\- node inspection
+
+
+
+
+
+
+
+\\- PR impact reports
+
+
+
+
+
+
+
+\\- simulation views
+
+
+
+
+
+
+
+\\- architecture Q&A
+
+
+
+
+
+
+
+\\- organization settings
+
+
+
+
 
 
 
@@ -961,7 +1928,15 @@ The frontend consumes server state through the API rather than owning backend bu
 
 
 
-**### \`apps/api\`**
+
+
+
+
+**\*\*### \\\`apps/api\\\`\*\***
+
+
+
+
 
 
 
@@ -969,35 +1944,71 @@ Responsibilities:
 
 
 
-\- HTTP API
 
 
 
-\- Clerk authentication boundary
+
+\\- HTTP API
 
 
 
-\- Fluxora authorization / tenant-role checks
 
 
 
-\- resource CRUD
+
+\\- Clerk authentication boundary
 
 
 
-\- job orchestration
 
 
 
-\- graph reads
+
+\\- Fluxora authorization / tenant-role checks
 
 
 
-\- impact/simulation result reads
 
 
 
-\- API contracts
+
+\\- resource CRUD
+
+
+
+
+
+
+
+\\- job orchestration
+
+
+
+
+
+
+
+\\- graph reads
+
+
+
+
+
+
+
+\\- impact/simulation result reads
+
+
+
+
+
+
+
+\\- API contracts
+
+
+
+
 
 
 
@@ -1005,7 +2016,15 @@ The API must not perform heavy repository analysis synchronously.
 
 
 
-**### \`apps/workers\`**
+
+
+
+
+**\*\*### \\\`apps/workers\\\`\*\***
+
+
+
+
 
 
 
@@ -1013,31 +2032,63 @@ Responsibilities:
 
 
 
-\- asynchronous jobs
 
 
 
-\- repository ingestion
+
+\\- asynchronous jobs
 
 
 
-\- static analysis
 
 
 
-\- graph construction
+
+\\- repository ingestion
 
 
 
-\- impact analysis
 
 
 
-\- simulation
+
+\\- static analysis
 
 
 
-\- AI reasoning
+
+
+
+
+\\- graph construction
+
+
+
+
+
+
+
+\\- impact analysis
+
+
+
+
+
+
+
+\\- simulation
+
+
+
+
+
+
+
+\\- AI reasoning
+
+
+
+
 
 
 
@@ -1045,7 +2096,15 @@ Workers are designed for retryability and idempotency.
 
 
 
+
+
+
+
 Production may split worker types into separate scalable pools.
+
+
+
+
 
 
 
@@ -1053,35 +2112,15 @@ Local development may run worker types in a single process.
 
 
 
-**### \`packages/db\`**
 
 
 
-Responsibilities:
+
+**\*\*### \\\`packages/db\\\`\*\***
 
 
 
-\- database schema
 
-
-
-\- migrations
-
-
-
-\- database access
-
-
-
-\- persistence utilities
-
-
-
-\- transaction helpers
-
-
-
-**### \`packages/shared-types\`**
 
 
 
@@ -1089,27 +2128,55 @@ Responsibilities:
 
 
 
-\- shared TypeScript types
 
 
 
-\- domain contracts
+
+\\- database schema
 
 
 
-\- API contracts
 
 
 
-\- event payload types
+
+\\- migrations
 
 
 
-\- schemas shared between applications
 
 
 
-**### \`packages/infrastructure\`**
+
+\\- database access
+
+
+
+
+
+
+
+\\- persistence utilities
+
+
+
+
+
+
+
+\\- transaction helpers
+
+
+
+
+
+
+
+**\*\*### \\\`packages/shared-types\\\`\*\***
+
+
+
+
 
 
 
@@ -1117,23 +2184,55 @@ Responsibilities:
 
 
 
-\- Redis abstractions and adapters
 
 
 
-\- object-storage abstractions and adapters
+
+\\- shared TypeScript types
 
 
 
-\- secrets abstractions and providers
 
 
 
-\- environment-specific infrastructure boundaries
+
+\\- domain contracts
 
 
 
-**### \`packages/observability\`**
+
+
+
+
+\\- API contracts
+
+
+
+
+
+
+
+\\- event payload types
+
+
+
+
+
+
+
+\\- schemas shared between applications
+
+
+
+
+
+
+
+**\*\*### \\\`packages/infrastructure\\\`\*\***
+
+
+
+
 
 
 
@@ -1141,35 +2240,119 @@ Responsibilities:
 
 
 
-\- OpenTelemetry SDK configuration
 
 
 
-\- trace, metric, and log signal helpers
+
+\\- Redis abstractions and adapters
 
 
 
-\- OTLP exporter configuration
 
 
 
-\- shared instrumentation boundaries for API and workers
+
+\\- object-storage abstractions and adapters
 
 
 
-\- service/resource identity configuration
 
 
 
-\---
+
+\\- secrets abstractions and providers
 
 
 
-**## 10. Database Strategy**
 
 
 
-**### MVP system of record**
+
+\\- environment-specific infrastructure boundaries
+
+
+
+
+
+
+
+**\*\*### \\\`packages/observability\\\`\*\***
+
+
+
+
+
+
+
+Responsibilities:
+
+
+
+
+
+
+
+\\- OpenTelemetry SDK configuration
+
+
+
+
+
+
+
+\\- trace, metric, and log signal helpers
+
+
+
+
+
+
+
+\\- OTLP exporter configuration
+
+
+
+
+
+
+
+\\- shared instrumentation boundaries for API and workers
+
+
+
+
+
+
+
+\\- service/resource identity configuration
+
+
+
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 10. Database Strategy\*\***
+
+
+
+
+
+
+
+**\*\*### MVP system of record\*\***
+
+
+
+
 
 
 
@@ -1177,55 +2360,111 @@ PostgreSQL is the system of record.
 
 
 
+
+
+
+
 PostgreSQL stores:
 
 
 
-\- tenancy data
 
 
 
-\- users
+
+\\- tenancy data
 
 
 
-\- repositories
 
 
 
-\- analysis runs
+
+\\- users
 
 
 
-\- graph nodes
 
 
 
-\- graph edges
+
+\\- repositories
 
 
 
-\- evidence
 
 
 
-\- jobs
+
+\\- analysis runs
 
 
 
-\- impact results
 
 
 
-\- simulation results
+
+\\- graph nodes
 
 
 
-\- AI analysis records
 
 
 
-\- audit data
+
+\\- graph edges
+
+
+
+
+
+
+
+\\- evidence
+
+
+
+
+
+
+
+\\- jobs
+
+
+
+
+
+
+
+\\- impact results
+
+
+
+
+
+
+
+\\- simulation results
+
+
+
+
+
+
+
+\\- AI analysis records
+
+
+
+
+
+
+
+\\- audit data
+
+
+
+
 
 
 
@@ -1233,15 +2472,31 @@ The dependency graph is modeled in PostgreSQL using relational adjacency structu
 
 
 
+
+
+
+
 A dedicated graph database is not part of the MVP architecture.
 
 
 
-\---
 
 
 
-**## 11. Authentication and Tenancy**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 11. Authentication and Tenancy\*\***
+
+
+
+
 
 
 
@@ -1249,11 +2504,23 @@ Fluxora uses Clerk as the managed authentication provider.
 
 
 
+
+
+
+
 Current responsibility split:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1261,7 +2528,15 @@ GitHub
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -1269,7 +2544,15 @@ Clerk
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -1277,7 +2560,15 @@ Authenticated identity
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -1285,7 +2576,15 @@ Fluxora User + Organization + Role
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -1293,7 +2592,15 @@ PostgreSQL RLS
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1301,27 +2608,55 @@ Clerk handles authentication.
 
 
 
+
+
+
+
 Fluxora owns:
 
 
 
-\- Organization
 
 
 
-\- User
+
+\\- Organization
 
 
 
-\- roles
 
 
 
-\- organization membership
+
+\\- User
 
 
 
-\- tenant authorization
+
+
+
+
+\\- roles
+
+
+
+
+
+
+
+\\- organization membership
+
+
+
+
+
+
+
+\\- tenant authorization
+
+
+
+
 
 
 
@@ -1329,15 +2664,31 @@ PostgreSQL RLS remains the database-level tenant boundary.
 
 
 
+
+
+
+
 Fluxora intentionally does not use Clerk Organizations as the product tenant authority.
 
 
 
-\---
 
 
 
-**## 12. Local / Production Separation**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 12. Local / Production Separation\*\***
+
+
+
+
 
 
 
@@ -1345,27 +2696,55 @@ Local development is optimized for the available hardware.
 
 
 
+
+
+
+
 Production architecture is optimized for:
 
 
 
-\- correctness
 
 
 
-\- isolation
+
+\\- correctness
 
 
 
-\- scaling
 
 
 
-\- resilience
+
+\\- isolation
 
 
 
-\- deployment
+
+
+
+
+\\- scaling
+
+
+
+
+
+
+
+\\- resilience
+
+
+
+
+
+
+
+\\- deployment
+
+
+
+
 
 
 
@@ -1373,15 +2752,31 @@ The implementation intentionally supports both local and production adapters wit
 
 
 
-**### Redis**
 
 
 
-\`\`\`text
+
+**\*\*### Redis\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
 Local
+
+
+
+
 
 
 
@@ -1389,7 +2784,15 @@ Local
 
 
 
+
+
+
+
 Production
+
+
+
+
 
 
 
@@ -1397,23 +2800,47 @@ Production
 
 
 
+
+
+
+
 → real/managed Redis
 
 
 
-\`\`\`
 
 
 
-**### Object storage**
+
+\\\`\\\`\\\`
 
 
 
-\`\`\`text
+
+
+
+
+**\*\*### Object storage\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
 Local
+
+
+
+
 
 
 
@@ -1421,7 +2848,15 @@ Local
 
 
 
+
+
+
+
 Production
+
+
+
+
 
 
 
@@ -1429,19 +2864,39 @@ Production
 
 
 
+
+
+
+
 → AWS S3 / S3-compatible storage
 
 
 
-\`\`\`
 
 
 
-**### Secrets**
+
+\\\`\\\`\\\`
 
 
 
-\`\`\`text
+
+
+
+
+**\*\*### Secrets\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1449,7 +2904,15 @@ Local
 
 
 
+
+
+
+
 → EnvSecretsProvider
+
+
+
+
 
 
 
@@ -1457,7 +2920,15 @@ Production
 
 
 
+
+
+
+
 → SecretsManagerProvider
+
+
+
+
 
 
 
@@ -1465,7 +2936,15 @@ Production
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1473,11 +2952,23 @@ Production adapters are implemented, but production infrastructure is not requir
 
 
 
-\---
 
 
 
-**## 13. Current Local Development Environment**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 13. Current Local Development Environment\*\***
+
+
+
+
 
 
 
@@ -1485,7 +2976,15 @@ Machine constraints:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1493,11 +2992,23 @@ Windows
 
 
 
+
+
+
+
 4 GB RAM
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1505,7 +3016,15 @@ Current tooling/environment:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1513,7 +3032,15 @@ Node.js 24.18.0
 
 
 
+
+
+
+
 pnpm 10.34.5
+
+
+
+
 
 
 
@@ -1521,11 +3048,23 @@ Git
 
 
 
+
+
+
+
 PostgreSQL 18.6
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1533,7 +3072,15 @@ Current PostgreSQL:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1541,7 +3088,15 @@ Host: localhost
 
 
 
+
+
+
+
 Port: 5432
+
+
+
+
 
 
 
@@ -1549,7 +3104,15 @@ Database: fluxora_dev
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1557,11 +3120,23 @@ PostgreSQL is currently the required persistent local infrastructure service.
 
 
 
+
+
+
+
 Deferred as running local services:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1569,7 +3144,15 @@ Redis server
 
 
 
+
+
+
+
 MinIO / S3-compatible server
+
+
+
+
 
 
 
@@ -1577,11 +3160,23 @@ MailHog
 
 
 
+
+
+
+
 Docker Desktop
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1589,7 +3184,15 @@ The code for production adapters exists without requiring those services to be r
 
 
 
-**### Step 9 local-development bootstrap**
+
+
+
+
+**\*\*### Step 9 local-development bootstrap\*\***
+
+
+
+
 
 
 
@@ -1597,21 +3200,43 @@ The repository now defines a reproducible local infrastructure recipe plus deter
 
 
 
+
+
+
+
 Compose services:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 postgres
 
+
+
 redis
+
+
 
 minio
 
+
+
 minio-init
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1619,15 +3244,31 @@ The Compose PostgreSQL service maps:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 host 5433 → container 5432
 
-\`\`\`
+
+
+\\\`\\\`\\\`
 
 
 
-so it can coexist with the native PostgreSQL instance already using \`localhost:5432\`.
+
+
+
+
+so it can coexist with the native PostgreSQL instance already using \\\`localhost:5432\\\`.
+
+
+
+
 
 
 
@@ -1635,23 +3276,47 @@ Local database lifecycle commands are:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 pnpm db:migrate
 
+
+
 pnpm db:seed
+
+
 
 pnpm db:reset
 
-\`\`\`
+
+
+\\\`\\\`\\\`
 
 
 
-\`db:seed\` creates deterministic local organization/user state through the existing database provisioning path and is safe to rerun.
 
 
 
-\`db:reset\` is destructive and validates that the configured target is clearly the local \`fluxora_dev\` development database before clearing tenant data.
+
+\\\`db:seed\\\` creates deterministic local organization/user state through the existing database provisioning path and is safe to rerun.
+
+
+
+
+
+
+
+\\\`db:reset\\\` is destructive and validates that the configured target is clearly the local \\\`fluxora_dev\\\` development database before clearing tenant data.
+
+
+
+
 
 
 
@@ -1659,23 +3324,47 @@ Step 9 does not add a new SQL migration because the schema remains unchanged.
 
 
 
-**### Step 9 CLI/module lifecycle lesson**
 
 
 
-The reset acceptance test initially exposed a runtime bug: \`seed.ts\` contained a top-level \`main()\` call. When \`reset.ts\` imported the reusable seed function, ES module evaluation also executed that top-level call, creating an unexpected second CLI path and resulting in:
+
+**\*\*### Step 9 CLI/module lifecycle lesson\*\***
 
 
 
-\`\`\`text
+
+
+
+
+The reset acceptance test initially exposed a runtime bug: \\\`seed.ts\\\` contained a top-level \\\`main()\\\` call. When \\\`reset.ts\\\` imported the reusable seed function, ES module evaluation also executed that top-level call, creating an unexpected second CLI path and resulting in:
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 Called end on pool more than once
 
-\`\`\`
+
+
+\\\`\\\`\\\`
 
 
 
-The reusable seed logic and direct CLI entrypoint were separated so \`main()\` only runs when \`seed.ts\` is directly executed.
+
+
+
+
+The reusable seed logic and direct CLI entrypoint were separated so \\\`main()\\\` only runs when \\\`seed.ts\\\` is directly executed.
+
+
+
+
 
 
 
@@ -1685,11 +3374,25 @@ The incident is recorded as a learning/debugging item because it demonstrates mo
 
 
 
-\---
 
 
 
-**## 14. Step 5 Infrastructure Boundary**
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 14. Step 5 Infrastructure Boundary\*\***
+
+
+
+
 
 
 
@@ -1697,7 +3400,15 @@ The infrastructure package currently contains:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1705,7 +3416,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 ├── src/
+
+
+
+
 
 
 
@@ -1713,7 +3432,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │
+
+
+
+
 
 
 
@@ -1721,7 +3448,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │   ├── client.ts
+
+
+
+
 
 
 
@@ -1729,7 +3464,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │   ├── node-redis.ts
+
+
+
+
 
 
 
@@ -1737,7 +3480,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │
+
+
+
+
 
 
 
@@ -1745,7 +3496,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │   ├── client.ts
+
+
+
+
 
 
 
@@ -1753,7 +3512,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │   ├── s3.ts
+
+
+
+
 
 
 
@@ -1761,7 +3528,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │   │
+
+
+
+
 
 
 
@@ -1769,7 +3544,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │       ├── client.ts
+
+
+
+
 
 
 
@@ -1777,7 +3560,15 @@ packages/infrastructure/
 
 
 
+
+
+
+
 │       ├── cached.ts
+
+
+
+
 
 
 
@@ -1785,11 +3576,23 @@ packages/infrastructure/
 
 
 
-\`\`\`
 
 
 
-**### Redis**
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+**\*\*### Redis\*\***
+
+
+
+
 
 
 
@@ -1797,7 +3600,15 @@ Tenant-scoped key helpers include:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1805,7 +3616,15 @@ organizationRedisKey()
 
 
 
+
+
+
+
 cacheKey()
+
+
+
+
 
 
 
@@ -1813,11 +3632,23 @@ lockKey()
 
 
 
+
+
+
+
 rateLimitKey()
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1825,19 +3656,39 @@ Example:
 
 
 
-\`\`\`text
 
 
 
-org:{organizationId}\\:cache:{key}
+
+\\\`\\\`\\\`text
 
 
 
-\`\`\`
 
 
 
-**### Object storage**
+
+org:{organizationId}\\\\:cache:{key}
+
+
+
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+**\*\*### Object storage\*\***
+
+
+
+
 
 
 
@@ -1845,7 +3696,15 @@ Tenant-safe snapshot keys follow:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1853,7 +3712,15 @@ Tenant-safe snapshot keys follow:
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1861,7 +3728,15 @@ Example:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1869,7 +3744,15 @@ org-123/repo-456/snapshot-789/source/index.ts
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1877,7 +3760,15 @@ Invalid traversal/path patterns are rejected.
 
 
 
-**### Secrets**
+
+
+
+
+**\*\*### Secrets\*\***
+
+
+
+
 
 
 
@@ -1885,7 +3776,15 @@ The secrets boundary contains:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -1893,7 +3792,15 @@ SecretsClient
 
 
 
+
+
+
+
 EnvSecretsProvider
+
+
+
+
 
 
 
@@ -1901,11 +3808,23 @@ SecretsManagerProvider
 
 
 
+
+
+
+
 CachedSecretsClient
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1913,15 +3832,31 @@ Secret caching is short-lived and in memory.
 
 
 
+
+
+
+
 Secrets are never intentionally persisted to disk by the infrastructure package.
 
 
 
-\---
 
 
 
-**## 15. Node 24 Native TypeScript Execution**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 15. Node 24 Native TypeScript Execution\*\***
+
+
+
+
 
 
 
@@ -1929,11 +3864,23 @@ Fluxora currently uses two distinct mechanisms:
 
 
 
-**### Type validation**
 
 
 
-\`\`\`powershell
+
+**\*\*### Type validation\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`powershell
+
+
+
+
 
 
 
@@ -1941,15 +3888,31 @@ tsc --noEmit
 
 
 
-\`\`\`
 
 
 
-**### Infrastructure test execution**
+
+\\\`\\\`\\\`
 
 
 
-\`\`\`powershell
+
+
+
+
+**\*\*### Infrastructure test execution\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`powershell
+
+
+
+
 
 
 
@@ -1957,7 +3920,15 @@ node --experimental-strip-types --test
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -1965,7 +3936,15 @@ Node's strip-only execution supports erasable TypeScript syntax but does not sup
 
 
 
+
+
+
+
 Therefore runtime-tested classes use explicit fields and assignments instead of parameter properties.
+
+
+
+
 
 
 
@@ -1973,11 +3952,23 @@ This is a runtime execution constraint, not an architectural constraint.
 
 
 
-\---
 
 
 
-**## 16. Testing Philosophy**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 16. Testing Philosophy\*\***
+
+
+
+
 
 
 
@@ -1985,35 +3976,71 @@ Testing should verify architectural invariants, not merely line coverage.
 
 
 
+
+
+
+
 Important distributed-system tests include:
 
 
 
-\- idempotency
 
 
 
-\- retries
+
+\\- idempotency
 
 
 
-\- crash recovery
 
 
 
-\- job claiming
+
+\\- retries
 
 
 
-\- lease expiry / stale-worker recovery
 
 
 
-\- duplicate job submission
+
+\\- crash recovery
 
 
 
-\- tenant-scoped behavior
+
+
+
+
+\\- job claiming
+
+
+
+
+
+
+
+\\- lease expiry / stale-worker recovery
+
+
+
+
+
+
+
+\\- duplicate job submission
+
+
+
+
+
+
+
+\\- tenant-scoped behavior
+
+
+
+
 
 
 
@@ -2021,55 +4048,111 @@ Step 5 local runtime tests cover:
 
 
 
-\- Redis key helpers
 
 
 
-\- Redis set-if-absent
+
+\\- Redis key helpers
 
 
 
-\- Redis increment
 
 
 
-\- Redis delete
+
+\\- Redis set-if-absent
 
 
 
-\- Redis ping
 
 
 
-\- filesystem object storage
+
+\\- Redis increment
 
 
 
-\- object write/read
 
 
 
-\- existence/deletion
+
+\\- Redis delete
 
 
 
-\- path traversal rejection
 
 
 
-\- environment secret lookup
+
+\\- Redis ping
 
 
 
-\- missing-secret handling
 
 
 
-\- secret caching
+
+\\- filesystem object storage
 
 
 
-\- cache invalidation
+
+
+
+
+\\- object write/read
+
+
+
+
+
+
+
+\\- existence/deletion
+
+
+
+
+
+
+
+\\- path traversal rejection
+
+
+
+
+
+
+
+\\- environment secret lookup
+
+
+
+
+
+
+
+\\- missing-secret handling
+
+
+
+
+
+
+
+\\- secret caching
+
+
+
+
+
+
+
+\\- cache invalidation
+
+
+
+
 
 
 
@@ -2077,47 +4160,95 @@ Step 6 runtime tests cover:
 
 
 
-\- basic job enqueue/claim
 
 
 
-\- \`FOR UPDATE SKIP LOCKED\` claim behavior
+
+\\- basic job enqueue/claim
 
 
 
-\- lease expiry and reclaim
 
 
 
-\- worker ownership validation
+
+\\- \\\`FOR UPDATE SKIP LOCKED\\\` claim behavior
 
 
 
-\- successful completion
 
 
 
-\- failure/retry
+
+\\- lease expiry and reclaim
 
 
 
-\- dead-letter behavior
 
 
 
-\- worker harness success path
+
+\\- worker ownership validation
 
 
 
-\- worker harness failure path
 
 
 
-\- same-tenant idempotency
+
+\\- successful completion
 
 
 
-\- cross-tenant idempotency isolation
+
+
+
+
+\\- failure/retry
+
+
+
+
+
+
+
+\\- dead-letter behavior
+
+
+
+
+
+
+
+\\- worker harness success path
+
+
+
+
+
+
+
+\\- worker harness failure path
+
+
+
+
+
+
+
+\\- same-tenant idempotency
+
+
+
+
+
+
+
+\\- cross-tenant idempotency isolation
+
+
+
+
 
 
 
@@ -2125,7 +4256,15 @@ Real production services are not required for these local tests.
 
 
 
-**## 17. Current Verification**
+
+
+
+
+**\*\*## 17. Current Verification\*\***
+
+
+
+
 
 
 
@@ -2133,7 +4272,15 @@ Step 5 verification completed:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2141,7 +4288,15 @@ pnpm --filter @fluxora/infrastructure typecheck ✅
 
 
 
+
+
+
+
 pnpm --filter @fluxora/infrastructure test       ✅
+
+
+
+
 
 
 
@@ -2149,7 +4304,15 @@ pnpm typecheck                                   ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2157,7 +4320,15 @@ Step 6 verification completed:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2165,7 +4336,15 @@ pnpm --filter @fluxora/db typecheck       ✅
 
 
 
+
+
+
+
 pnpm --filter @fluxora/workers typecheck  ✅
+
+
+
+
 
 
 
@@ -2173,7 +4352,15 @@ pnpm typecheck                            ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2181,7 +4368,15 @@ Step 6 runtime verification also completed for:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2189,7 +4384,15 @@ basic claim                              ✅
 
 
 
+
+
+
+
 lease expiry / reclaim                   ✅
+
+
+
+
 
 
 
@@ -2197,7 +4400,15 @@ completion ownership                     ✅
 
 
 
+
+
+
+
 failure / retry / dead-letter            ✅
+
+
+
+
 
 
 
@@ -2205,7 +4416,15 @@ worker success integration               ✅
 
 
 
+
+
+
+
 worker failure integration               ✅
+
+
+
+
 
 
 
@@ -2213,11 +4432,23 @@ idempotency within tenant                ✅
 
 
 
+
+
+
+
 idempotency across tenants               ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2225,11 +4456,23 @@ Step 5 production adapters and Step 6 production deployment behavior have not be
 
 
 
+
+
+
+
 Step 7 verification completed:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2237,7 +4480,15 @@ pnpm --filter @fluxora/observability typecheck ✅
 
 
 
+
+
+
+
 pnpm --filter @fluxora/api typecheck            ✅
+
+
+
+
 
 
 
@@ -2245,11 +4496,23 @@ pnpm --filter @fluxora/workers typecheck       ✅
 
 
 
+
+
+
+
 pnpm typecheck                                  ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2257,7 +4520,15 @@ Step 7 end-to-end telemetry verification completed with a local OpenTelemetry Co
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2265,7 +4536,15 @@ Collector OTLP/HTTP receiver on :4318       ✅
 
 
 
+
+
+
+
 Fluxora API startup with OTel               ✅
+
+
+
+
 
 
 
@@ -2273,7 +4552,15 @@ Dummy endpoint HTTP 200                     ✅
 
 
 
+
+
+
+
 Traces received                             ✅
+
+
+
+
 
 
 
@@ -2281,7 +4568,15 @@ Metrics received                            ✅
 
 
 
+
+
+
+
 Logs received                               ✅
+
+
+
+
 
 
 
@@ -2289,7 +4584,15 @@ service.name = @fluxora/api                 ✅
 
 
 
+
+
+
+
 fluxora.telemetry.dummy span                ✅
+
+
+
+
 
 
 
@@ -2297,11 +4600,23 @@ fluxora.telemetry.dummy.request log         ✅
 
 
 
+
+
+
+
 HTTP request duration metric                ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2309,11 +4624,23 @@ The local Collector uses the debug exporter for verification. This proves the ap
 
 
 
+
+
+
+
 Step 8 local quality verification completed:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2321,7 +4648,15 @@ pnpm lint                                      ✅
 
 
 
+
+
+
+
 pnpm typecheck                                 ✅
+
+
+
+
 
 
 
@@ -2329,7 +4664,15 @@ pnpm test                                      ✅
 
 
 
+
+
+
+
 7 tests passed, 0 failed                      ✅
+
+
+
+
 
 
 
@@ -2337,19 +4680,39 @@ pnpm build                                     ✅
 
 
 
+
+
+
+
 Next.js production build                       ✅
 
 
 
-\`\`\`
 
 
 
-The CI workflow was executed successfully on \`main\` for both the CI foundation commit and the hosted-runtime commit:
+
+\\\`\\\`\\\`
 
 
 
-\`\`\`text
+
+
+
+
+The CI workflow was executed successfully on \\\`main\\\` for both the CI foundation commit and the hosted-runtime commit:
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2357,11 +4720,23 @@ CI #1 — 741de67 — passed ✅
 
 
 
+
+
+
+
 CI #2 — 83b6602 — passed ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2369,7 +4744,15 @@ The deployed frontend was manually smoke-tested on Vercel:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2377,7 +4760,15 @@ homepage renders                              ✅
 
 
 
+
+
+
+
 /sign-in loads                                ✅
+
+
+
+
 
 
 
@@ -2385,7 +4776,15 @@ Continue with GitHub                          ✅
 
 
 
+
+
+
+
 authenticated landing page                   ✅
+
+
+
+
 
 
 
@@ -2393,15 +4792,31 @@ authenticated landing page                   ✅
 
 
 
-\`\`\`
 
 
 
-The API was prepared for a hosted runtime and verified locally with a Render-like \`PORT\`:
+
+\\\`\\\`\\\`
 
 
 
-\`\`\`text
+
+
+
+
+The API was prepared for a hosted runtime and verified locally with a Render-like \\\`PORT\\\`:
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2409,7 +4824,15 @@ PORT=4100                                       ✅
 
 
 
+
+
+
+
 server binds to 0.0.0.0                         ✅
+
+
+
+
 
 
 
@@ -2417,11 +4840,23 @@ GET /healthz                                   200 ✅
 
 
 
+
+
+
+
 health response status = ok                    ✅
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2429,7 +4864,15 @@ Render deployment verification completed:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2437,7 +4880,15 @@ Render service: fluxora-api                   ✅ LIVE
 
 
 
+
+
+
+
 Branch: main                                   ✅
+
+
+
+
 
 
 
@@ -2445,7 +4896,15 @@ Plan: Free                                     ✅
 
 
 
+
+
+
+
 Region: Singapore                              ✅
+
+
+
+
 
 
 
@@ -2453,7 +4912,15 @@ Health check: /healthz                         ✅
 
 
 
+
+
+
+
 Auto-deploy: On Commit                         ✅
+
+
+
+
 
 
 
@@ -2461,7 +4928,15 @@ Hosted PostgreSQL                              ✅
 
 
 
+
+
+
+
 Production environment variables configured   ✅
+
+
+
+
 
 
 
@@ -2469,11 +4944,23 @@ Hosted /healthz request verified               ✅
 
 
 
-\`\`\`
 
 
 
-The hosted \`/healthz\` endpoint performs \`SELECT 1\`, so the successful response verified both API reachability and API-to-hosted-PostgreSQL connectivity.
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+The hosted \\\`/healthz\\\` endpoint performs \\\`SELECT 1\\\`, so the successful response verified both API reachability and API-to-hosted-PostgreSQL connectivity.
+
+
+
+
 
 
 
@@ -2481,7 +4968,15 @@ Step 8 therefore meets the current implementation acceptance criteria for the CI
 
 
 
-**## 17.1 Step 9 Verification**
+
+
+
+
+**\*\*## 17.1 Step 9 Verification\*\***
+
+
+
+
 
 
 
@@ -2489,27 +4984,55 @@ Step 9 local-development verification completed after the reset/seed lifecycle b
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 pnpm db:migrate       ✅ No pending migrations
 
+
+
 pnpm db:seed          ✅
+
+
 
 pnpm db:seed          ✅ Idempotent / same logical local identity
 
+
+
 pnpm db:reset         ✅
+
+
 
 pnpm db:seed          ✅ Reset/reseed restored known state
 
+
+
 pnpm typecheck        ✅
+
+
 
 pnpm lint             ✅
 
+
+
 pnpm test             ✅ 7 passed, 0 failed
+
+
 
 pnpm build            ✅
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2517,129 +5040,317 @@ The acceptance test is intentionally broader than typechecking because the Step 
 
 
 
-**## 17.2 Step 10 Verification
+
+
+
+
+\*\*## 17.2 Step 10 Verification
+
+
 
 Step 10 local verification completed after the GitHub App implementation, browser Clerk-token handoff, scoped CORS support, and the associated fixes were completed:
 
-```text
 
-pnpm db:migrate       ✅ Applied migration 0008_github_installations.sql
 
-pnpm typecheck        ✅
+\`\`\`text
 
-pnpm lint             ✅
 
-pnpm test             ✅ 30 passed, 0 failed
 
-pnpm build            ✅
+pnpm db:migrate       ✅ Applied migration 0008_github_installations.sql
 
-```
+
+
+pnpm typecheck        ✅
+
+
+
+pnpm lint             ✅
+
+
+
+pnpm test             ✅ 30 passed, 0 failed
+
+
+
+pnpm build            ✅
+
+
+
+\`\`\`
+
+
 
 The build output includes:
 
-```text
 
-/github/setup        ✅
 
-```
+\`\`\`text
+
+
+
+/github/setup        ✅
+
+
+
+\`\`\`
+
+
 
 Focused Step 10 coverage includes:
 
-```text
 
-Web GitHub setup/browser-token tests        ✅
-DB installation planning tests              ✅ 4 passed
-API GitHub/JWT/security/CORS tests          ✅ 15 passed
-Infrastructure existing tests               ✅ 7 passed
-```
+
+\`\`\`text
+
+
+
+Web GitHub setup/browser-token tests        ✅
+
+DB installation planning tests              ✅ 4 passed
+
+API GitHub/JWT/security/CORS tests          ✅ 15 passed
+
+Infrastructure existing tests               ✅ 7 passed
+
+\`\`\`
+
+
 
 Step 10 is locally verified but is not yet marked fully production-complete. One live hosted smoke test remains:
 
-```text
+
+
+\`\`\`text
+
+
 
 Vercel dashboard
-    ↓
+
+    ↓
+
 GitHub App installation on anu-priya-1999/fluxora
-    ↓
+
+    ↓
+
 /github/setup?installation_id=...&setup_action=install
-    ↓
+
+    ↓
+
 browser Clerk useAuth().getToken()
-    ↓
+
+    ↓
+
 OPTIONS preflight + POST to Render API
-    ↓
+
+    ↓
+
 Clerk verification
-    ↓
+
+    ↓
+
 GitHub installation verification
-    ↓
+
+    ↓
+
 Render PostgreSQL persistence
 
-```
 
-The production acceptance test must confirm that the exact Vercel origin is present in the API's `CLERK_AUTHORIZED_PARTIES`, CORS allows that origin only, and the installation row is created or replayed idempotently in the hosted PostgreSQL database.
 
-**## 17.3 Step 11 Verification
+\`\`\`
+
+
+
+The production acceptance test must confirm that the exact Vercel origin is present in the API's \`CLERK_AUTHORIZED_PARTIES\`, CORS allows that origin only, and the installation row is created or replayed idempotently in the hosted PostgreSQL database.
+
+
+
+\*\*## 17.3 Step 11 Verification
+
+
 
 Step 11 local verification of the Repository / RepositorySnapshot / Commit data model:
 
-```text
 
-pnpm db:migrate       ✅ Applied 0010_grant_bootstrap_function_execute.sql and 0011_repositories_snapshots_commits.sql
 
-pnpm typecheck        ✅
+\`\`\`text
 
-pnpm lint             ✅
 
-pnpm test             ✅ 46 passed, 0 failed
 
-pnpm build            ✅
+pnpm db:migrate       ✅ Applied 0010_grant_bootstrap_function_execute.sql and 0011_repositories_snapshots_commits.sql
 
-```
 
-Local PostgreSQL catalog check confirmed `repositories`, `repository_snapshots`, and `commits` exist with FORCE RLS, expected uniques/FKs/indexes, no `organization_id` on child tables, and no UPDATE policy on snapshots or commits.
+
+pnpm typecheck        ✅
+
+
+
+pnpm lint             ✅
+
+
+
+pnpm test             ✅ 46 passed, 0 failed
+
+
+
+pnpm build            ✅
+
+
+
+\`\`\`
+
+
+
+Local PostgreSQL catalog check confirmed \`repositories\`, \`repository_snapshots\`, and \`commits\` exist with FORCE RLS, expected uniques/FKs/indexes, no \`organization_id\` on child tables, and no UPDATE policy on snapshots or commits.
+
+
 
 Focused Step 11 coverage includes:
 
-```text
 
-Static 0011 migration contract tests                 ✅
-Repository validation unit tests                    ✅
-PostgreSQL repository / snapshot / commit / RLS     ✅ (via non-bypass fluxora_rls_test role)
 
-```
+\`\`\`text
 
-Step 11 does not ingest repositories. Step 12 is the `repository.ingest` worker: load tenant repository and GitHub installation, mint a short-lived installation token, fetch the tree at a ref, and materialize it into an isolated working directory. Object-storage upload, final `RepositorySnapshot` persistence, `POST /api/v1/repositories/connect`, and WebSocket progress remain Step 13+.
 
-**## 17.4 Step 12 Verification
+
+Static 0011 migration contract tests                 ✅
+
+Repository validation unit tests                    ✅
+
+PostgreSQL repository / snapshot / commit / RLS     ✅ (via non-bypass fluxora_rls_test role)
+
+
+
+\`\`\`
+
+
+
+Step 11 does not ingest repositories. Step 12 is the \`repository.ingest\` worker: load tenant repository and GitHub installation, mint a short-lived installation token, fetch the tree at a ref, and materialize it into an isolated working directory. Object-storage upload, final \`RepositorySnapshot\` persistence, \`POST /api/v1/repositories/connect\`, and WebSocket progress remain Step 13+.
+
+
+
+\*\*## 17.4 Step 12 Verification
+
+
 
 Step 12 local verification of the repository ingestion worker:
 
-```text
 
-pnpm typecheck        ✅
 
-pnpm lint             ✅
+\`\`\`text
 
-pnpm test             ✅ 66 passed, 0 failed (20 of them Step 12 worker tests)
 
-pnpm build            ✅
 
-```
+pnpm typecheck        ✅
+
+
+
+pnpm lint             ✅
+
+
+
+pnpm test             ✅ 66 passed, 0 failed (20 of them Step 12 worker tests)
+
+
+
+pnpm build            ✅
+
+
+
+\`\`\`
+
+
 
 Focused Step 12 coverage includes:
 
-```text
 
-repository.ingest payload and handler registration   ✅
-mocked GitHub token, ref, tarball ingest             ✅
+
+\`\`\`text
+
+
+
+repository.ingest payload and handler registration   ✅
+
+mocked GitHub token, ref, tarball ingest             ✅
+
 tenant mismatch, needs_reauth, rate-limit, invalid ref ✅
-archive path traversal, symlink, size limits, cleanup ✅
-JobWorker permanent vs retryable failure             ✅
 
-```
+archive path traversal, symlink, size limits, cleanup ✅
+
+JobWorker permanent vs retryable failure             ✅
+
+
+
+\`\`\`
+
+
 
 Step 12 does not upload snapshots or add a connect API. Those remain Step 13+.
 
-## 18. Job Architecture — Implemented**
+
+
+**## 17.5 Step 13 Verification
+
+
+
+Step 13 local verification of deterministic snapshot packaging, object-storage persistence, and immutable snapshot metadata:
+
+
+
+\`\`\`text
+
+
+
+pnpm --filter @fluxora/workers test   ✅ 24 passed, 0 failed
+
+
+
+pnpm typecheck                        ✅
+
+
+
+pnpm lint                             ✅
+
+
+
+pnpm test                             ✅
+
+
+
+\`\`\`
+
+
+
+Focused Step 13 coverage includes:
+
+
+
+\`\`\`text
+
+
+
+deterministic snapshot checksum/file contents        ✅
+compressed archive-size enforcement + cleanup        ✅
+filesystem/S3 storage configuration                  ✅
+immutable RepositorySnapshot persistence             ✅
+idempotent re-ingestion                              ✅
+partial object cleanup on DB persistence failure    ✅
+
+
+
+\`\`\`
+
+
+
+The final Step 13 artifact is one deterministic \`snapshot.tar.gz\` in object storage plus immutable \`RepositorySnapshot\` metadata in PostgreSQL. The temporary extracted repository remains ephemeral and is cleaned up after processing.
+
+
+
+
+**## 18. Job Architecture — Implemented\*\***
+
+
+
+
 
 
 
@@ -2647,23 +5358,47 @@ The MVP uses a PostgreSQL-backed job queue and transactional outbox-compatible w
 
 
 
+
+
+
+
 Jobs are:
 
 
 
-\- idempotent
 
 
 
-\- retryable
+
+\\- idempotent
 
 
 
-\- observable
 
 
 
-\- tenant-aware
+
+\\- retryable
+
+
+
+
+
+
+
+\\- observable
+
+
+
+
+
+
+
+\\- tenant-aware
+
+
+
+
 
 
 
@@ -2671,11 +5406,23 @@ Every job carries organization context.
 
 
 
+
+
+
+
 Implemented queue capabilities:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2683,7 +5430,15 @@ enqueue
 
 
 
+
+
+
+
 claim
+
+
+
+
 
 
 
@@ -2691,7 +5446,15 @@ complete
 
 
 
+
+
+
+
 fail
+
+
+
+
 
 
 
@@ -2699,7 +5462,15 @@ retry
 
 
 
+
+
+
+
 dead-letter
+
+
+
+
 
 
 
@@ -2707,11 +5478,23 @@ idempotency enforcement
 
 
 
+
+
+
+
 lease-based crash recovery
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2719,7 +5502,15 @@ The MVP claim mechanism uses PostgreSQL row locking with:
 
 
 
-\`\`\`sql
+
+
+
+
+\\\`\\\`\\\`sql
+
+
+
+
 
 
 
@@ -2727,7 +5518,15 @@ SELECT ... FOR UPDATE SKIP LOCKED
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2735,7 +5534,15 @@ Worker crashes allow jobs to become claimable again after lease expiry.
 
 
 
-Repeated failures eventually route to \`dead_letter\` rather than retrying forever.
+
+
+
+
+Repeated failures eventually route to \\\`dead_letter\\\` rather than retrying forever.
+
+
+
+
 
 
 
@@ -2743,11 +5550,23 @@ The worker harness dispatches jobs through a typed handler registry and handles 
 
 
 
-**## 19. Current Next Implementation Target**
 
 
 
-**### Phase 1 — Step 9 — COMPLETE**
+
+**\*\*## 19. Current Next Implementation Target\*\***
+
+
+
+
+
+
+
+**\*\*### Phase 1 — Step 9 — COMPLETE\*\***
+
+
+
+
 
 
 
@@ -2755,19 +5574,39 @@ Step 9 established the repeatable local-development foundation.
 
 
 
+
+
+
+
 Implemented:
 
 
 
-\- Docker Compose local-infrastructure recipe for PostgreSQL, Redis, MinIO, and MinIO bucket initialization
 
-\- deterministic local seed command
 
-\- guarded destructive reset command
 
-\- shared environment-loading/local-database validation helper
 
-\- root-level \`db:migrate\`, \`db:seed\`, and \`db:reset\` scripts
+\\- Docker Compose local-infrastructure recipe for PostgreSQL, Redis, MinIO, and MinIO bucket initialization
+
+
+
+\\- deterministic local seed command
+
+
+
+\\- guarded destructive reset command
+
+
+
+\\- shared environment-loading/local-database validation helper
+
+
+
+\\- root-level \\\`db:migrate\\\`, \\\`db:seed\\\`, and \\\`db:reset\\\` scripts
+
+
+
+
 
 
 
@@ -2775,19 +5614,39 @@ Current low-RAM development mode remains:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 PostgreSQL → native PostgreSQL 18.6
 
+
+
 Redis → in-memory adapter
+
+
 
 Object storage → filesystem adapter
 
+
+
 API/workers/web → native Node processes
+
+
 
 Docker Desktop → not required
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2795,31 +5654,63 @@ Compose remains the reproducible multi-service environment definition for strong
 
 
 
+
+
+
+
 Step 9 verification completed:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 pnpm db:migrate       ✅
 
-pnpm db:seed          ✅
+
 
 pnpm db:seed          ✅
+
+
+
+pnpm db:seed          ✅
+
+
 
 pnpm db:reset         ✅
 
+
+
 pnpm db:seed          ✅
+
+
 
 pnpm typecheck        ✅
 
+
+
 pnpm lint             ✅
+
+
 
 pnpm test             ✅
 
+
+
 pnpm build            ✅
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -2827,23 +5718,76 @@ The seed was verified as idempotent because repeated seeding returned the same l
 
 
 
-The reset path initially exposed a PostgreSQL pool lifecycle bug caused by \`seed.ts\` executing a top-level CLI \`main()\` when the module was imported by \`reset.ts\`. The reusable seed logic was separated from direct CLI execution so importing \`seed.ts\` no longer starts its CLI entrypoint. Reset/reseed then passed cleanly, and the full quality gate was rerun successfully.
 
 
 
-**### Post-Step-9 target
+
+The reset path initially exposed a PostgreSQL pool lifecycle bug caused by \\\`seed.ts\\\` executing a top-level CLI \\\`main()\\\` when the module was imported by \\\`reset.ts\\\`. The reusable seed logic was separated from direct CLI execution so importing \\\`seed.ts\\\` no longer starts its CLI entrypoint. Reset/reseed then passed cleanly, and the full quality gate was rerun successfully.
+
+
+
+
+
+
+
+\*\*### Post-Step-9 target
+
+
 
 The planned AWS production infrastructure migration is intentionally deferred until the core Fluxora implementation is substantially complete. This keeps the current development loop fast and avoids consuming production infrastructure resources before the later production-alignment point.
 
+
+
 Step 10 is the GitHub App installation and setup flow. Repository ingestion, snapshots, workers, and webhooks remain later roadmap work.
+
+
 
 The next engineering activity is the next canonical Phase 2 roadmap step. AWS production migration is a later deployment-alignment activity, not a prerequisite for continuing the implementation roadmap.
 
-Step 11 adds the `Repository`, `RepositorySnapshot`, and `Commit` tables and tenant-safe data-access modules only. GitHub repository fetching, installation access tokens, and the ingestion worker are Step 12. S3 upload, `POST /api/v1/repositories/connect`, and WebSocket progress remain Step 13+.
+
+
+Step 11 adds the \`Repository\`, \`RepositorySnapshot\`, and \`Commit\` tables and tenant-safe data-access modules only. GitHub repository fetching, installation access tokens, and the ingestion worker are Step 12. S3 upload, \`POST /api/v1/repositories/connect\`, and WebSocket progress remain Step 13+.
+
+
 
 Step 9 does not introduce a new SQL migration because it does not change database schema; it adds local environment/bootstrap and data-lifecycle tooling.
 
-## 20. Security Model**
+
+
+### Current Phase 2 status
+
+
+
+The implementation through Step 13 is now:
+
+
+
+\`\`\`text
+
+
+
+Step 10 — GitHub App installation + setup flow        IMPLEMENTED
+
+Step 11 — Repository, RepositorySnapshot, Commit      IMPLEMENTED
+
+Step 12 — Repository ingestion worker                 IMPLEMENTED
+
+Step 13 — Repository snapshot storage                 ✅ COMPLETE
+
+\`\`\`
+
+
+
+Step 13 is verified. The next global implementation target is **Step 14 — repository connect API/orchestration**. AWS production migration remains a later deployment-alignment activity and is not a prerequisite for continuing the roadmap.
+
+
+
+
+**## 20. Security Model\*\***
+
+
+
+
 
 
 
@@ -2851,35 +5795,71 @@ Repository source code is sensitive and potentially adversarial.
 
 
 
+
+
+
+
 Rules:
 
 
 
-\- never execute customer repository code during static analysis
 
 
 
-\- never treat repository content as trusted instructions
+
+\\- never execute customer repository code during static analysis
 
 
 
-\- treat repository content reaching the AI layer as untrusted data
 
 
 
-\- never commit secrets
+
+\\- never treat repository content as trusted instructions
 
 
 
-\- never log secrets
 
 
 
-\- never persist secrets in source files
+
+\\- treat repository content reaching the AI layer as untrusted data
 
 
 
-\- enforce tenant isolation at multiple layers
+
+
+
+
+\\- never commit secrets
+
+
+
+
+
+
+
+\\- never log secrets
+
+
+
+
+
+
+
+\\- never persist secrets in source files
+
+
+
+
+
+
+
+\\- enforce tenant isolation at multiple layers
+
+
+
+
 
 
 
@@ -2887,7 +5867,15 @@ Tenant isolation includes:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2895,7 +5883,15 @@ application authorization
 
 
 
+
+
+
+
         +
+
+
+
+
 
 
 
@@ -2903,7 +5899,15 @@ PostgreSQL RLS
 
 
 
+
+
+
+
         +
+
+
+
+
 
 
 
@@ -2911,7 +5915,15 @@ tenant-scoped jobs
 
 
 
+
+
+
+
         +
+
+
+
+
 
 
 
@@ -2919,7 +5931,15 @@ tenant-scoped object-storage paths
 
 
 
+
+
+
+
         +
+
+
+
+
 
 
 
@@ -2927,15 +5947,31 @@ tenant-scoped Redis keys
 
 
 
-\`\`\`
 
 
 
-\---
+
+\\\`\\\`\\\`
 
 
 
-**## 21. Observability — Implemented**
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 21. Observability — Implemented\*\***
+
+
+
+
 
 
 
@@ -2943,11 +5979,23 @@ OpenTelemetry is now part of the Phase 1 foundation.
 
 
 
+
+
+
+
 Implemented architecture:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -2955,7 +6003,15 @@ API + Workers
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -2963,7 +6019,15 @@ API + Workers
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -2971,7 +6035,15 @@ OpenTelemetry SDK
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -2979,7 +6051,15 @@ Traces / Metrics / Logs
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -2987,7 +6067,15 @@ OTLP/HTTP
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -2995,7 +6083,15 @@ OpenTelemetry Collector
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3003,39 +6099,79 @@ Implemented components include:
 
 
 
-\- shared \`@fluxora/observability\` package
 
 
 
-\- OTLP trace exporter
+
+\\- shared \\\`@fluxora/observability\\\` package
 
 
 
-\- OTLP metric exporter
 
 
 
-\- OTLP log exporter
+
+\\- OTLP trace exporter
 
 
 
-\- OpenTelemetry HTTP instrumentation
 
 
 
-\- API bootstrap-time telemetry initialization
+
+\\- OTLP metric exporter
 
 
 
-\- worker job-processing spans
 
 
 
-\- dummy telemetry endpoint
+
+\\- OTLP log exporter
 
 
 
-\- local Collector configuration for verification
+
+
+
+
+\\- OpenTelemetry HTTP instrumentation
+
+
+
+
+
+
+
+\\- API bootstrap-time telemetry initialization
+
+
+
+
+
+
+
+\\- worker job-processing spans
+
+
+
+
+
+
+
+\\- dummy telemetry endpoint
+
+
+
+
+
+
+
+\\- local Collector configuration for verification
+
+
+
+
 
 
 
@@ -3043,7 +6179,15 @@ Verified API telemetry includes:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3051,7 +6195,15 @@ fluxora.telemetry.dummy
 
 
 
+
+
+
+
 fluxora.telemetry.dummy.request
+
+
+
+
 
 
 
@@ -3059,7 +6211,15 @@ http.server.request.duration
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3067,7 +6227,15 @@ Verified service resource identity:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3075,7 +6243,15 @@ service.name = @fluxora/api
 
 
 
+
+
+
+
 service.version = 0.0.0
+
+
+
+
 
 
 
@@ -3083,7 +6259,15 @@ deployment.environment.name = development
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3091,39 +6275,79 @@ Target production observability areas remain:
 
 
 
-\- API latency
 
 
 
-\- ingestion latency
+
+\\- API latency
 
 
 
-\- analysis duration
 
 
 
-\- graph size
+
+\\- ingestion latency
 
 
 
-\- AI cost/token usage
 
 
 
-\- job failure rate
+
+\\- analysis duration
 
 
 
-\- queue backlog
 
 
 
-\---
+
+\\- graph size
 
 
 
-**## 22. CI/CD — Implemented Foundation**
+
+
+
+
+\\- AI cost/token usage
+
+
+
+
+
+
+
+\\- job failure rate
+
+
+
+
+
+
+
+\\- queue backlog
+
+
+
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 22. CI/CD — Implemented Foundation\*\***
+
+
+
+
 
 
 
@@ -3131,7 +6355,15 @@ Step 8 established a working CI/CD and hosted-deployment foundation.
 
 
 
-**### 22.1 Continuous Integration**
+
+
+
+
+**\*\*### 22.1 Continuous Integration\*\***
+
+
+
+
 
 
 
@@ -3139,7 +6371,15 @@ GitHub Actions workflow:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3147,7 +6387,15 @@ GitHub Actions workflow:
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3155,7 +6403,15 @@ Triggers:
 
 
 
-\`\`\`yaml
+
+
+
+
+\\\`\\\`\\\`yaml
+
+
+
+
 
 
 
@@ -3163,7 +6419,15 @@ on:
 
 
 
+
+
+
+
   pull_request:
+
+
+
+
 
 
 
@@ -3171,11 +6435,23 @@ on:
 
 
 
+
+
+
+
     branches: [main]
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3183,7 +6459,15 @@ Current quality-gate sequence:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3191,7 +6475,15 @@ checkout
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3199,7 +6491,15 @@ pnpm 10.34.5
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3207,7 +6507,15 @@ Node 24
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3215,7 +6523,15 @@ pnpm install --frozen-lockfile
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3223,7 +6539,15 @@ pnpm lint
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3231,7 +6555,15 @@ pnpm typecheck
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3239,7 +6571,15 @@ pnpm test
 
 
 
+
+
+
+
   ↓
+
+
+
+
 
 
 
@@ -3247,7 +6587,15 @@ pnpm build
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3255,23 +6603,47 @@ The CI workflow is intentionally repository-root based because Fluxora is a pnpm
 
 
 
+
+
+
+
 The workflow uses:
 
 
 
-\`\`\`text
 
 
 
-pnpm/action-setup\@v4
+
+\\\`\\\`\\\`text
 
 
 
-setup-node\@v7
 
 
 
-\`\`\`
+
+pnpm/action-setup\\@v4
+
+
+
+
+
+
+
+setup-node\\@v7
+
+
+
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3279,11 +6651,23 @@ with dependency caching through pnpm.
 
 
 
-**### 22.2 Frontend delivery**
 
 
 
-\`\`\`text
+
+**\*\*### 22.2 Frontend delivery\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3291,7 +6675,15 @@ GitHub main
 
 
 
+
+
+
+
    ↓
+
+
+
+
 
 
 
@@ -3299,7 +6691,15 @@ Vercel
 
 
 
+
+
+
+
    ↓
+
+
+
+
 
 
 
@@ -3307,11 +6707,23 @@ apps/web
 
 
 
-\`\`\`
 
 
 
-The Vercel project uses \`apps/web\` as its project root. Clerk environment variables are configured in Vercel for the hosted web application.
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+The Vercel project uses \\\`apps/web\\\` as its project root. Clerk environment variables are configured in Vercel for the hosted web application.
+
+
+
+
 
 
 
@@ -3319,11 +6731,23 @@ Hosted smoke verification established that authentication and the protected dash
 
 
 
-**### 22.3 API delivery**
 
 
 
-\`\`\`text
+
+**\*\*### 22.3 API delivery\*\***
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3331,7 +6755,15 @@ GitHub main
 
 
 
+
+
+
+
    ↓
+
+
+
+
 
 
 
@@ -3339,7 +6771,15 @@ Render Web Service
 
 
 
+
+
+
+
    ↓
+
+
+
+
 
 
 
@@ -3347,7 +6787,15 @@ apps/api
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3355,7 +6803,15 @@ Current Render configuration:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3363,7 +6819,15 @@ service: fluxora-api
 
 
 
+
+
+
+
 branch: main
+
+
+
+
 
 
 
@@ -3371,7 +6835,15 @@ runtime: Node
 
 
 
+
+
+
+
 root directory: repository root
+
+
+
+
 
 
 
@@ -3379,7 +6851,15 @@ region: Singapore
 
 
 
+
+
+
+
 plan: Free
+
+
+
+
 
 
 
@@ -3387,15 +6867,31 @@ auto-deploy: On Commit
 
 
 
+
+
+
+
 health check: /healthz
 
 
 
-\`\`\`
 
 
 
-The API intentionally does not have a \`build\` script in \`apps/api/package.json\`. It currently executes TypeScript directly with Node's native strip-types runtime.
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+The API intentionally does not have a \\\`build\\\` script in \\\`apps/api/package.json\\\`. It currently executes TypeScript directly with Node's native strip-types runtime.
+
+
+
+
 
 
 
@@ -3403,15 +6899,31 @@ Therefore the hosted build command is:
 
 
 
-\`\`\`text
 
 
 
-pnpm install --frozen-lockfile && pnpm db\\:migrate && pnpm --filter @fluxora/api typecheck
+
+\\\`\\\`\\\`text
 
 
 
-\`\`\`
+
+
+
+
+pnpm install --frozen-lockfile && pnpm db\\\\:migrate && pnpm --filter @fluxora/api typecheck
+
+
+
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3419,7 +6931,15 @@ and the start command is:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3427,23 +6947,47 @@ pnpm --filter @fluxora/api start
 
 
 
-\`\`\`
 
 
 
-This keeps database migration, type validation, and runtime startup explicit instead of inventing a compiled \`dist/\` build that the API does not currently use.
+
+\\\`\\\`\\\`
 
 
 
-**### 22.4 Runtime and health model**
 
 
 
-The API reads \`PORT\` with fallback to the local \`API_PORT\` default and binds to:
+
+This keeps database migration, type validation, and runtime startup explicit instead of inventing a compiled \\\`dist/\\\` build that the API does not currently use.
 
 
 
-\`\`\`text
+
+
+
+
+**\*\*### 22.4 Runtime and health model\*\***
+
+
+
+
+
+
+
+The API reads \\\`PORT\\\` with fallback to the local \\\`API_PORT\\\` default and binds to:
+
+
+
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3451,7 +6995,15 @@ The API reads \`PORT\` with fallback to the local \`API_PORT\` default and binds
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3459,11 +7011,23 @@ This is required for the hosted service to receive traffic.
 
 
 
-The \`/healthz\` route is intentionally unauthenticated and performs:
 
 
 
-\`\`\`sql
+
+The \\\`/healthz\\\` route is intentionally unauthenticated and performs:
+
+
+
+
+
+
+
+\\\`\\\`\\\`sql
+
+
+
+
 
 
 
@@ -3471,7 +7035,15 @@ SELECT 1
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3479,7 +7051,15 @@ before returning:
 
 
 
-\`\`\`json
+
+
+
+
+\\\`\\\`\\\`json
+
+
+
+
 
 
 
@@ -3487,7 +7067,15 @@ before returning:
 
 
 
+
+
+
+
   "status": "ok",
+
+
+
+
 
 
 
@@ -3495,11 +7083,23 @@ before returning:
 
 
 
+
+
+
+
 }
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3507,108 +7107,217 @@ This makes the health check an application-level readiness check rather than a p
 
 
 
-**### 22.5 Production configuration boundary
+
+
+
+
+\*\*### 22.5 Production configuration boundary
+
+
 
 Local and hosted runtime configuration remain separate:
 
-```text
+
+
+\`\`\`text
+
+
 
 local .env
 
+
+
 NODE_ENV=development
+
+
 
 Render environment
 
+
+
 NODE_ENV=production
 
-```
+
+
+\`\`\`
+
+
 
 Hosted secrets/configuration are stored in Render environment variables rather than committed to Git.
 
+
+
 Current API runtime variables include:
 
-```text
+
+
+\`\`\`text
+
+
 
 DATABASE_URL
 
+
+
 CLERK_SECRET_KEY
+
+
 
 CLERK_AUTHORIZED_PARTIES
 
+
+
 NODE_ENV
 
-```
+
+
+\`\`\`
+
+
 
 Step 10 adds GitHub App settings. The API host (Render) receives the App id and private key. The web host (Vercel) receives the public App slug, the API origin, and the web origin. Installation ids are not environment variables.
 
-```text
+
+
+\`\`\`text
+
+
 
 GITHUB_APP_ID
 
+
+
 GITHUB_APP_PRIVATE_KEY
+
+
 
 GITHUB_APP_SLUG
 
+
+
 FLUXORA_API_URL
+
+
 
 NEXT_PUBLIC_APP_URL
 
-```
+
+
+\`\`\`
+
+
 
 Current hosted split during Step 10 is:
 
-```text
+
+
+\`\`\`text
+
+
 
 Vercel web
-https://fluxora-rho-cyan.vercel.app
+
+https\://fluxora-rho-cyan.vercel.app
+
+
 
 Render API
-https://fluxora-api-6rrz.onrender.com
+
+https\://fluxora-api-6rrz.onrender.com
+
+
 
 Render PostgreSQL
+
 hosted database used by the Render API
 
-```
+
+
+\`\`\`
+
+
 
 Vercel Production web variables are:
 
-```text
+
+
+\`\`\`text
+
+
 
 GITHUB_APP_SLUG=fluxora-software-intelligence
 
-FLUXORA_API_URL=https://fluxora-api-6rrz.onrender.com
 
-NEXT_PUBLIC_APP_URL=https://fluxora-rho-cyan.vercel.app
 
-```
+FLUXORA_API_URL=https\://fluxora-api-6rrz.onrender.com
+
+
+
+NEXT_PUBLIC_APP_URL=https\://fluxora-rho-cyan.vercel.app
+
+
+
+\`\`\`
+
+
 
 Render API variables include:
 
-```text
 
-DATABASE_URL=<Render internal PostgreSQL URL>
 
-GITHUB_APP_ID=<GitHub App ID>
+\`\`\`text
 
-GITHUB_APP_PRIVATE_KEY=<GitHub App private key>
+
+
+DATABASE_URL=\<Render internal PostgreSQL URL>
+
+
+
+GITHUB_APP_ID=\<GitHub App ID>
+
+
+
+GITHUB_APP_PRIVATE_KEY=\<GitHub App private key>
+
+
 
 GITHUB_APP_SLUG=fluxora-software-intelligence
 
-CLERK_AUTHORIZED_PARTIES=https://fluxora-rho-cyan.vercel.app
 
-```
 
-`CLERK_AUTHORIZED_PARTIES` is used both by Clerk's `authorizedParties` check and by the scoped CORS allowlist for the browser-called GitHub installation endpoint. The exact Vercel origin is required; `*` is not used.
+CLERK_AUTHORIZED_PARTIES=https\://fluxora-rho-cyan.vercel.app
+
+
+
+\`\`\`
+
+
+
+\`CLERK_AUTHORIZED_PARTIES\` is used both by Clerk's \`authorizedParties\` check and by the scoped CORS allowlist for the browser-called GitHub installation endpoint. The exact Vercel origin is required; \`\*\` is not used.
+
+
 
 The GitHub App private key is never configured on Vercel.
 
-`PORT` is provided by the hosted runtime and is not hard-coded as a production constant.
-
-### 22.6 Database delivery**
 
 
+\`PORT\` is provided by the hosted runtime and is not hard-coded as a production constant.
 
-The hosted API uses a hosted PostgreSQL instance rather than the developer's local PostgreSQL at \`localhost:5432\`.
+
+
+**### 22.6 Database delivery\*\***
+
+
+
+
+
+
+
+The hosted API uses a hosted PostgreSQL instance rather than the developer's local PostgreSQL at \\\`localhost:5432\\\`.
+
+
+
+
 
 
 
@@ -3616,7 +7325,15 @@ The local database remains:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3624,11 +7341,23 @@ localhost:5432/fluxora_dev
 
 
 
-\`\`\`
 
 
 
-The hosted deployment uses the hosted database connection URL through \`DATABASE_URL\`.
+
+\\\`\\\`\\\`
+
+
+
+
+
+
+
+The hosted deployment uses the hosted database connection URL through \\\`DATABASE_URL\\\`.
+
+
+
+
 
 
 
@@ -3636,7 +7365,15 @@ This separation is deliberate:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3644,7 +7381,15 @@ local machine
 
 
 
+
+
+
+
     ↓
+
+
+
+
 
 
 
@@ -3652,7 +7397,15 @@ local PostgreSQL
 
 
 
+
+
+
+
 Render
+
+
+
+
 
 
 
@@ -3660,19 +7413,39 @@ Render
 
 
 
+
+
+
+
 hosted PostgreSQL
 
 
 
-\`\`\`
 
 
 
-A local \`localhost\` database must not be treated as a production database endpoint.
+
+\\\`\\\`\\\`
 
 
 
-**### 22.7 Deployment behavior**
+
+
+
+
+A local \\\`localhost\\\` database must not be treated as a production database endpoint.
+
+
+
+
+
+
+
+**\*\*### 22.7 Deployment behavior\*\***
+
+
+
+
 
 
 
@@ -3680,7 +7453,15 @@ The current Step 8 baseline is:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3688,7 +7469,15 @@ commit to main
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -3696,7 +7485,15 @@ GitHub Actions quality gates
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -3704,7 +7501,15 @@ Vercel / Render deployment mechanisms
 
 
 
+
+
+
+
      ↓
+
+
+
+
 
 
 
@@ -3712,7 +7517,15 @@ health / smoke verification
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3720,11 +7533,23 @@ This is a real deployment foundation, but it is not yet the final enterprise pro
 
 
 
+
+
+
+
 Future hardening can add:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3732,7 +7557,15 @@ PR preview E2E gates
 
 
 
+
+
+
+
 staging environment
+
+
+
+
 
 
 
@@ -3740,7 +7573,15 @@ manual promotion
 
 
 
+
+
+
+
 production smoke tests
+
+
+
+
 
 
 
@@ -3748,7 +7589,15 @@ automated rollback policy
 
 
 
+
+
+
+
 migration safety gates
+
+
+
+
 
 
 
@@ -3756,7 +7605,15 @@ worker deployment pipeline
 
 
 
-\`\`\`
+
+
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3764,7 +7621,15 @@ Those are explicitly future work unless implemented by a later roadmap step.
 
 
 
-**## 23. Learning-First Development**
+
+
+
+
+**\*\*## 23. Learning-First Development\*\***
+
+
+
+
 
 
 
@@ -3772,39 +7637,79 @@ Fluxora is also a learning and interview project.
 
 
 
+
+
+
+
 The developer should understand:
 
 
 
-\- why the architecture is structured this way
 
 
 
-\- why each storage decision was made
+
+\\- why the architecture is structured this way
 
 
 
-\- how graph traversal works
 
 
 
-\- how evidence is generated
+
+\\- why each storage decision was made
 
 
 
-\- how idempotency works
 
 
 
-\- how worker failures are handled
+
+\\- how graph traversal works
 
 
 
-\- how AI is prevented from becoming the source of truth
 
 
 
-\- how trade-offs change at larger scale
+
+\\- how evidence is generated
+
+
+
+
+
+
+
+\\- how idempotency works
+
+
+
+
+
+
+
+\\- how worker failures are handled
+
+
+
+
+
+
+
+\\- how AI is prevented from becoming the source of truth
+
+
+
+
+
+
+
+\\- how trade-offs change at larger scale
+
+
+
+
 
 
 
@@ -3812,19 +7717,39 @@ Learning notes are maintained separately from the canonical architecture.
 
 
 
+
+
+
+
 The Step 9 learning package includes:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 learning/notes/8. Personal Learning - Step 9.md
 
+
+
 learning/phase-01/step-09-local-dev-compose-seed.md
+
+
 
 interviews/2. Step 9 Interview CheatSheet.md
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3832,15 +7757,31 @@ The Step 10 learning package includes:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 learning/9. Github App Installation.md
 
+
+
 learning/phase-02/step-10-github-app-installation.md
+
+
 
 interviews/3. Github App Installation Interview CheatSheet.md
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3848,15 +7789,31 @@ The Step 11 learning package includes:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 learning/10. Repository Snapshot Commit Data Model.md
 
+
+
 learning/phase-02/step-11-repository-snapshot-commit.md
+
+
 
 learning/interviews/4. Step 11 Repository Snapshot Commit Interview CheatSheet.md
 
-\`\`\`
+
+
+\\\`\\\`\\\`
+
+
+
+
 
 
 
@@ -3864,15 +7821,72 @@ The Step 12 learning package includes:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
 
 learning/notes/11. Repository Ingestion Worker.md
 
+
+
 learning/implementations/phase-02/step-12-repository-ingestion.md
+
+
 
 learning/interviews/5. Step 12 Repository Ingestion Worker Interview CheatSheet.md
 
+
+
+\\\`\\\`\\\`
+
+
+
+The Step 13 learning package includes:
+
+
+
+\`\`\`text
+
+
+
+learning/notes/12. Repository Snapshot Storage.md
+
+
+
+learning/implementations/phase-02/step-13-repository-snapshot-storage.md
+
+
+
+learning/interviews/6. Step 13 Repository Snapshot Storage Interview CheatSheet.md
+
+
+
 \`\`\`
+
+
+
+The master interview guide covering every completed global step through Step 13 is:
+
+
+
+\`\`\`text
+
+
+
+learning/interviews/0. Fluxora Steps 1-13 Master Interview Guide.md
+
+
+
+\`\`\`
+
+
+
+
+
 
 
 
@@ -3880,11 +7894,23 @@ The personal learning note covers repeatable local development, migration-vs-see
 
 
 
+
+
+
+
 Current private learning structure:
 
 
 
-\`\`\`text
+
+
+
+
+\\\`\\\`\\\`text
+
+
+
+
 
 
 
@@ -3892,7 +7918,15 @@ learning/
 
 
 
+
+
+
+
 ├── concepts/
+
+
+
+
 
 
 
@@ -3900,7 +7934,15 @@ learning/
 
 
 
+
+
+
+
 ├── interviews/
+
+
+
+
 
 
 
@@ -3908,7 +7950,15 @@ learning/
 
 
 
+
+
+
+
 │   └── 5. Step 12 Repository Ingestion Worker Interview CheatSheet.md
+
+
+
+
 
 
 
@@ -3916,7 +7966,15 @@ learning/
 
 
 
+
+
+
+
 │   ├── 1. Monorepo & Foundation.md
+
+
+
+
 
 
 
@@ -3924,7 +7982,15 @@ learning/
 
 
 
+
+
+
+
 │   ├── 3. PostgreSQL & DB.md
+
+
+
+
 
 
 
@@ -3932,11 +7998,23 @@ learning/
 
 
 
-\|   ├── 5. PostgreSQL Job Queue, Distributed Workers & Failure&#x20;
 
 
 
-\|   |      Handling
+
+\\|   ├── 5. PostgreSQL Job Queue, Distributed Workers & Failure&#x20;
+
+
+
+
+
+
+
+\\|   |      Handling
+
+
+
+
 
 
 
@@ -3944,15 +8022,31 @@ learning/
 
 
 
+
+
+
+
 │   ├── 7. CI-CD and Production Deployment.md
+
+
 
 │   └── 8. Personal Learning - Step 9.md
 
 
 
+
+
+
+
 ├── 9. Github App Installation.md
 
+
+
 ├── 10. Repository Snapshot Commit Data Model.md
+
+
+
+
 
 
 
@@ -3960,7 +8054,19 @@ learning/
 
 
 
+├── notes/12. Repository Snapshot Storage.md
+
+
+
+
+
+
+
 ├── implementations/phase-02/step-12-repository-ingestion.md
+
+
+
+
 
 
 
@@ -3968,7 +8074,15 @@ learning/
 
 
 
+
+
+
+
     ├── step-01-monorepo.md
+
+
+
+
 
 
 
@@ -3976,7 +8090,15 @@ learning/
 
 
 
+
+
+
+
     ├── step-03-auth.md
+
+
+
+
 
 
 
@@ -3984,7 +8106,15 @@ learning/
 
 
 
+
+
+
+
     ├── step-05-infrastructure.md
+
+
+
+
 
 
 
@@ -3992,7 +8122,15 @@ learning/
 
 
 
+
+
+
+
     ├── step-07-opentelemetry.md
+
+
+
+
 
 
 
@@ -4000,7 +8138,15 @@ learning/
 
 
 
+
+
+
+
     └── step-09-local-dev-compose-seed.md
+
+
+
+
 
 
 
@@ -4008,25 +8154,51 @@ learning/
 
 
 
+
+
+
+
     ├── step-10-github-app-installation.md
+
+
 
     └── step-11-repository-snapshot-commit.md
 
 
 
-\`\`\`
 
 
 
-\---
+
+\\\`\\\`\\\`
 
 
 
-**## 24. Prompt Workflow**
 
 
 
-\`prompts/\` is a private prompt library.
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 24. Prompt Workflow\*\***
+
+
+
+
+
+
+
+\\\`prompts/\\\` is a private prompt library.
+
+
+
+
 
 
 
@@ -4034,19 +8206,39 @@ It may contain:
 
 
 
-\- Cursor implementation prompts
 
 
 
-\- debugging prompts
+
+\\- Cursor implementation prompts
 
 
 
-\- architecture prompts
 
 
 
-\- review prompts
+
+\\- debugging prompts
+
+
+
+
+
+
+
+\\- architecture prompts
+
+
+
+
+
+
+
+\\- review prompts
+
+
+
+
 
 
 
@@ -4054,15 +8246,31 @@ Cursor is an implementation aid, not the architectural owner.
 
 
 
+
+
+
+
 For routine fixes, verification, or straightforward coding, prefer direct implementation rather than spending Cursor tokens unnecessarily.
 
 
 
-\---
 
 
 
-**## 25. Cursor Operating Model**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 25. Cursor Operating Model\*\***
+
+
+
+
 
 
 
@@ -4070,31 +8278,63 @@ For meaningful implementation tasks:
 
 
 
-1\\. Inspect the current repository.
 
 
 
-2\\. Read the relevant canonical architecture documents.
+
+1\\\\. Inspect the current repository.
 
 
 
-3\\. Plan the smallest coherent change.
 
 
 
-4\\. Implement.
+
+2\\\\. Read the relevant canonical architecture documents.
 
 
 
-5\\. Verify with appropriate tests/typecheck/build/lint.
 
 
 
-6\\. Review for unintended changes and architecture violations.
+
+3\\\\. Plan the smallest coherent change.
 
 
 
-7\\. Record the actual result.
+
+
+
+
+4\\\\. Implement.
+
+
+
+
+
+
+
+5\\\\. Verify with appropriate tests/typecheck/build/lint.
+
+
+
+
+
+
+
+6\\\\. Review for unintended changes and architecture violations.
+
+
+
+
+
+
+
+7\\\\. Record the actual result.
+
+
+
+
 
 
 
@@ -4102,11 +8342,23 @@ Never claim verification that was not actually run.
 
 
 
-\---
 
 
 
-**## 26. Scope Discipline**
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 26. Scope Discipline\*\***
+
+
+
+
 
 
 
@@ -4114,47 +8366,95 @@ When uncertain:
 
 
 
-1\\. Prefer the canonical architecture package.
 
 
 
-2\\. Prefer the smallest coherent change.
+
+1\\\\. Prefer the canonical architecture package.
 
 
 
-3\\. Prefer deterministic behavior.
 
 
 
-4\\. Prefer explicit evidence.
+
+2\\\\. Prefer the smallest coherent change.
 
 
 
-5\\. Prefer simple infrastructure at MVP scale.
 
 
 
-6\\. Do not invent requirements.
+
+3\\\\. Prefer deterministic behavior.
 
 
 
-7\\. Do not silently expand scope.
 
 
 
-8\\. Do not hide uncertainty.
+
+4\\\\. Prefer explicit evidence.
 
 
 
-9\\. Do not claim tests passed unless they actually passed.
 
 
 
-\---
+
+5\\\\. Prefer simple infrastructure at MVP scale.
 
 
 
-**## 27. Step 10 — GitHub App Installation**
+
+
+
+
+6\\\\. Do not invent requirements.
+
+
+
+
+
+
+
+7\\\\. Do not silently expand scope.
+
+
+
+
+
+
+
+8\\\\. Do not hide uncertainty.
+
+
+
+
+
+
+
+9\\\\. Do not claim tests passed unless they actually passed.
+
+
+
+
+
+
+
+\\---
+
+
+
+
+
+
+
+**\*\*## 27. Step 10 — GitHub App Installation\*\***
+
+
+
+
 
 
 
@@ -4162,7 +8462,15 @@ Step 10 connects a GitHub App installation to the signed-in Fluxora organization
 
 
 
-**### Responsibility split**
+
+
+
+
+**\*\*### Responsibility split\*\***
+
+
+
+
 
 
 
@@ -4170,7 +8478,15 @@ Clerk authenticates the person and exposes the GitHub account id from the linked
 
 
 
+
+
+
+
 The GitHub App is a separate credential. Its App ID and private key prove that Fluxora is that App. They do not identify the user.
+
+
+
+
 
 
 
@@ -4178,59 +8494,119 @@ The installation id identifies one install of that App on one GitHub account. It
 
 
 
-**### Request path
 
-```text
+
+
+
+\*\*### Request path
+
+
+
+\`\`\`text
+
+
 
 Dashboard "Connect GitHub"
-        ↓
-https://github.com/apps/{slug}/installations/new
-        ↓
+
+        ↓
+
+https\://github.com/apps/{slug}/installations/new
+
+        ↓
+
 GitHub redirects the browser to /github/setup?installation_id=...&setup_action=install|update
-        ↓
+
+        ↓
+
 Next.js server checks Clerk session + validates installation_id/setup_action
-        ↓
+
+        ↓
+
 Client component calls Clerk useAuth().getToken()
-        ↓
+
+        ↓
+
 Browser OPTIONS preflight when Vercel and API are cross-origin
-        ↓
+
+        ↓
+
 Browser POST /api/v1/github/installations
-        ↓
-Authorization: Bearer <Clerk session token>
-        ↓
+
+        ↓
+
+Authorization: Bearer \<Clerk session token>
+
+        ↓
+
 API verifies Clerk JWT + linked GitHub providerUserId
-        ↓
+
+        ↓
+
 App JWT (RS256, iss = App ID) → GET /app/installations/{id}
-        ↓
+
+        ↓
+
 account.id must equal the Clerk GitHub user id, and account.type must be User
-        ↓
+
+        ↓
+
 github_installations row under the caller's organization, with RLS
 
-```
 
-`github_installation_id` is accepted only as a decimal string. A JSON number is rejected so the id is not rounded through `Number` before it is stored in PostgreSQL `bigint`. Responses keep the same ids as strings. The SQL casts those strings with `::bigint` and reads them back with `::text`.
 
-### Persistence and idempotency**
+\`\`\`
 
 
 
-\`github_installations\` has one row per organization and a globally unique \`github_installation_id\`. Repeating the same completion returns the existing row with \`created: false\`. A later install for the same GitHub account refreshes the installation id. A different GitHub account is rejected. Installation access tokens are not created or stored.
+\`github_installation_id\` is accepted only as a decimal string. A JSON number is rejected so the id is not rounded through \`Number\` before it is stored in PostgreSQL \`bigint\`. Responses keep the same ids as strings. The SQL casts those strings with \`::bigint\` and reads them back with \`::text\`.
 
 
 
-RLS policies match the existing tenant tables: \`organization_id = fluxora_current_org_id()\`, with \`ENABLE\` and \`FORCE ROW LEVEL SECURITY\`. Because RLS hides another tenant's row, the global unique index is what stops a second organization from claiming the same installation. A unique violation aborts the current PostgreSQL transaction, so the write runs inside a savepoint, rolls back to that savepoint, and then re-reads the caller's row.
+**### Persistence and idempotency\*\***
 
 
 
-\`TRUNCATE organizations CASCADE\` in the local reset already removes these rows through the foreign key. No seed installation is created.
 
 
 
-**### Security choices**
+
+\\\`github_installations\\\` has one row per organization and a globally unique \\\`github_installation_id\\\`. Repeating the same completion returns the existing row with \\\`created: false\\\`. A later install for the same GitHub account refreshes the installation id. A different GitHub account is rejected. Installation access tokens are not created or stored.
 
 
 
-The dashboard link only contains the public App slug. The Next.js process loads \`GITHUB_APP_SLUG\` and \`FLUXORA_API_URL\` from the environment and does not load the private key. The API signs the JWT and calls GitHub. Logs pass through redaction for PEM blocks, bearer tokens, and JWTs.
+
+
+
+
+RLS policies match the existing tenant tables: \\\`organization_id = fluxora_current_org_id()\\\`, with \\\`ENABLE\\\` and \\\`FORCE ROW LEVEL SECURITY\\\`. Because RLS hides another tenant's row, the global unique index is what stops a second organization from claiming the same installation. A unique violation aborts the current PostgreSQL transaction, so the write runs inside a savepoint, rolls back to that savepoint, and then re-reads the caller's row.
+
+
+
+
+
+
+
+\\\`TRUNCATE organizations CASCADE\\\` in the local reset already removes these rows through the foreign key. No seed installation is created.
+
+
+
+
+
+
+
+**\*\*### Security choices\*\***
+
+
+
+
+
+
+
+The dashboard link only contains the public App slug. The Next.js process loads \\\`GITHUB_APP_SLUG\\\` and \\\`FLUXORA_API_URL\\\` from the environment and does not load the private key. The API signs the JWT and calls GitHub. Logs pass through redaction for PEM blocks, bearer tokens, and JWTs.
+
+
+
+
 
 
 
@@ -4238,23 +8614,47 @@ The Setup URL is a GET because that is how GitHub redirects the browser. Complet
 
 
 
+
+
+
+
 Only organization owners and admins can complete installation.
 
 
 
-The web server posts the Clerk session token only to a \`FLUXORA_API_URL\` that is https, or http on localhost, and that URL must not contain credentials.
 
 
 
-**### Verification status**
+
+The web server posts the Clerk session token only to a \\\`FLUXORA_API_URL\\\` that is https, or http on localhost, and that URL must not contain credentials.
 
 
 
-Step 10 code and focused tests were added. \`pnpm typecheck\`, \`pnpm lint\`, \`pnpm test\`, \`pnpm build\`, and \`pnpm db:migrate\` were not run as part of this change.
 
 
 
-**## 28. Step 11 — Repository, RepositorySnapshot, and Commit**
+
+**\*\*### Verification status\*\***
+
+
+
+
+
+
+
+Step 10 code and focused tests were added. \\\`pnpm typecheck\\\`, \\\`pnpm lint\\\`, \\\`pnpm test\\\`, \\\`pnpm build\\\`, and \\\`pnpm db:migrate\\\` were not run as part of this change.
+
+
+
+
+
+
+
+**\*\*## 28. Step 11 — Repository, RepositorySnapshot, and Commit\*\***
+
+
+
+
 
 
 
@@ -4262,47 +8662,99 @@ Step 11 adds the tenant-owned repository metadata model. It does not ingest repo
 
 
 
-A \`Repository\` belongs to an \`Organization\`. \`github_repo_id\` is unique per organization so two Fluxora tenants may connect the same public GitHub repository. \`connection_status\` is \`pending | active | needs_reauth | error\`.
 
 
 
-\`RepositorySnapshot\` and \`Commit\` belong to \`Repository\`. They do not duplicate \`organization_id\`. Tenant access is enforced by RLS that exists through the parent repository (\`fluxora_repository_in_current_tenant\`).
+
+A \\\`Repository\\\` belongs to an \\\`Organization\\\`. \\\`github_repo_id\\\` is unique per organization so two Fluxora tenants may connect the same public GitHub repository. \\\`connection_status\\\` is \\\`pending | active | needs_reauth | error\\\`.
 
 
 
-A snapshot is not a commit. A commit is git object metadata (sha, author, message, parents). A snapshot is an immutable packaged tree for one commit (\`commit_sha\`, \`ref\`, \`storage_uri\`, file/size stats). File bytes are not stored in PostgreSQL; \`storage_uri\` is the later object-storage pointer.
 
 
 
-Snapshots are insert-only: unique \`(repository_id, commit_sha)\`, no UPDATE RLS policy under FORCE RLS, identical replay returns the existing row, a different payload is rejected. Commits are similarly unique on \`(repository_id, sha)\` and have no UPDATE policy.
+
+\\\`RepositorySnapshot\\\` and \\\`Commit\\\` belong to \\\`Repository\\\`. They do not duplicate \\\`organization_id\\\`. Tenant access is enforced by RLS that exists through the parent repository (\\\`fluxora_repository_in_current_tenant\\\`).
 
 
 
-Foreign keys use \`ON DELETE CASCADE\`. Foreign keys do not replace RLS: PostgreSQL FK checks bypass RLS, so child INSERT policies still require the parent repository to be in the current tenant.
 
 
 
-Data access lives in \`packages/db\` (\`repository.ts\`, \`repository-snapshot.ts\`, \`commit.ts\`) using existing \`withTenant\` session configuration. Local integration tests set \`FLUXORA_DATABASE_ROLE=fluxora_rls_test\` so \`withTenant\` runs \`SET LOCAL ROLE\` as a \`NOBYPASSRLS\` role; a local superuser would otherwise bypass FORCE RLS. Step 10 GitHub installation code is unchanged.
+
+A snapshot is not a commit. A commit is git object metadata (sha, author, message, parents). A snapshot is an immutable packaged tree for one commit (\\\`commit_sha\\\`, \\\`ref\\\`, \\\`storage_uri\\\`, file/size stats). File bytes are not stored in PostgreSQL; \\\`storage_uri\\\` is the later object-storage pointer.
 
 
 
-**## 29. Step 12 — Repository Ingestion Worker**
+Step 13 now materializes that pointer by packaging the extracted repository tree as \\\`snapshot.tar.gz\\\`, storing the archive in object storage, and persisting the final immutable snapshot metadata.
 
 
 
-Step 12 implements the \`repository.ingest\` job handler on the existing PostgreSQL job queue and \`JobWorker\`. It does not add a new queue, object storage upload, snapshot persistence, or a connect API.
 
 
 
-The payload is \`{ repositoryId, ref, commitSha? }\`. \`organization_id\` stays on the Job. The worker loads the repository with that tenant id before any GitHub call. \`commitSha\` is optional and is resolved from GitHub for \`ref\`; when supplied it must match the resolved SHA. Idempotency uses the existing jobs unique \`(organization_id, idempotency_key)\` with key \`repository.ingest:{repositoryId}:{commitSha}\`. Retry re-fetches into a new temp directory and does not insert snapshot rows.
+
+Snapshots are insert-only: unique \\\`(repository_id, commit_sha)\\\`, no UPDATE RLS policy under FORCE RLS, identical replay returns the existing row, a different payload is rejected. Commits are similarly unique on \\\`(repository_id, sha)\\\` and have no UPDATE policy.
 
 
 
-GitHub App authentication reuses the Step 10 installation row. The worker mints a GitHub App JWT, then a short-lived installation access token for that operation only. Tokens are not stored. Clerk session tokens are not used. Archive download follows GitHub's tarball redirect without forwarding the installation token to \`codeload.github.com\`.
 
 
 
-Contents are extracted into \`os.tmpdir()/fluxora-ingest-*\`. Extraction is bounded (file count, uncompressed bytes, compressed bytes, wall-clock timeout). Path traversal, absolute paths, symlinks, hard links, and device files are permanent security failures. Repository files are never executed, evaluated, or imported.
+
+Foreign keys use \\\`ON DELETE CASCADE\\\`. Foreign keys do not replace RLS: PostgreSQL FK checks bypass RLS, so child INSERT policies still require the parent repository to be in the current tenant.
+
+
+
+
+
+
+
+Data access lives in \\\`packages/db\\\` (\\\`repository.ts\\\`, \\\`repository-snapshot.ts\\\`, \\\`commit.ts\\\`) using existing \\\`withTenant\\\` session configuration. Local integration tests set \\\`FLUXORA_DATABASE_ROLE=fluxora_rls_test\\\` so \\\`withTenant\\\` runs \\\`SET LOCAL ROLE\\\` as a \\\`NOBYPASSRLS\\\` role; a local superuser would otherwise bypass FORCE RLS. Step 10 GitHub installation code is unchanged.
+
+
+
+
+
+
+
+**\*\*## 29. Step 12 — Repository Ingestion Worker\*\***
+
+
+
+
+
+
+
+Step 12 implements the \\\`repository.ingest\\\` job handler on the existing PostgreSQL job queue and \\\`JobWorker\\\`. It does not add a new queue, object storage upload, snapshot persistence, or a connect API.
+
+
+
+
+
+
+
+The payload is \\\`{ repositoryId, ref, commitSha? }\\\`. \\\`organization_id\\\` stays on the Job. The worker loads the repository with that tenant id before any GitHub call. \\\`commitSha\\\` is optional and is resolved from GitHub for \\\`ref\\\`; when supplied it must match the resolved SHA. Idempotency uses the existing jobs unique \\\`(organization_id, idempotency_key)\\\` with key \\\`repository.ingest:{repositoryId}:{commitSha}\\\`. Retry re-fetches into a new temp directory and does not insert snapshot rows.
+
+
+
+
+
+
+
+GitHub App authentication reuses the Step 10 installation row. The worker mints a GitHub App JWT, then a short-lived installation access token for that operation only. Tokens are not stored. Clerk session tokens are not used. Archive download follows GitHub's tarball redirect without forwarding the installation token to \\\`codeload.github.com\\\`.
+
+
+
+
+
+
+
+Contents are extracted into \\\`os.tmpdir()/fluxora-ingest-\*\\\`. Extraction is bounded (file count, uncompressed bytes, compressed bytes, wall-clock timeout). Path traversal, absolute paths, symlinks, hard links, and device files are permanent security failures. Repository files are never executed, evaluated, or imported.
+
+
+
+
 
 
 
@@ -4310,24 +8762,486 @@ Failure classification:
 
 
 
-\- GitHub 401/403 (non-rate-limit) or missing installation → \`connection_status = needs_reauth\`, permanent job failure (no \`retryFailedJob\`)
 
 
 
-\- rate limit / 5xx / network → retryable via existing \`failJob\` + \`retryFailedJob\`
+
+\\- GitHub 401/403 (non-rate-limit) or missing installation → \\\`connection_status = needs_reauth\\\`, permanent job failure (no \\\`retryFailedJob\\\`)
 
 
 
-\- invalid ref / commitSha mismatch / too large / unsafe archive → \`connection_status = error\`, permanent
 
 
 
-\- unexpected errors → existing JobWorker retry path
+
+\\- rate limit / 5xx / network → retryable via existing \\\`failJob\\\` + \\\`retryFailedJob\\\`
 
 
 
-Successful Step 12 materialization sets \`connection_status = active\`. \`last_indexed_at\` is unchanged. The in-memory result (\`workDir\`, \`commitSha\`, file/size stats) is what Step 13 will upload; the handler deletes the temp directory in \`finally\`.
 
 
 
-The worker process entrypoint is \`apps/workers/src/run.ts\` (\`pnpm --filter @fluxora/workers start\`). No new deployment topology was added.
+
+\\- invalid ref / commitSha mismatch / too large / unsafe archive → \\\`connection_status = error\\\`, permanent
+
+
+
+
+
+
+
+\\- unexpected errors → existing JobWorker retry path
+
+
+
+
+
+
+
+Successful Step 12 materialization sets \\\`connection_status = active\\\`. \\\`last_indexed_at\\\` is unchanged. The in-memory result (\\\`workDir\\\`, \\\`commitSha\\\`, file/size stats) is what Step 13 will upload; the handler deletes the temp directory in \\\`finally\\\`.
+
+
+
+
+
+
+
+The worker process entrypoint is \\\`apps/workers/src/run.ts\\\` (\\\`pnpm --filter @fluxora/workers start\\\`). No new deployment topology was added.
+
+
+
+Step 13 consumes the successful materialization result and turns it into a durable snapshot. The worker packages the `workDir` deterministically, computes SHA-256, uploads `snapshot.tar.gz` through the object-storage abstraction, persists the immutable `RepositorySnapshot` metadata, and cleans up temporary artifacts. No new queue or retry mechanism is introduced.
+
+
+
+
+---
+
+**\*\*## 30. Step 13 — Repository Snapshot Storage\*\***
+
+
+
+Step 13 is the durability boundary between repository ingestion and later code intelligence.
+
+
+
+### Purpose
+
+
+
+Step 12 produces a temporary extracted repository tree. Step 13 freezes that tree into a reproducible, immutable repository snapshot.
+
+
+
+\`\`\`text
+
+
+
+Step 12
+
+GitHub
+
+  ↓
+
+safe extraction
+
+  ↓
+
+temporary workDir
+
+
+
+Step 13
+
+workDir
+
+  ↓
+
+deterministic packaging
+
+  ↓
+
+snapshot.tar.gz
+
+  ↓
+
+SHA-256
+
+  ↓
+
+object storage
+
+  ↓
+
+RepositorySnapshot metadata in PostgreSQL
+
+  ↓
+
+cleanup
+
+
+
+\`\`\`
+
+
+
+### Snapshot representation
+
+
+
+The current implementation stores **one deterministic \`snapshot.tar.gz\` archive**, not one object per source file.
+
+
+
+The archive contains the repository tree. Object storage contains those bytes.
+
+
+
+PostgreSQL stores:
+
+
+
+\`\`\`text
+
+
+
+id
+
+repositoryId
+
+commitSha
+
+ref
+
+storageUri
+
+sha256
+
+fileCount
+
+sizeBytes
+
+createdAt
+
+
+
+\`\`\`
+
+
+
+### Deterministic packaging
+
+
+
+The packaging path:
+
+
+
+\- walks the extracted work directory;
+
+
+
+\- skips symbolic links;
+
+
+
+\- sorts normalized relative paths;
+
+
+
+\- enforces file-count limits;
+
+
+
+\- creates a portable tar stream;
+
+
+
+\- gzip-compresses the stream;
+
+
+
+\- normalizes gzip header metadata;
+
+
+
+\- enforces the compressed archive-size limit;
+
+
+
+\- writes \`snapshot.tar.gz\`;
+
+
+
+\- calculates SHA-256 over the exact final archive bytes.
+
+
+
+For identical repository contents, the goal is identical snapshot bytes and therefore an identical checksum.
+
+
+
+### Object storage boundary
+
+
+
+Step 13 reuses the existing object-storage abstraction.
+
+
+
+\`\`\`text
+
+
+
+Local
+
+  ↓
+
+FilesystemObjectStorage
+
+
+
+Production
+
+  ↓
+
+S3ObjectStorage
+
+
+
+\`\`\`
+
+
+
+The tenant-scoped object key is:
+
+
+
+\`\`\`text
+
+
+
+{organizationId}/{repositoryId}/{snapshotId}/snapshot.tar.gz
+
+
+
+\`\`\`
+
+
+
+The database stores the \`storageUri\`; it does not store the archive bytes.
+
+
+
+### Immutability and idempotency
+
+
+
+Snapshot identity remains governed by the existing \\\`(repository_id, commit_sha)\\\` uniqueness rule.
+
+
+
+A successful replay must not replace the existing immutable snapshot object.
+
+
+
+If a redundant object is uploaded during an idempotent replay path and the existing immutable row wins, the redundant object is cleaned up.
+
+
+
+### Partial-failure handling
+
+
+
+Object storage and PostgreSQL do not share one database transaction.
+
+
+
+Therefore:
+
+
+
+\`\`\`text
+
+
+
+object upload succeeds
+
+        ↓
+
+database persistence fails
+
+        ↓
+
+delete uploaded object
+
+
+
+\`\`\`
+
+
+
+Packaging failures also remove partial archives.
+
+
+
+The generated temporary archive is removed after persistence processing.
+
+
+
+### Security and trust boundary
+
+
+
+Repository content remains untrusted data.
+
+
+
+Step 13 does not:
+
+\- execute repository code;
+
+\- import repository modules;
+
+\- run package scripts;
+
+\- invoke an LLM;
+
+
+
+It only reads and packages the extracted tree.
+
+
+
+Tenant isolation remains defense in depth:
+
+
+
+\`\`\`text
+
+
+
+Fluxora authorization
+
+        +
+
+tenant-scoped job
+
+        +
+
+PostgreSQL RLS
+
+        +
+
+tenant-scoped object key
+
+
+
+\`\`\`
+
+
+
+### Verification
+
+
+
+Step 13 verification completed with:
+
+
+
+\`\`\`text
+
+
+
+pnpm --filter @fluxora/workers test   ✅ 24 passed, 0 failed
+
+pnpm typecheck                        ✅
+
+pnpm lint                             ✅
+
+pnpm test                             ✅
+
+
+
+\`\`\`
+
+
+
+Focused packaging tests verify deterministic checksum/file contents and compressed-size enforcement with cleanup.
+
+
+
+### Node 24 implementation lesson
+
+
+
+The runtime test command uses Node 24's strip-only TypeScript execution.
+
+
+
+Step 13 verification exposed:
+
+
+
+\- TypeScript parameter-property syntax that strip-only mode does not transform;
+
+
+
+\- an invalid \`pipeline()\` call caused by passing \`undefined\` as an extra stream/options argument.
+
+
+
+The final implementation uses explicit class fields and conditional pipeline options.
+
+
+
+### Scope boundary
+
+
+
+Step 13 does **not** add:
+
+
+
+\- \`POST /api/v1/repositories/connect\`;
+
+\- WebSocket ingestion progress;
+
+\- AST or symbol extraction;
+
+\- dependency graph construction;
+
+\- impact analysis;
+
+\- AI reasoning.
+
+
+
+Those belong to later roadmap steps.
+
+
+
+### Learning and interview references
+
+
+
+\`\`\`text
+
+
+
+learning/notes/12. Repository Snapshot Storage.md
+
+learning/implementations/phase-02/step-13-repository-snapshot-storage.md
+
+learning/interviews/6. Step 13 Repository Snapshot Storage Interview CheatSheet.md
+
+learning/interviews/0. Fluxora Steps 1-13 Master Interview Guide.md
+
+
+
+\`\`\`
+
+
+
+The next global implementation target is **Step 14 — repository connect API/orchestration**, which should enqueue the existing \`repository.ingest\` job rather than perform heavy ingestion synchronously.
+
