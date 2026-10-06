@@ -32,6 +32,8 @@ import {
   handleCompleteGithubInstallation,
   isGithubInstallationPath,
 } from "./github-installations.ts";
+import { handleConnectRepository } from "./repositories.ts";
+import { isRepositoryConnectPath } from "./repository-request.ts";
 
 export function createApiServer(): http.Server {
   const githubAppConfig = loadGithubAppConfig();
@@ -82,7 +84,7 @@ async function handleRequest(
     return;
   }
 
-  if (isGithubInstallationPath(path)) {
+  if (isGithubInstallationPath(path) || isRepositoryConnectPath(path)) {
     const origin = headerValue(req.headers.origin);
     const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
     const rejectedOrigin = rejectedCorsOriginForLog(origin, allowedWebOrigins);
@@ -101,12 +103,17 @@ async function handleRequest(
     applyCorsHeaders(res, corsHeaders);
 
     if (method === "POST") {
-      await handleCompleteGithubInstallation(
-        req,
-        res,
-        githubAppConfig,
-        sendJson,
-      );
+      if (isGithubInstallationPath(path)) {
+        await handleCompleteGithubInstallation(
+          req,
+          res,
+          githubAppConfig,
+          sendJson,
+        );
+        return;
+      }
+
+      await handleConnectRepository(req, res, githubAppConfig, sendJson);
       return;
     }
   }
@@ -245,7 +252,8 @@ function isKnownPath(path: string): boolean {
   return (
     path === "/api/v1/auth/me" ||
     path === "/api/v1/telemetry/dummy" ||
-    isGithubInstallationPath(path)
+    isGithubInstallationPath(path) ||
+    isRepositoryConnectPath(path)
   );
 }
 
