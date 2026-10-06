@@ -1,6 +1,6 @@
 ﻿---
-description: Fluxora testing and verification requirements.
-alwaysApply: false
+trigger: model_decision
+description: "Fluxora testing and verification requirements."
 ---
 
 # Fluxora Testing Rule
@@ -8,7 +8,6 @@ alwaysApply: false
 Tests are part of the implementation, not a final cleanup step.
 
 Prioritize tests for:
-
 - deterministic graph behavior
 - evidence creation
 - graph traversal
@@ -20,7 +19,6 @@ Prioritize tests for:
 - API contracts
 
 When implementing a bug fix:
-
 1. reproduce the failure
 2. add or identify the regression test
 3. implement the fix

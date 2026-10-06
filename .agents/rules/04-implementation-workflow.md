@@ -1,6 +1,6 @@
 ﻿---
-description: Standard Cursor implementation workflow for Fluxora.
-alwaysApply: false
+trigger: model_decision
+description: "Standard Fluxora implementation workflow."
 ---
 
 # Fluxora Implementation Workflow
@@ -8,7 +8,6 @@ alwaysApply: false
 For every non-trivial implementation task:
 
 ## Before coding
-
 1. Inspect the repository.
 2. Read the relevant architecture documents.
 3. Identify existing conventions.
@@ -16,7 +15,6 @@ For every non-trivial implementation task:
 5. Identify dependencies and risks.
 
 ## During coding
-
 - make the smallest coherent change
 - avoid unrelated refactors
 - preserve architecture boundaries
@@ -24,7 +22,6 @@ For every non-trivial implementation task:
 - keep deterministic logic deterministic
 
 ## After coding
-
 1. Run tests.
 2. Run typecheck.
 3. Run lint.
