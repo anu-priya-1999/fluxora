@@ -34,12 +34,18 @@ import {
 } from "./github-installations.ts";
 import { handleConnectRepository } from "./repositories.ts";
 import { isRepositoryConnectPath } from "./repository-request.ts";
+import {
+  setupWebSocketServer,
+  type FluxoraWsServerOptions,
+} from "../ws/server.ts";
 
-export function createApiServer(): http.Server {
+export function createApiServer(
+  wsOptions?: FluxoraWsServerOptions,
+): http.Server {
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
 
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     void handleRequest(req, res, githubAppConfig, allowedWebOrigins).catch(
       (error: unknown) => {
         if (res.headersSent) {
@@ -57,6 +63,10 @@ export function createApiServer(): http.Server {
       },
     );
   });
+
+  setupWebSocketServer(server, wsOptions);
+
+  return server;
 }
 
 async function handleRequest(

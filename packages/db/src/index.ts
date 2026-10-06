@@ -56,6 +56,12 @@ export {
   listCommits,
   type CreateCommitInput,
 } from "./repositories/commit.ts";
+export {
+  createEvent,
+  createEventClient,
+  getEventById,
+  listEvents,
+} from "./repositories/event.ts";
 /** Workspace package identifier. */
 export const packageName = "@fluxora/db" as const;
 export * from "./repositories/job.ts";

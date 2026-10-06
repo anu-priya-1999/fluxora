@@ -12,7 +12,9 @@ import type {
 } from "@fluxora/shared-types";
 import {
   parseRepositoryIngestJobPayload,
+  REPOSITORY_INDEXED_EVENT_TYPE,
   REPOSITORY_INGEST_JOB_TYPE,
+  repositoryIndexedIdempotencyKey,
   repositoryIngestIdempotencyKey,
 } from "@fluxora/shared-types";
 import type { ObjectStorageClient } from "@fluxora/infrastructure";
@@ -26,6 +28,7 @@ import { createRepositoryIngestHandler } from "./handler.ts";
 import { IngestionError } from "./errors.ts";
 import {
   ingestRepositoryJob,
+  type EventPublisher,
   type RepositoryIngestDependencies,
   type RepositoryLookup,
 } from "./ingest.ts";
@@ -235,6 +238,7 @@ function deps(input?: {
   maxArchiveBytes?: number;
   storage?: MemoryObjectStorage;
   snapshots?: SnapshotStore;
+  events?: EventPublisher;
   createSnapshotId?: () => string;
 }): RepositoryIngestDependencies {
   const storage = input?.storage ?? new MemoryObjectStorage();
@@ -250,6 +254,7 @@ function deps(input?: {
     storage,
     objectStorageUri: (key) => `filesystem://${key}`,
     snapshots: input?.snapshots ?? snapshotStoreMock(),
+    ...(input?.events !== undefined ? { events: input.events } : {}),
     createSnapshotId: input?.createSnapshotId ?? (() => SNAPSHOT_ID),
   };
 }
@@ -530,4 +535,65 @@ test("re-running successful ingestion is idempotent and does not replace the sna
   assert.equal(first.sha256, second.sha256);
   assert.equal(snapshots.rows.length, 1);
   assert.equal(storage.objects.size, 1);
+});
+
+test("successful ingestion emits repository.indexed event after snapshot persistence and repository activation", async () => {
+  const statuses: string[] = [];
+  const publishedEvents: Array<{
+    organizationId: string;
+    type: string;
+    idempotencyKey: string;
+    payload: unknown;
+  }> = [];
+
+  const mockEvents: EventPublisher = {
+    async publish(input) {
+      publishedEvents.push(input);
+      return {
+        id: "77777777-7777-4777-8777-777777777777",
+        organizationId: input.organizationId,
+        type: input.type,
+        idempotencyKey: input.idempotencyKey,
+        payload: input.payload,
+        schemaVersion: 1,
+        occurredAt: new Date(),
+        createdAt: new Date(),
+      };
+    },
+  };
+
+  const shared = deps({
+    lookup: lookupMock({ statuses }),
+    events: mockEvents,
+  });
+
+  const result = await ingestRepositoryJob(
+    ingestJob({ repositoryId: REPO, ref: "main", commitSha: SHA }),
+    shared,
+  );
+
+  await rm(result.workDir, { recursive: true, force: true });
+
+  assert.deepEqual(statuses, ["active"]);
+  assert.equal(publishedEvents.length, 1);
+  const emitted = publishedEvents[0];
+  assert.ok(emitted !== undefined);
+  assert.equal(emitted.organizationId, ORG);
+  assert.equal(emitted.type, REPOSITORY_INDEXED_EVENT_TYPE);
+  assert.equal(emitted.type, REPOSITORY_INDEXED_EVENT_TYPE);
+  assert.equal(
+    emitted.idempotencyKey,
+    repositoryIndexedIdempotencyKey(REPO, SHA),
+  );
+  assert.deepEqual(emitted.payload, {
+    repositoryId: REPO,
+    repository_id: REPO,
+    snapshotId: SNAPSHOT_ID,
+    snapshot_id: SNAPSHOT_ID,
+    commitSha: SHA,
+    commit_sha: SHA,
+    ref: "main",
+  });
+  assert.ok(result.event !== undefined);
+  assert.equal(result.event.id, "77777777-7777-4777-8777-777777777777");
 });

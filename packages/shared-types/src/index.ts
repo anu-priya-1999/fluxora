@@ -19,6 +19,7 @@ export {
 } from "./github.ts";
 
 export * from "./jobs.ts";
+export * from "./events.ts";
 export {
   RepositoryConnectionStatuses,
   type Commit,

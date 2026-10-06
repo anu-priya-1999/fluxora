@@ -1,5 +1,14 @@
-import type { Job, RepositoryIngestJobPayload } from "@fluxora/shared-types";
-import { parseRepositoryIngestJobPayload } from "@fluxora/shared-types";
+import type {
+  Job,
+  RepositoryIngestJobPayload,
+  FluxoraEvent,
+  RepositoryIndexedPayload,
+} from "@fluxora/shared-types";
+import {
+  parseRepositoryIngestJobPayload,
+  REPOSITORY_INDEXED_EVENT_TYPE,
+  repositoryIndexedIdempotencyKey,
+} from "@fluxora/shared-types";
 import type { Repository, RepositorySnapshot } from "@fluxora/shared-types";
 import type { ObjectStorageClient } from "@fluxora/infrastructure";
 
@@ -34,6 +43,7 @@ export interface RepositoryIngestResult {
   storageUri: string;
   sha256: string;
   snapshot: RepositorySnapshot;
+  event?: FluxoraEvent;
 }
 
 export interface RepositoryLookup {
@@ -49,6 +59,15 @@ export interface RepositoryLookup {
   ): Promise<void>;
 }
 
+export interface EventPublisher {
+  publish<T extends Record<string, unknown> = Record<string, unknown>>(input: {
+    organizationId: string;
+    type: string;
+    idempotencyKey: string;
+    payload: T;
+  }): Promise<FluxoraEvent<T>>;
+}
+
 export interface RepositoryIngestDependencies {
   lookup: RepositoryLookup;
   github: GithubIngestClient;
@@ -56,6 +75,7 @@ export interface RepositoryIngestDependencies {
   storage: ObjectStorageClient;
   objectStorageUri: (key: string) => string;
   snapshots: SnapshotStore;
+  events?: EventPublisher;
   createWorkDir?: () => Promise<string>;
   removeWorkDir?: (directory: string) => Promise<void>;
   createSnapshotId?: () => string;
@@ -157,6 +177,31 @@ export async function ingestRepository(input: {
       "active",
     );
 
+    let indexedEvent: FluxoraEvent | undefined;
+    if (deps.events !== undefined) {
+      const eventPayload: RepositoryIndexedPayload = {
+        repositoryId: repository.id,
+        repository_id: repository.id,
+        snapshotId: persisted.snapshot.id,
+        snapshot_id: persisted.snapshot.id,
+        commitSha: commit.sha,
+        commit_sha: commit.sha,
+        ref: payload.ref,
+      };
+
+      indexedEvent = await deps.events.publish({
+        organizationId,
+        type: REPOSITORY_INDEXED_EVENT_TYPE,
+        idempotencyKey: repositoryIndexedIdempotencyKey(
+          repository.id,
+          commit.sha,
+        ),
+        payload: eventPayload,
+      });
+
+      span.setAttribute("fluxora.event.id", indexedEvent.id);
+    }
+
     span.setAttributes({
       "fluxora.ingest.commit_sha": commit.sha,
       "fluxora.ingest.file_count": persisted.snapshot.fileCount,
@@ -181,6 +226,7 @@ export async function ingestRepository(input: {
       storageUri: persisted.snapshot.storageUri,
       sha256: persisted.snapshot.sha256,
       snapshot: persisted.snapshot,
+      ...(indexedEvent === undefined ? {} : { event: indexedEvent }),
     };
   } catch (error) {
     if (workDir !== undefined) {

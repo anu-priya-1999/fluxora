@@ -16,10 +16,15 @@
     "@fluxora/db": "workspace:*",
     "@fluxora/observability": "workspace:*",
     "@fluxora/shared-types": "workspace:*",
-    "@opentelemetry/instrumentation": "0.222.0"
+    "@opentelemetry/instrumentation": "0.222.0",
+    "pg": "^8.16.3",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0",
+    "@types/pg": "^8.15.5",
+    "@types/ws": "^8.18.2",
     "typescript": "~5.9.2"
   }
 }
+

@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts"
+    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.7",

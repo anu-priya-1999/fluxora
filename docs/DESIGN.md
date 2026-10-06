@@ -9440,3 +9440,57 @@ Those responsibilities remain in the asynchronous pipeline established by Steps 
 ```
 
 Step 14 is complete. The next roadmap work should build on the accepted `repository.ingest` job and preserved repository/snapshot boundary rather than moving ingestion into the HTTP request.
+
+---
+
+**## 32. Step 15 - Repository Indexed Event and WebSocket Push**
+
+Step 15 bridges the asynchronous worker ingestion pipeline with the real-time client experience using a durable outbox event and an authenticated WebSocket push endpoint.
+
+### Event Definition & Outbox
+
+When a repository ingestion run completes successfully (Step 12-14), the worker updates the connection status to `active` and durably emits the `repository.indexed` event:
+
+```text
+Event Type: repository.indexed
+Schema Version: 1
+Idempotency Key: repository.indexed:<repositoryId>:<commitSha>
+```
+
+#### Payload Shape
+```json
+{
+  "repositoryId": "<uuid>",
+  "snapshotId": "<uuid>",
+  "commitSha": "<40-char-sha>",
+  "ref": "refs/heads/main"
+}
+```
+
+The event is persisted to the PostgreSQL `events` table with:
+- Row-Level Security (RLS) scoped to `organization_id`;
+- Unique constraint `(organization_id, idempotency_key)` preventing duplicate emissions on worker retries;
+- PostgreSQL trigger `events_notify_trigger` executing `PERFORM pg_notify('fluxora_events', envelope_json)`.
+
+### API WebSocket Gateway & Listener
+
+`apps/api` listens on the database channel and manages client connections:
+- Endpoint: `GET /api/v1/ws` (WebSocket Upgrade);
+- Authentication: Clerk session tokens extracted from `Authorization` header, `?token=` query param, or `Sec-WebSocket-Protocol`;
+- Connection Registry: `WebSocketHub` groups active connections by `organizationId`;
+- Event Dispatch: PostgreSQL notifications on `fluxora_events` are parsed and dispatched strictly to connections belonging to the matching `organization_id`.
+
+### Frontend Handling
+
+The Next.js frontend (`apps/web`):
+- Connects to `/api/v1/ws` using the Clerk session token;
+- Parses and validates `repository.indexed` envelopes (`handleRepositoryIndexedMessage`);
+- Updates the organization dashboard feed in real time.
+
+### Scope Boundary
+
+Step 15 does not:
+- introduce Kafka, Redis Pub/Sub, or external message brokers;
+- implement failure paths or retry policies (Step 16);
+- emit graph or AST analysis events;
+- invoke an LLM.

@@ -1,4 +1,5 @@
 import {
+  createEvent,
   createRepositorySnapshot,
   getGithubInstallationByOrganizationId,
   getPool,
@@ -76,6 +77,11 @@ export function createProductionIngestDependencies(
         return createRepositorySnapshot(pool, input);
       },
     },
+    events: {
+      async publish(input) {
+        return createEvent(pool, input);
+      },
+    },
   };
 }
 
@@ -96,7 +102,7 @@ export function createRepositoryIngestHandler(
     try {
       console.info(
         redactForLog(
-          `[repository.ingest] completed job=${result.jobId} org=${result.organizationId} repo=${result.repositoryId} ref=${result.ref} commit=${result.commitSha} snapshot=${result.snapshotId} files=${result.fileCount} bytes=${result.sizeBytes}`,
+          `[repository.ingest] completed job=${result.jobId} org=${result.organizationId} repo=${result.repositoryId} ref=${result.ref} commit=${result.commitSha} snapshot=${result.snapshotId} files=${result.fileCount} bytes=${result.sizeBytes}${result.event !== undefined ? ` event=${result.event.id}` : ""}`,
         ),
       );
     } finally {

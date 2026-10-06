@@ -3,6 +3,7 @@ import { UserButton } from "@clerk/nextjs";
 
 import { readGithubAppSlug } from "../../github/env";
 import { githubAppInstallUrl } from "../../github/install-url";
+import { RepositoryIndexedLiveFeed } from "./repository-indexed-feed";
 
 export const runtime = "nodejs";
 
@@ -36,6 +37,7 @@ export default async function DashboardPage() {
             </a>
           )}
         </p>
+        <RepositoryIndexedLiveFeed />
       </section>
     </main>
   );
