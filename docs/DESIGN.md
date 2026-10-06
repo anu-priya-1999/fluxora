@@ -5774,6 +5774,8 @@ Step 12 — Repository ingestion worker                 IMPLEMENTED
 
 Step 13 — Repository snapshot storage                 ✅ COMPLETE
 
+Step 14 — Repository connect API/orchestration        ✅ COMPLETE
+
 \`\`\`
 
 
@@ -9244,4 +9246,197 @@ learning/interviews/0. Fluxora Steps 1-13 Master Interview Guide.md
 
 
 The next global implementation target is **Step 14 — repository connect API/orchestration**, which should enqueue the existing \`repository.ingest\` job rather than perform heavy ingestion synchronously.
+---
 
+**\*\*## 31. Step 14 — Repository Connect API and Orchestration\*\***
+
+Step 14 adds the synchronous API boundary that starts repository ingestion without performing heavy ingestion inside the HTTP request.
+
+### Endpoint
+
+```text
+POST /api/v1/repositories/connect
+```
+
+Request:
+
+```json
+{
+  "github_installation_id": "12345678",
+  "repo_full_name": "acme-corp/checkout-service",
+  "branch": "main"
+}
+```
+
+Accepted response:
+
+```text
+202 Accepted
+```
+
+with:
+
+```json
+{
+  "repository_id": "...",
+  "status": "pending",
+  "job_id": "...",
+  "ref": "main",
+  "commit_sha": "..."
+}
+```
+
+### Request/HTTP boundary
+
+`apps/api/src/http/repositories.ts` is responsible for:
+
+- request headers and content type;
+- Clerk authentication;
+- linked GitHub identity resolution;
+- tenant/user loading;
+- request-body reading;
+- stable HTTP error mapping;
+- returning the `202` response.
+
+Pure request validation is separated into:
+
+```text
+apps/api/src/http/repository-request.ts
+```
+
+It owns:
+
+- `REPOSITORY_CONNECT_PATH`;
+- route recognition;
+- `parseConnectBody`;
+- `RequestValidationError`.
+
+This prevents pure request-validation tests from importing the Clerk-dependent HTTP module.
+
+### Repository orchestration
+
+`apps/api/src/repositories/connect.ts` owns the repository connection workflow:
+
+```text
+authenticated organization
+        ↓
+stored GitHub installation
+        ↓
+installation-id ownership check
+        ↓
+GitHub repository metadata
+        ↓
+ref → commit SHA
+        ↓
+find/create Repository
+        ↓
+connectionStatus = pending
+        ↓
+repository.ingest job
+```
+
+A requested installation ID is never trusted solely because it arrived in the HTTP body. It must match the installation stored for the authenticated organization.
+
+### GitHub repository client
+
+`apps/api/src/github/repository-client.ts`:
+
+1. creates a short-lived GitHub App JWT;
+2. requests a short-lived installation access token;
+3. fetches repository metadata;
+4. resolves the requested ref to a full commit SHA;
+5. classifies GitHub/network failures without exposing raw response bodies.
+
+Repository IDs are preserved as canonical decimal strings so large GitHub IDs are not rounded by JavaScript number conversion before PostgreSQL persistence.
+
+### Repository creation and race handling
+
+Repositories are tenant-scoped by the existing database layer.
+
+The flow is:
+
+```text
+get repository by organization + githubRepoId
+        ↓
+not found
+        ↓
+create repository
+        ↓
+unique race?
+   ┌────┴────┐
+   no        yes
+   ↓          ↓
+continue   re-read row
+```
+
+Existing repositories are reconciled to pending when their metadata or status needs updating before ingestion.
+
+### Job enqueue and idempotency
+
+Step 14 reuses the existing PostgreSQL job queue.
+
+Job type:
+
+```text
+repository.ingest
+```
+
+Payload:
+
+```json
+{
+  "repositoryId": "...",
+  "ref": "main",
+  "commitSha": "..."
+}
+```
+
+Idempotency key:
+
+```text
+repository.ingest:{repositoryId}:{commitSha}
+```
+
+The endpoint therefore initiates ingestion for one specific repository state rather than for an unpinned moving branch.
+
+### Error mapping
+
+Stable API mappings include:
+
+```text
+github_app_not_configured  → 503
+invalid_session            → 401
+github_account_required    → 403
+github_installation_required → 409
+github_installation_mismatch → 403
+repository_not_accessible  → 404
+invalid_ref                → 422
+github_reauth_required     → 409
+github_rate_limited        → 503
+github_app_misconfigured   → 503
+github_unavailable         → 503
+```
+
+Raw GitHub error bodies are not returned to the client.
+
+### Scope boundary
+
+Step 14 does not:
+
+- download the repository;
+- safely extract GitHub archives;
+- package snapshots;
+- upload object storage;
+- build AST/symbol graphs;
+- calculate impact;
+- invoke an LLM.
+
+Those responsibilities remain in the asynchronous pipeline established by Steps 12 and 13.
+
+### Commit status
+
+```text
+8bc047f feat: add repository connect API
+```
+
+Step 14 is complete. The next roadmap work should build on the accepted `repository.ingest` job and preserved repository/snapshot boundary rather than moving ingestion into the HTTP request.
