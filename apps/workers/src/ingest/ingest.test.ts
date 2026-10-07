@@ -394,6 +394,41 @@ test("GitHub 401/403 style auth failures mark needs_reauth and are not retryable
   assert.deepEqual(statuses, ["needs_reauth"]);
 });
 
+test("inaccessible repository is classified as needs_reauth, marks repository, and is not retryable", async () => {
+  const statuses: string[] = [];
+  const inaccessibleError = new IngestionError({
+    code: "github_auth",
+    message: "GitHub repository is not accessible with this installation",
+    retryable: false,
+    repositoryStatus: "needs_reauth",
+  });
+
+  await assert.rejects(
+    () =>
+      ingestRepositoryJob(
+        ingestJob({ repositoryId: REPO, ref: "main" }),
+        deps({
+          lookup: lookupMock({ statuses }),
+          github: githubMock({
+            failures: {
+              getRepository: () => {
+                throw inaccessibleError;
+              },
+            },
+          }),
+        }),
+      ),
+    (error: unknown) => {
+      assert.equal(error, inaccessibleError);
+      assert.equal(error.code, "github_auth");
+      assert.equal(error.retryable, false);
+      assert.equal(error.repositoryStatus, "needs_reauth");
+      return true;
+    },
+  );
+  assert.deepEqual(statuses, ["needs_reauth"]);
+});
+
 test("rate-limit errors stay retryable and do not change repository status", async () => {
   const statuses: string[] = [];
   const rateLimit = new IngestionError({
@@ -419,18 +454,80 @@ test("rate-limit errors stay retryable and do not change repository status", asy
       ),
     (error: unknown) => {
       assert.equal(error, rateLimit);
+      assert.equal(error.retryable, true);
+      assert.equal(error.repositoryStatus, null);
       return true;
     },
   );
   assert.deepEqual(statuses, []);
 });
 
-test("invalid GitHub ref is a permanent repository error", async () => {
+test("temporary GitHub outage stays retryable and does not change repository status", async () => {
+  const statuses: string[] = [];
+  const outageError = new IngestionError({
+    code: "github_unavailable",
+    message: "GitHub is temporarily unavailable",
+    retryable: true,
+  });
+
+  await assert.rejects(
+    () =>
+      ingestRepositoryJob(
+        ingestJob({ repositoryId: REPO, ref: "main" }),
+        deps({
+          lookup: lookupMock({ statuses }),
+          github: githubMock({
+            failures: {
+              resolveCommit: () => {
+                throw outageError;
+              },
+            },
+          }),
+        }),
+      ),
+    (error: unknown) => {
+      assert.equal(error, outageError);
+      assert.equal(error.retryable, true);
+      assert.equal(error.repositoryStatus, null);
+      return true;
+    },
+  );
+  assert.deepEqual(statuses, []);
+});
+
+test("temporary object-storage failure stays retryable and does not change repository status", async () => {
+  const statuses: string[] = [];
+  const storage = new MemoryObjectStorage();
+  storage.failPut = true;
+
+  await assert.rejects(
+    () =>
+      ingestRepositoryJob(
+        ingestJob({ repositoryId: REPO, ref: "main" }),
+        deps({
+          lookup: lookupMock({ statuses }),
+          storage,
+        }),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "object_storage");
+      assert.equal(error.retryable, true);
+      assert.equal(error.repositoryStatus, null);
+      return true;
+    },
+  );
+  assert.deepEqual(statuses, []);
+});
+
+test("invalid GitHub ref is a permanent repository error and marks repository error", async () => {
+  const statuses: string[] = [];
   await assert.rejects(
     () =>
       ingestRepositoryJob(
         ingestJob({ repositoryId: REPO, ref: "does-not-exist" }),
         deps({
+          lookup: lookupMock({ statuses }),
           github: githubMock({
             failures: {
               resolveCommit: () => {
@@ -448,9 +545,100 @@ test("invalid GitHub ref is a permanent repository error", async () => {
     (error: unknown) => {
       assert.ok(error instanceof IngestionError);
       assert.equal(error.code, "invalid_ref");
+      assert.equal(error.retryable, false);
+      assert.equal(error.repositoryStatus, "error");
       return true;
     },
   );
+  assert.deepEqual(statuses, ["error"]);
+});
+
+test("oversized repository/archive is a permanent failure, marks error, and is not retryable", async () => {
+  const statuses: string[] = [];
+  await assert.rejects(
+    () =>
+      ingestRepositoryJob(
+        ingestJob({ repositoryId: REPO, ref: "main" }),
+        deps({
+          lookup: lookupMock({ statuses }),
+          maxTotalBytes: 1, // smaller than the uncompressed archive fixture
+        }),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "repository_too_large");
+      assert.equal(error.retryable, false);
+      assert.equal(error.repositoryStatus, "error");
+      return true;
+    },
+  );
+  assert.deepEqual(statuses, ["error"]);
+});
+
+test("unsafe archive is a permanent failure and marks error", async () => {
+  const statuses: string[] = [];
+  const unsafeArchive = gzipTar([
+    {
+      name: `demo-${SHA}/../escape.txt`,
+      body: Buffer.from("malicious", "utf8"),
+    },
+  ]);
+
+  await assert.rejects(
+    () =>
+      ingestRepositoryJob(
+        ingestJob({ repositoryId: REPO, ref: "main" }),
+        deps({
+          lookup: lookupMock({ statuses }),
+          github: githubMock({ archive: unsafeArchive }),
+        }),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "unsafe_archive");
+      assert.equal(error.retryable, false);
+      assert.equal(error.repositoryStatus, "error");
+      return true;
+    },
+  );
+  assert.deepEqual(statuses, ["error"]);
+});
+
+test("snapshot conflict is a permanent failure and marks error", async () => {
+  const statuses: string[] = [];
+  const storage = new MemoryObjectStorage();
+  const existingSnapshot: RepositorySnapshot = {
+    id: "existing-snapshot-id",
+    repositoryId: REPO,
+    commitSha: SHA,
+    ref: "main",
+    storageUri: "filesystem://some-path",
+    sha256: "different-sha256",
+    fileCount: 999,
+    sizeBytes: "999",
+    createdAt: new Date(),
+  };
+  const snapshots = snapshotStoreMock([existingSnapshot]);
+
+  await assert.rejects(
+    () =>
+      ingestRepositoryJob(
+        ingestJob({ repositoryId: REPO, ref: "main" }),
+        deps({
+          lookup: lookupMock({ statuses }),
+          storage,
+          snapshots,
+        }),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "snapshot_conflict");
+      assert.equal(error.retryable, false);
+      assert.equal(error.repositoryStatus, "error");
+      return true;
+    },
+  );
+  assert.deepEqual(statuses, ["error"]);
 });
 
 test("temporary working directories are removed after handler success and failure", async () => {

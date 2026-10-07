@@ -44,6 +44,19 @@ function sleep(milliseconds: number): Promise<void> {
   });
 }
 
+export const MAX_RETRY_DELAY_SECONDS = 300;
+
+export function computeRetryDelay(
+  baseDelaySeconds: number,
+  attemptCount: number,
+  maxDelaySeconds = MAX_RETRY_DELAY_SECONDS,
+): number {
+  const exponent = Math.max(0, attemptCount - 1);
+  const factor = Math.pow(2, exponent);
+  const calculated = Math.floor(baseDelaySeconds * factor);
+  return Math.min(calculated, maxDelaySeconds);
+}
+
 const tracer = getTracer("@fluxora/workers");
 
 export class JobWorker {
@@ -179,7 +192,11 @@ export class JobWorker {
     );
 
     if (failed.status === "failed" && isRetryableJobError(error)) {
-      await this.jobStore.retryFailedJob(failed.id, this.retryDelaySeconds);
+      const delaySeconds = computeRetryDelay(
+        this.retryDelaySeconds,
+        failed.attemptCount,
+      );
+      await this.jobStore.retryFailedJob(failed.id, delaySeconds);
     }
   }
 }

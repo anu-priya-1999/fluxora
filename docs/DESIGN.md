@@ -9494,3 +9494,67 @@ Step 15 does not:
 - implement failure paths or retry policies (Step 16);
 - emit graph or AST analysis events;
 - invoke an LLM.
+
+---
+
+**## 33. Step 16 - Ingestion Failure-Path Hardening**
+
+Step 16 hardens the asynchronous ingestion worker pipeline against GitHub API, network, file size, archive corruption, and storage failures by strictly differentiating between permanent failures and retryable transient failures, with bounded exponential backoff.
+
+### Failure Classification & Repository State
+
+1. **Permanent Failures (`retryable = false`)**:
+   - **Revoked / Inaccessible GitHub Access**:
+     - Codes: `github_auth`
+     - Condition: GitHub HTTP 401/403, missing installation, or HTTP 404 on repository lookup.
+     - Action: repository status transitioned to `needs_reauth`.
+     - Queue: Job is marked `failed` or `dead_letter` without calling `retryFailedJob`.
+   - **Invalid Ref**:
+     - Code: `invalid_ref`
+     - Condition: GitHub HTTP 404 on commit resolution, malformed commit SHA, or payload SHA mismatch.
+     - Action: repository status transitioned to `error`.
+     - Queue: Job is marked `failed` without calling `retryFailedJob`.
+   - **Oversized Repository / Archive**:
+     - Code: `repository_too_large`
+     - Condition: declared `Content-Length` or actual stream exceeds `maxArchiveBytes`, uncompressed bytes exceed `maxTotalBytes`, or file count exceeds `maxFileCount`.
+     - Action: repository status transitioned to `error`.
+     - Queue: Job is marked `failed` without calling `retryFailedJob`.
+   - **Unsafe Archive & Snapshot Conflict**:
+     - Codes: `unsafe_archive`, `snapshot_conflict`
+     - Condition: Path traversal (`..`), symlinks/hard links, corrupted headers, or attempted overwrite of immutable snapshot with divergent checksum/metadata.
+     - Action: repository status transitioned to `error`.
+     - Queue: Job is marked `failed` without calling `retryFailedJob`.
+
+2. **Retryable Failures (`retryable = true`)**:
+   - **GitHub Rate Limit**:
+     - Code: `github_rate_limit` (HTTP 429 or HTTP 403 with `x-ratelimit-remaining: 0` or `retry-after`).
+     - Action: Repository status remains unchanged (e.g. `pending`).
+     - Queue: Enqueued for retry via `retryFailedJob`.
+   - **Temporary GitHub Outage & Timeouts**:
+     - Codes: `github_unavailable`, `timeout` (HTTP >= 500, network errors, fetch abort / execution timeouts).
+     - Action: Repository status remains unchanged.
+     - Queue: Enqueued for retry via `retryFailedJob`.
+   - **Temporary Object Storage Failure**:
+     - Code: `object_storage` (Transient S3/filesystem upload or persistence error).
+     - Action: Repository status remains unchanged.
+     - Queue: Enqueued for retry via `retryFailedJob`.
+
+### Deterministic Exponential Backoff
+
+When retrying failed jobs in `JobWorker`:
+- Delay formula:
+  $$\text{delay} = \min(\text{baseDelay} \times 2^{\text{attemptCount} - 1}, 300\text{ seconds})$$
+- Default base of 5s yields:
+  $$5\text{s} \to 10\text{s} \to 20\text{s} \to 40\text{s} \to 80\text{s} \to 160\text{s} \to 300\text{s}$$
+- Bounded at 300 seconds (5 minutes).
+- Respects existing `maxAttempts` and database dead-letter semantics.
+
+### Scope Boundary
+
+Step 16 does not:
+- modify PostgreSQL schema or migrations;
+- alter tenant isolation or RLS policies;
+- alter Step 15 `repository.indexed` outbox event emission;
+- implement AST parsing or symbol extraction (Phase 3);
+- invoke an LLM.
+
