@@ -14,3 +14,4 @@ export * from "./ingest/handler.ts";
 export * from "./ingest/errors.ts";
 export * from "./ingest/limits.ts";
 export * from "./fixtures/golden.ts";
+export * from "./detect/detector.ts";

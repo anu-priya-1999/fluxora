@@ -9604,3 +9604,46 @@ Step 17 does not:
 - build graph nodes, edges, or evidence rows;
 - invoke an LLM.
 
+---
+
+**## 35. Step 18 - Language and Framework Detection**
+
+Step 18 implements deterministic Language and Framework Detection (`docs/architecture/05-component-responsibilities.md §5.2`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 1`).
+
+### Purpose and Responsibilities
+
+Given an immutable repository snapshot produced by Fluxora ingestion, the detector statically evaluates file paths, file extensions, and manifest contents to classify:
+1. All programming, styling, and markup languages present in the repository (`TypeScript`, `JavaScript`, `JSON`, `CSS`, `HTML`, `Markdown`).
+2. Frameworks and runtime tooling present (`Next.js`, `React`, `Node.js`).
+3. Primary language and primary framework when determinable.
+4. Structured provenance evidence explaining the detection rationale.
+
+### Deterministic Architecture & Safe Invariant
+
+- **Pure Static Analysis**: Operates over snapshot metadata and configuration file text. Does not execute repository code (`eval`, `import()`, or subprocesses) or make network requests.
+- **No LLM in Core**: Fulfills Fluxora's invariant of a deterministic core and probabilistic AI edge. Classifications are reproducible and testable.
+- **File Normalization**: Maps modern TypeScript/JavaScript dialects (`.mts`, `.cts`, `.tsx`, `.mjs`, `.cjs`, `.jsx`) to canonical language types.
+- **Directory Exclusion**: Strictly filters out build outputs, dependencies, and caches (`node_modules`, `.git`, `.next`, `build`, `dist`, `out`, `.turbo`, `.cache`, `coverage`).
+- **False-Positive Prevention**: Frameworks require verified package manifests (`package.json`), recognized config files (`next.config.mjs`), or standard project layout structures. Unrelated file names containing keywords do not trigger framework detections.
+
+### Golden Fixture Verification
+
+When evaluated against `shadcn-ui/taxonomy` (the canonical golden fixture), the detector produces:
+- Primary Language: `TypeScript`
+- Languages: `["CSS", "HTML", "JSON", "JavaScript", "Markdown", "TypeScript"]`
+- Primary Framework: `Next.js`
+- Frameworks: `["Next.js", "Node.js", "React"]`
+- Evidence: Captured package dependencies for `next` and `react`, `next.config.mjs`, and App Router directory structures.
+
+### Scope Boundary
+
+Step 18 does not:
+- perform AST parsing or symbol extraction (Step 19);
+- integrate ts-morph or the TypeScript Compiler API;
+- extract import/export dependency graphs (Step 20);
+- detect API routes or Express routers (Step 21);
+- detect event publishers or database queries (Steps 22–23);
+- run tree-sitter or graph normalizers (Steps 24–25);
+- persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
+- invoke an LLM.
+

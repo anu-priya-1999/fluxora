@@ -28,4 +28,5 @@ export {
   type RepositorySnapshot,
 } from "./repository.ts";
 export * from "./fixtures.ts";
+export * from "./detection.ts";
 
