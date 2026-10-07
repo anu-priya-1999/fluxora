@@ -10,6 +10,7 @@ export default defineConfig(
     "**/dist/**",
     "**/build/**",
     "**/coverage/**",
+    "fixtures/**",
     "next-env.d.ts",
   ]),
 

@@ -27,3 +27,5 @@ export {
   type RepositoryConnectionStatus,
   type RepositorySnapshot,
 } from "./repository.ts";
+export * from "./fixtures.ts";
+

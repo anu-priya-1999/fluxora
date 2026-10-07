@@ -9558,3 +9558,49 @@ Step 16 does not:
 - implement AST parsing or symbol extraction (Phase 3);
 - invoke an LLM.
 
+---
+
+**## 34. Step 17 - Golden Fixture Repository**
+
+Step 17 establishes ONE real-world open-source repository as Fluxora's canonical golden fixture for deterministic testing, demo preparation, and manual verification across subsequent code-intelligence phases.
+
+### Golden Repository Selection & Pinned Identity
+
+- **Repository Full Name**: `shadcn-ui/taxonomy`
+- **Repository URL**: `https://github.com/shadcn-ui/taxonomy`
+- **Pinned Commit SHA**: `298a8857c7128a0d121e7f699dfd729f23b3966d`
+- **Source Branch**: `refs/heads/main`
+- **Fixture Identifier**: `golden-taxonomy-v1`
+- **Description**: Open-source Next.js 13+ App Router, React Server Components, and TypeScript reference SaaS application.
+
+### Selection Rationale
+
+1. **Next.js & TypeScript Architecture**: Employs App Router file-based routing (`app/(auth)`, `app/(dashboard)`, `app/(marketing)`, `app/api`), React Server Components, Client Components, and route handlers.
+2. **Realistic SaaS Complexity**: Includes Prisma ORM models (`prisma/schema.prisma`), NextAuth.js authentication, Stripe webhook handling, MDX documentation, and custom Tailwind components.
+3. **TypeScript Configuration**: Defines `tsconfig.json` with path mapping (`@/*`) and barrel-file exports (`components/ui/*`).
+4. **Moderate Size & Determinism**: Comprises 177 files totaling ~2.16 MB uncompressed (~1.15 MB tarball), fitting within Fluxora's ingestion limits (`100MB`) while enabling fast, offline test execution without requiring live GitHub network calls.
+5. **Architectural Permanence**: As an archived open-source reference project, the pinned commit `298a8857c7128a0d121e7f699dfd729f23b3966d` will not experience branch movement or upstream history rewrites.
+
+### Storage & Reproducibility
+
+- The fixture source tree resides at `fixtures/golden/taxonomy/` accompanied by `fixtures/golden/manifest.json`.
+- The manifest records repository metadata, framework characteristics, file sizes, and SHA-256 digests for every file.
+- Excluded from the fixture: `node_modules`, `.next`, `.git`, build caches, and credentials.
+- Tests verify fixture integrity, hash matching, and path traversal protection entirely offline.
+
+### Product Scope Clarification
+
+This golden fixture is an internal testing and benchmarking asset. Real Fluxora users will connect and analyze arbitrary GitHub repositories; the golden fixture does not restrict the product's runtime capabilities.
+
+### Scope Boundary
+
+Step 17 does not:
+- implement language/framework detection algorithms (Step 18);
+- integrate ts-morph or TypeScript Compiler API (Step 19);
+- implement import/export dependency extraction (Step 20);
+- implement route detection (Step 21);
+- implement event pattern or DB-reference detection (Steps 22–23);
+- implement tree-sitter or normalizers (Steps 24–25);
+- build graph nodes, edges, or evidence rows;
+- invoke an LLM.
+
