@@ -1,0 +1,25 @@
+# Default line ending handling: treat files as text with LF endings by default
+* text=auto eol=lf
+
+# Force LF line endings for all golden fixture files so their bytes are bit-for-bit deterministic
+fixtures/golden/** text eol=lf
+
+# Binary files must remain unchanged and never have line endings normalized
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.ttf binary
+*.woff binary
+*.woff2 binary
+
+# Explicitly ensure binary assets in golden fixtures remain binary
+fixtures/golden/**/*.png binary
+fixtures/golden/**/*.jpg binary
+fixtures/golden/**/*.ico binary
+fixtures/golden/**/*.ttf binary
+fixtures/golden/**/*.woff binary
+fixtures/golden/**/*.woff2 binary
+

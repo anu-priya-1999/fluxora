@@ -119,6 +119,46 @@ test("golden fixture file hashes match recorded manifest hashes without network 
   }
 });
 
+test("all golden fixture files match recorded manifest size and sha256 checksums", () => {
+  const manifest = loadGoldenFixtureManifest();
+
+  for (const fileEntry of manifest.files) {
+    const buffer = readGoldenFixtureFile(fileEntry.path);
+    assert.equal(
+      buffer.length,
+      fileEntry.size,
+      `Size mismatch for ${fileEntry.path}: expected ${fileEntry.size}, got ${buffer.length}`,
+    );
+
+    const calculatedSha = createHash("sha256").update(buffer).digest("hex");
+    assert.equal(
+      calculatedSha,
+      fileEntry.sha256,
+      `SHA-256 hash mismatch for ${fileEntry.path}: expected ${fileEntry.sha256}, got ${calculatedSha}`,
+    );
+  }
+});
+
+test("golden fixture text files use normalized LF line endings across all platforms", () => {
+  const manifest = loadGoldenFixtureManifest();
+  const binaryExtensions = new Set([".png", ".jpg", ".jpeg", ".ico", ".ttf", ".woff", ".woff2"]);
+
+  for (const fileEntry of manifest.files) {
+    const dotIndex = fileEntry.path.lastIndexOf(".");
+    const ext = dotIndex !== -1 ? fileEntry.path.slice(dotIndex).toLowerCase() : "";
+    if (binaryExtensions.has(ext)) {
+      continue;
+    }
+
+    const buffer = readGoldenFixtureFile(fileEntry.path);
+    assert.equal(
+      buffer.includes("\r\n"),
+      false,
+      `Fixture text file ${fileEntry.path} contains CRLF (\\r\\n). Must be normalized to LF (\\n).`,
+    );
+  }
+});
+
 test("readGoldenFixtureFile prevents directory traversal attempts", () => {
   assert.throws(
     () => readGoldenFixtureFile("../manifest.json"),
