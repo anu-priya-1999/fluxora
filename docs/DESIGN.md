@@ -9758,4 +9758,48 @@ Step 21 does not:
 - persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
 - invoke an LLM.
 
+---
+
+**## 39. Step 22 - Event Producer and Consumer Pattern Detection**
+
+Step 22 implements deterministic static detection of event producer and consumer patterns (`docs/architecture/05-component-responsibilities.md §5.5`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 5`).
+
+### Purpose and Responsibilities
+
+Given an immutable repository snapshot, the event pattern detector statically and deterministically discovers where pub/sub events are emitted and consumed across four initial ecosystems:
+1. **Node.js EventEmitter**:
+   - Producers: `emitter.emit("event", ...)` and subclassed `this.emit("event", ...)`.
+   - Consumers: `emitter.on("event", fn)`, `emitter.once("event", fn)`, `emitter.addListener("event", fn)`.
+2. **Redis Pub/Sub**:
+   - Producers: `client.publish("channel", ...)`.
+   - Consumers: `client.subscribe("channel", fn)`, `client.pSubscribe("pattern", fn)`.
+3. **KafkaJS**:
+   - Producers: `producer.send({ topic: "..." })`.
+   - Consumers: `consumer.subscribe({ topic: "..." })`, `consumer.run({ eachMessage: ... })`, `consumer.run({ eachBatch: ... })`.
+4. **RabbitMQ / amqplib**:
+   - Producers: `channel.publish(exchange, routingKey, ...)`, `channel.sendToQueue(queue, ...)`.
+   - Consumers: `channel.consume(queue, fn)`.
+5. **Static Value Extraction**:
+   - Statically extracts string literals and no-substitution template literals for event names, topics, channels, and queues.
+   - Dynamic, computed, or non-literal expressions safely fall back to `null` with `status: "unresolved"`. Code is never executed.
+6. **False-Positive Prevention**:
+   - Strictly enforces receiver provenance from known imports (`events`, `redis`, `ioredis`, `kafkajs`, `amqplib`), constructor calls, or factory functions. Arbitrary objects named `socket`, `blog`, `client`, or `channel` without proven provenance are excluded.
+
+### Deterministic Architecture & Safe Invariants
+
+- **Untrusted Input Guarantee**: Customer code is never executed, evaluated, dynamically imported, or run via external processes.
+- **AST Provenance Verification**: Uses the TypeScript Compiler API (`ts.createSourceFile`) to verify module imports and variable instantiation bindings before matching call sites.
+- **Reproducible Findings**: Given identical snapshot inputs, detected patterns, counts, locations, and IDs are 100% deterministic.
+- **Explicit Evidence**: Every detected producer and consumer carries an explanatory evidence statement detailing why it was classified.
+
+### Scope Boundary
+
+Step 22 does not:
+- detect ORM or database references (Step 23);
+- implement tree-sitter fallback parsers (Step 24);
+- implement symbol normalizers or barrel-file collapses (Step 25);
+- persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
+- link producers and consumers across the graph (Phase 4);
+- invoke an LLM.
+
 
