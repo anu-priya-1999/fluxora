@@ -9724,4 +9724,38 @@ Step 20 does not:
 - persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
 - invoke an LLM.
 
+---
+
+**## 38. Step 21 - Next.js API Route and Express Router Detection**
+
+Step 21 implements deterministic static detection of Next.js API routes and Express routers (`docs/architecture/05-component-responsibilities.md §5.5`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 4`).
+
+### Purpose and Responsibilities
+
+Given an immutable repository snapshot, the route detector deterministically discovers and classifies all HTTP API entrypoints and router instances:
+1. **Next.js App Router Route Handlers**: Discovers route handlers in `app/**/route.(ts|tsx|js|jsx)` and extracts exported HTTP method functions (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`).
+2. **Next.js Pages Router API Routes**: Discovers API routes in `pages/api/**` and extracts default exported handlers (`export default function handler(req, res)`).
+3. **Route Path Derivation**: Deterministically computes public HTTP endpoint paths (e.g. `app/api/posts/[id]/route.ts` -> `/api/posts/[id]`, `pages/api/users.ts` -> `/api/users`).
+4. **Express Router Detection**: Detects `express.Router()` and `Router()` invocations when imported from `"express"`, capturing registered routes (`router.get`, `router.post`, etc.) and middleware mounts (`router.use`).
+5. **Express App Route Detection**: Detects `app.get`, `app.post`, etc. only when proven to originate from `express()`.
+6. **Static Value Extraction**: Statically parses string literals and template literals for paths; dynamic expressions safely fall back to `(unresolved)` without executing code.
+7. **False-Positive Prevention**: Strictly excludes frontend page files (`page.tsx`, `layout.tsx`) and arbitrary non-Express objects named `router` or `app`.
+
+### Deterministic Architecture & Safe Invariants
+
+- **Untrusted Input Guarantee**: Customer code is never executed, evaluated, dynamically imported, or run via external processes.
+- **AST Provenance Verification**: Uses the TypeScript Compiler API (`ts.createSourceFile`) to verify AST identifier origins and call sites.
+- **Reproducible Findings**: Given identical snapshot inputs, route IDs, counts, locations, and evidence are 100% deterministic.
+- **Explicit Evidence**: Every detected route and router record carries an explanatory evidence statement detailing why it was classified.
+
+### Scope Boundary
+
+Step 21 does not:
+- detect event publishers or subscribers (Step 22);
+- detect ORM or database references (Step 23);
+- implement tree-sitter fallback parsers (Step 24);
+- implement symbol normalizers or barrel-file collapses (Step 25);
+- persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
+- invoke an LLM.
+
 

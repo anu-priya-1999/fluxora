@@ -31,4 +31,5 @@ export * from "./fixtures.ts";
 export * from "./detection.ts";
 export * from "./symbols.ts";
 export * from "./modules.ts";
+export * from "./routes.ts";
 
