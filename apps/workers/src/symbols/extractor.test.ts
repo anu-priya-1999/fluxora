@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   extractSymbolsFromSource,
-  getNodeSourceLocation,
   isSupportedSymbolFile,
 } from "./extractor.ts";
 import { readGoldenFixtureFileText } from "../fixtures/golden.ts";
