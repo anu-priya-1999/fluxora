@@ -29,4 +29,5 @@ export {
 } from "./repository.ts";
 export * from "./fixtures.ts";
 export * from "./detection.ts";
+export * from "./symbols.ts";
 

@@ -9647,3 +9647,43 @@ Step 18 does not:
 - persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
 - invoke an LLM.
 
+---
+
+**## 36. Step 19 - Per-File Symbol Extraction**
+
+Step 19 implements deterministic per-file symbol extraction (`docs/architecture/05-component-responsibilities.md §5.3`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 2`).
+
+### Purpose and Responsibilities
+
+Given a repository snapshot, the symbol extractor deterministically discovers all code entities defined within each supported source file (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`):
+1. **Functions**: Function declarations (`function foo() {}`) and variable-assigned functions / arrow functions (`const foo = () => {}`).
+2. **Classes**: Class declarations (`class Foo {}`) and class expressions (`export default class {}`).
+3. **Class Methods**: Methods within classes with parent relationship links (`Foo.bar`), accessibility, and modifiers.
+4. **Interfaces**: TypeScript interface declarations (`interface User {}`).
+5. **Type Aliases**: TypeScript type aliases (`type Result<T> = ...`).
+6. **Enums**: Standard and const enums (`enum Status {}`).
+7. **Variables**: Mutable variable declarations (`let`, `var`, and destructuring).
+8. **Constants**: Constant declarations (`const` and destructuring bindings).
+9. **Export Metadata**: Deterministic export markings (`isExported`, `isDefaultExport`, `exportName`) including separate export clauses (`export { foo }`).
+
+### Deterministic Architecture & Safe Invariants
+
+- **AST Static Analysis**: Employs the TypeScript Compiler API (`ts.createSourceFile`) to parse source files into ASTs without executing customer code.
+- **Untrusted Input Guarantee**: Never dynamically imports or evaluates repository code.
+- **Fault-Tolerant Parsing**: Syntax errors are captured as structured `RepositorySymbolDiagnostic` records rather than failing or crashing analysis runs.
+- **Precise Source Locations**: Tracks 1-based line/column numbers alongside 0-based character offsets for deterministic evidence linking.
+- **Strict Directory & File Filtering**: Honors standard ignored directories (`node_modules`, `.git`, `.next`, `build`, `dist`, `out`, `.turbo`, `.cache`, `coverage`) and skips non-code files.
+
+### Scope Boundary
+
+Step 19 does not:
+- extract import/export dependency graphs (Step 20);
+- resolve module targets or `tsconfig.json` path aliases (Step 20);
+- detect Next.js API routes or Express routers (Step 21);
+- detect event publishers/subscribers or ORM/database references (Steps 22–23);
+- implement tree-sitter fallback parsers (Step 24);
+- implement symbol normalizers or barrel-file collapses (Step 25);
+- persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
+- invoke an LLM.
+
+
