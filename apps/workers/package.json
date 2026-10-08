@@ -9,7 +9,8 @@
   "scripts": {
     "start": "node --experimental-strip-types src/run.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test --test-force-exit src/github/client.test.ts src/ingest/archive.test.ts src/ingest/package-snapshot.test.ts src/ingest/storage-config.test.ts src/ingest/ingest.test.ts src/worker.test.ts src/fixtures/golden.test.ts src/detect/detector.test.ts src/symbols/extractor.test.ts src/modules/graph.test.ts src/routes/detector.test.ts src/events/detector.test.ts"
+    "test": "node --experimental-strip-types --test --test-force-exit src/github/client.test.ts src/ingest/archive.test.ts src/ingest/package-snapshot.test.ts src/ingest/storage-config.test.ts src/ingest/ingest.test.ts src/worker.test.ts src/fixtures/golden.test.ts src/detect/detector.test.ts src/symbols/extractor.test.ts src/modules/graph.test.ts src/routes/detector.test.ts src/events/detector.test.ts src/database/detector.test.ts"
+
   },
   "dependencies": {
     "@fluxora/db": "workspace:*",

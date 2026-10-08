@@ -19,3 +19,5 @@ export * from "./symbols/extractor.ts";
 export * from "./modules/graph.ts";
 export * from "./routes/detector.ts";
 export * from "./events/detector.ts";
+export * from "./database/detector.ts";
+

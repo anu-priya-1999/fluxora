@@ -9796,10 +9796,69 @@ Given an immutable repository snapshot, the event pattern detector statically an
 
 Step 22 does not:
 - detect ORM or database references (Step 23);
-- implement tree-sitter fallback parsers (Step 24);
 - implement symbol normalizers or barrel-file collapses (Step 25);
 - persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
 - link producers and consumers across the graph (Phase 4);
 - invoke an LLM.
+
+---
+
+**## 40. Step 23 - Database Reference Detection**
+
+Step 23 implements deterministic static detection of database and ORM references (`docs/architecture/05-component-responsibilities.md §5.5`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 6`).
+
+### Purpose and Responsibilities
+
+Given an immutable repository snapshot, the database reference detector statically and deterministically discovers where database operations occur across four initial ORM ecosystems:
+1. **Prisma**:
+   - Model operations: `prisma.<model>.findMany`, `findUnique`, `findFirst`, `create`, `createMany`, `update`, `updateMany`, `delete`, `deleteMany`, `upsert`.
+   - Raw queries & transactions: `$queryRaw`, `$queryRawUnsafe`, `$executeRaw`, `$executeRawUnsafe`, `$transaction`.
+2. **Drizzle ORM**:
+   - Query builder shapes: `select().from(table)`, `insert(table)`, `update(table)`, `delete(table)`.
+   - Relational query shapes: `db.query.<table>.findMany`, `db.query.<table>.findFirst`.
+3. **TypeORM**:
+   - Repository patterns: `getRepository(Entity).find`, `save`, `insert`, `update`, `delete`, `remove`, `userRepo.find`, `userRepo.save`.
+   - Entity Manager patterns: `manager.find(Entity, ...)`, `manager.save(Entity, ...)`, `manager.insert(Entity, ...)`, `manager.update(Entity, ...)`.
+4. **Sequelize**:
+   - Model patterns: `User.findAll`, `User.findOne`, `User.findByPk`, `User.create`, `User.bulkCreate`, `User.update`, `User.destroy`, `User.upsert`.
+
+### Operation Taxonomy
+
+All detected calls are mapped into a unified operation taxonomy:
+- `read`: Query and fetch operations (`findMany`, `findUnique`, `select`, `findAll`, `findOne`, `findByPk`).
+- `insert`: Entity and row insertions (`create`, `createMany`, `insert`, `save`, `bulkCreate`).
+- `update`: Mutation and update calls (`update`, `updateMany`).
+- `delete`: Removal operations (`delete`, `deleteMany`, `remove`, `destroy`).
+- `upsert`: Atomic create-or-update calls (`upsert`).
+- `query`: Raw database query evaluations (`$queryRaw`, `$queryRawUnsafe`).
+- `execute`: Raw command executions (`$executeRaw`, `$executeRawUnsafe`).
+- `transaction`: Transaction block boundaries (`$transaction`).
+
+### Provenance & False-Positive Prevention
+
+- **Strict In-File Provenance Verification**: Calls are evaluated against in-file ORM provenance scopes built from top-level imports (`@prisma/client`, `drizzle-orm`, `typeorm`, `sequelize`), CommonJS requires, class declarations (`extends Model`, `extends BaseEntity`, `@Entity()`), and client variable bindings (`new PrismaClient()`, `drizzle()`, `getRepository(User)`).
+- **False-Positive Elimination**: Unproven calls like `foo.findMany()`, `file.save()`, `element.create()`, or `user.update()` on arbitrary objects without ORM provenance are strictly excluded.
+
+### Static Resource Name Resolution
+
+- Model, table, or entity names are extracted as `resourceName` with `status: "resolved"` when statically knowable (string literals, identifier names, or no-substitution template literals).
+- Dynamic or computed resource expressions (e.g. `prisma[dynamicModel].findMany()`) resolve to `resourceName: null` with `status: "unresolved"`.
+- Raw queries (`$queryRaw`, `$executeRaw`) set `resourceName: null` with `status: "resolved"`.
+
+### Deterministic Architecture & Safe Invariants
+
+- **Untrusted Input Guarantee**: Customer code is never executed, evaluated, dynamically imported, or run via external processes. No database connections are opened.
+- **AST Provenance Verification**: Uses TypeScript Compiler API (`ts.createSourceFile`) to verify bindings and call sites.
+- **Reproducible Findings**: Output reference lists, IDs, source locations, and counts are 100% deterministic across runs.
+
+### Scope Boundary
+
+Step 23 does not:
+- implement tree-sitter fallback parsers (Step 24);
+- implement symbol normalizers or barrel-file collapses (Step 25);
+- persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
+- build graph edges or graph database relationships;
+- invoke an LLM.
+
 
 
