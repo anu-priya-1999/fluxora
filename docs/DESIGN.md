@@ -9686,4 +9686,42 @@ Step 19 does not:
 - persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
 - invoke an LLM.
 
+---
+
+**## 37. Step 20 - Import/Export Graph Extraction and TypeScript Path-Alias Resolution**
+
+Step 20 implements deterministic import/export graph extraction and TypeScript path-alias resolution (`docs/architecture/05-component-responsibilities.md §5.3`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 3`).
+
+### Purpose and Responsibilities
+
+Given an immutable repository snapshot, the module graph extractor deterministically traces inter-module connections across all supported TypeScript/JavaScript source files (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.cts`, `.mjs`, `.cjs`):
+1. **Named Imports**: Extracts named import clauses and specifiers (`import { foo, bar as baz } from "./utils"`).
+2. **Default Imports**: Extracts default imports (`import Foo from "./Foo"`).
+3. **Namespace Imports**: Extracts wildcard imports (`import * as Utils from "./utils"`).
+4. **Side-Effect Imports**: Extracts bare module statements (`import "./setup"`).
+5. **Dynamic Imports**: Statically extracts `import("./foo")` and flags computed calls (`import(fn())`) as `unsupported_dynamic`.
+6. **CommonJS Require**: Statically extracts `require("./foo")` without executing runtime code.
+7. **Re-Exports**: Extracts star (`export * from "./utils"`), namespace (`export * as utils from "./utils"`), and named re-exports (`export { foo } from "./utils"`).
+8. **TypeScript Path-Alias Resolution**: Resolves `@/*` and other custom path mappings against `tsconfig.json` `baseUrl` and `paths`.
+9. **Extension & Index Resolution**: Deterministically resolves relative imports lacking extensions or pointing to directories (`./components` -> `./components/index.ts`).
+10. **Classification & Diagnostics**: Deterministically classifies targets as `internal`, `external`, `unresolved`, or `unsupported_dynamic` and captures parse diagnostics without throwing unhandled exceptions.
+
+### Deterministic Architecture & Safe Invariants
+
+- **Untrusted Input Guarantee**: Customer code is never executed, evaluated, dynamically imported by the runtime, or passed to external package managers.
+- **In-Memory Virtual Resolution**: Resolves modules against an in-memory `SnapshotFileMap` using a custom `ts.ModuleResolutionHost`, completely decoupled from network and disk access.
+- **Explicit Barrel Relationships**: Preserves barrel re-export edges explicitly (`re_export`). Barrel-file collapsing and normalization is strictly deferred to Step 25.
+- **Cross-Platform Determinism**: Normalizes path separators to POSIX slashes and lexicographically sorts all emitted arrays (`filesAnalyzed`, `references`, `internalEdges`, `externalReferences`, `unresolvedReferences`).
+
+### Scope Boundary
+
+Step 20 does not:
+- detect Next.js API routes or Express routers (Step 21);
+- detect event publishers or subscribers (Step 22);
+- detect ORM or database references (Step 23);
+- implement tree-sitter fallback parsers (Step 24);
+- implement symbol normalizers or barrel-file collapses (Step 25);
+- persist GraphNode, GraphEdge, or Evidence database rows (Phase 4);
+- invoke an LLM.
+
 
