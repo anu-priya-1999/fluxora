@@ -20,4 +20,5 @@ export * from "./modules/graph.ts";
 export * from "./routes/detector.ts";
 export * from "./events/detector.ts";
 export * from "./database/detector.ts";
+export * from "./tree-sitter/index.ts";
 

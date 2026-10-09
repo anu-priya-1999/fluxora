@@ -9860,5 +9860,55 @@ Step 23 does not:
 - build graph edges or graph database relationships;
 - invoke an LLM.
 
+---
+
+**## 41. Step 24 - Tree-sitter Fallback Pass**
+
+Step 24 implements a WebAssembly Tree-sitter-based fallback parsing pass for source files that are outside the primary TypeScript Compiler API scope or cannot be parsed safely by the primary parser (`docs/architecture/05-component-responsibilities.md §5.2`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 7`).
+
+### Purpose and Responsibilities
+
+The Tree-sitter fallback pass complements the existing compiler-based analysis pipeline:
+1. **Primary Parser Rule**: If the primary TypeScript Compiler API can parse a TS/JS file, Fluxora keeps using the compiler API. Tree-sitter NEVER replaces or duplicates successful TS/JS parsing.
+2. **Non-TS/JS Scope**: Non-TypeScript/JavaScript files recognized by Fluxora (JSON, CSS, HTML, Markdown) are parsed via Tree-sitter / static AST fallback.
+3. **Primary Parse Failure Fallback**: If primary parsing fails or encounters critical syntax errors on a supported TS/JS file, Tree-sitter provides a fault-tolerant syntax fallback pass.
+
+### Architecture & Parser Abstraction
+
+- Located in `apps/workers/src/tree-sitter/` (`parser.ts`, `languages.ts`, `result.ts`).
+- Uses `web-tree-sitter` with precompiled WASM grammars from `tree-sitter-wasms`.
+- Maintains a cached, reusable parser and WASM language grammar instance pool.
+- Exposes generic syntax information: root node type, node counts, source ranges (1-based line/col, 0-based offset), and generic structural units (`json_property`, `css_rule`, `html_element`, `markdown_heading`, `code_block`).
+
+### Fallback Decision Path
+
+The decision logic (`evaluateFallbackDecision`) enforces:
+1. File path ignored directory check (`node_modules`, `.next`, `dist`, etc. -> skipped/unparsed).
+2. Language determination via extension mapping. Unsupported extensions return `language: "unsupported"` safely.
+3. TS/JS files with `primaryParserSucceeded === true` -> return `parserUsed: "compiler-primary"`, `usedFallback: false`.
+4. Non-TS/JS supported files or failed TS/JS files -> execute Tree-sitter fallback pass.
+
+### Malformed Source Tolerance & Diagnostics
+
+- Malformed input never throws or crashes ingestion workers.
+- Captures Tree-sitter error nodes (`ERROR`, `isError`) and records structured, deterministic diagnostics.
+- Returns partial syntax trees and structural units when available.
+- All diagnostics and structural units are deterministically sorted by line/column and character offsets.
+
+### Security Invariants
+
+- Strictly static analysis.
+- WebAssembly isolation.
+- Target repository code is never executed, dynamically imported, or evaluated.
+- No network connections, process spawning, or database calls.
+
+### Scope Boundary
+
+Step 24 does not:
+- normalize symbols or resolve barrel files (Step 25);
+- merge cross-detector results into graph entities (Step 25/26);
+- create database tables or persist `GraphNode` / `GraphEdge` / `Evidence` records (Phase 4);
+- invoke an LLM.
+
 
 
