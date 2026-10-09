@@ -9960,5 +9960,40 @@ Step 25 does NOT:
 - build graph builder persistence engines or graph traversal APIs (Phase 4);
 - invoke an LLM.
 
+**## 43. Step 26 - Full Phase 3 Golden-Fixture Pipeline Verification**
+
+Step 26 implements the final verification milestone of Phase 3 (`docs/architecture/05-component-responsibilities.md §5.7`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 9`).
+
+### Architecture & Pipeline Orchestrator
+
+Step 26 defines the reusable internal pipeline orchestrator `runPhase3Pipeline` in `apps/workers/src/pipeline/phase3.ts`, orchestrating Steps 18–25 sequentially over a repository snapshot:
+
+1. **Step 18 — Stack Detection**: Detects languages (TypeScript, JavaScript, JSON, CSS, Markdown) and frameworks (Next.js, React, Node.js).
+2. **Step 19 — Per-File AST Symbol Extraction**: Extracts functions, classes, interfaces, types, and variables.
+3. **Step 20 — Import/Export Module Graph**: Extracts module edges and resolves `tsconfig.json` path aliases (`@/*`).
+4. **Step 21 — API Route & Express Router Detection**: Identifies Next.js App Router HTTP handlers and Express router mounts.
+5. **Step 22 — Event Pattern Detection**: Detects pub/sub event method shapes (EventEmitter, Redis, KafkaJS, RabbitMQ).
+6. **Step 23 — Database Reference Detection**: Detects ORM/database interaction points (Prisma, Drizzle, TypeORM, Sequelize).
+7. **Step 24 — Tree-sitter Fallback Pass**: Executes WebAssembly Tree-sitter parsing for non-TS/JS files.
+8. **Step 25 — Normalization**: Dedupes symbols, resolves barrel file re-export chains, assigns canonical IDs (`sym:...`, `edge:...`), and aggregates diagnostics.
+
+### Verification against Golden Fixture (`shadcn-ui/taxonomy`)
+
+The pipeline was executed and validated against the production golden fixture repository (`shadcn-ui/taxonomy`), verifying extracted claims against actual source evidence:
+- **Representative Symbols**: `db` (`lib/db.ts`), `siteConfig` (`config/site.ts`), `GET` (`app/api/posts/route.ts`).
+- **Representative Module Edges**: `app/api/posts/route.ts` -> `lib/db.ts`, `app/layout.tsx` -> `config/site.ts`, `components/user-auth-form.tsx` -> `lib/validations/auth.ts`.
+- **Representative Routes**: `/api/posts` (`GET`, `POST`), `/api/og` (`GET`).
+- **Determinism**: Repeated execution yields identical canonical IDs, ordering, and summary counts across platforms.
+
+### Scope Boundary & Phase 4 Transition
+
+Step 26 does NOT:
+- persist `GraphNode` / `GraphEdge` / `Evidence` records to PostgreSQL (Phase 4 Step 1 & 2);
+- build graph traversal APIs or graph query endpoints (Phase 4 Step 4 & 5);
+- invoke AI or LLM models (Phase 9).
+
+With Global Step 26 complete, **Phase 3 — Code Intelligence is 100% complete** and ready for Phase 4 graph persistence.
+
+
 
 

@@ -66,3 +66,38 @@ export function readGoldenFixtureFileText(relativePath: string): string {
   return readGoldenFixtureFile(relativePath).toString("utf8");
 }
 
+const BINARY_EXTENSIONS = new Set<string>([
+  ".png",
+  ".jpg",
+  ".jpeg",
+  ".ico",
+  ".ttf",
+  ".woff",
+  ".woff2",
+  ".gif",
+  ".svg",
+  ".eot",
+  ".otf",
+  ".webp",
+]);
+
+/**
+ * Loads all non-binary text files from the golden fixture snapshot into a ReadonlyMap<string, string>.
+ */
+export function loadGoldenFixtureFileMap(): ReadonlyMap<string, string> {
+  const manifest = loadGoldenFixtureManifest();
+  const fileMap = new Map<string, string>();
+
+  for (const entry of manifest.files) {
+    const dotIndex = entry.path.lastIndexOf(".");
+    const ext = dotIndex !== -1 ? entry.path.slice(dotIndex).toLowerCase() : "";
+    if (BINARY_EXTENSIONS.has(ext)) {
+      continue;
+    }
+    fileMap.set(entry.path, readGoldenFixtureFileText(entry.path));
+  }
+
+  return fileMap;
+}
+
+
