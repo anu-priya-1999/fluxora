@@ -9910,5 +9910,55 @@ Step 24 does not:
 - create database tables or persist `GraphNode` / `GraphEdge` / `Evidence` records (Phase 4);
 - invoke an LLM.
 
+---
+
+**## 42. Step 25 - Normalization**
+
+Step 25 implements the Phase 3 Normalizer engine (`docs/architecture/05-component-responsibilities.md §5.7`, `docs/architecture/17-implementation-roadmap.md §Phase 3 Step 8`).
+
+### Purpose and Responsibilities
+
+The Normalizer takes raw detector outputs produced across Steps 18–24 (language detection, per-file symbol extraction, import/export graph extraction, API route detection, event pattern detection, database reference detection, and tree-sitter fallback parsing) and produces a canonical, deterministic representation (`RepositoryNormalizedResult`).
+
+The primary responsibilities are:
+1. **Barrel-File / Re-Export Resolution**: Traverses static re-export relationships (`export { foo } from "./foo"`, `export * from "./users"`, `export { a as b }`, etc.) extracted in Step 20 to resolve re-exported names and aliases to their underlying canonical symbol declarations.
+2. **Symbol Deduplication**: Ensures multiple barrel references or alias re-exports point to a single canonical symbol declaration without collapsing distinct declarations that share names across different files or locations.
+3. **Canonical Identity Generation**: Computes stable, deterministic IDs for symbols (`sym:${file}#${kind}:${parent ? parent + "." : ""}${name}:${offset}`), module edges, routes, event patterns, database references, and unresolved references.
+4. **Cycle Safety**: Bounds re-export graph traversal to prevent infinite recursion, recording cycle status deterministically when cycles (`a.ts <-> b.ts`) exist.
+5. **Cross-Detector Symbol Linkage**: Connects API routes, event producers/consumers, and database references to their corresponding canonical symbol declarations in the repository snapshot when static evidence is present.
+6. **Deterministic Ordering**: Sorts all output collections (`symbols`, `exportResolutions`, `moduleEdges`, `routes`, `events`, `databaseReferences`, `unresolved`, `diagnostics`) using explicit alphanumeric comparison keys to guarantee 100% reproducible analysis output across runs.
+7. **Provenance & Evidence Preservation**: Maintains source detector provenance (`step-19-symbols`, `step-20-modules`, etc.) and original IDs without erasing context.
+
+### Data Contracts
+
+Shared normalizer contracts are defined in `packages/shared-types/src/normalized.ts`:
+- `RepositoryNormalizerInput`: Input container accepting raw detector outputs.
+- `NormalizedSymbol`: Canonical symbol representation with aliases and provenance.
+- `NormalizedAlias`: Record of an export alias or re-export alias pointing to a canonical symbol declaration.
+- `NormalizedExportResolution`: Resolution result for re-exported names (`"resolved" | "unresolved" | "ambiguous" | "cyclic"`).
+- `NormalizedModuleEdge`: Normalized module dependency edge with linked symbol IDs.
+- `NormalizedRoute`: Normalized API route with linked canonical symbol ID.
+- `NormalizedEventPattern`: Normalized event pattern with linked canonical symbol ID.
+- `NormalizedDatabaseReference`: Normalized database reference with linked canonical symbol ID.
+- `NormalizedUnresolvedReference`: Explicit record of unresolved module specifiers, ambiguous exports, or cyclic re-exports.
+- `NormalizedDiagnostic`: Unified diagnostic entry from all underlying detector passes.
+- `NormalizerStatistics`: Deterministic metrics summary.
+- `RepositoryNormalizedResult`: Complete deterministic result model.
+
+### Pure Invariants & Security Safeguards
+
+- **Immutability**: The Normalizer is a pure function (`normalizeAnalysis`). Raw detector inputs are never mutated in place.
+- **No LLM Dependence**: Re-export resolution, symbol deduplication, and linkage are 100% static and deterministic.
+- **No Code Execution**: Resolution relies solely on static AST module graphs and tsconfig path alias information extracted in Step 20. Customer code is never executed, evaluated, or imported.
+- **Cycle & Depth Bounds**: Recursion depth is capped at 100 hops, and visited re-export keys (`file:exportName`) prevent infinite loops on cyclic barrel graphs.
+
+### Scope Boundary
+
+Step 25 does NOT:
+- run the full Phase 3 pipeline end-to-end verification (Step 26);
+- create database tables or persist `GraphNode` / `GraphEdge` / `Evidence` records (Phase 4);
+- build graph builder persistence engines or graph traversal APIs (Phase 4);
+- invoke an LLM.
+
 
 
