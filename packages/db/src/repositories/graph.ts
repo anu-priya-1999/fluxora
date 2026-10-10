@@ -1,6 +1,10 @@
 import type {
   AnalysisRun,
   AnalysisRunStatus,
+  CreateAnalysisRunInput,
+  CreateEvidenceInput,
+  CreateGraphEdgeInput,
+  CreateGraphNodeInput,
   EvidenceRecord,
   EvidenceSubjectType,
   GraphEdge,
@@ -51,58 +55,6 @@ export class GraphStorageConflictError extends Error {
   }
 }
 
-export interface CreateAnalysisRunInput {
-  id?: string;
-  organizationId: string;
-  snapshotId: string;
-  status?: AnalysisRunStatus;
-  parserVersions?: Record<string, string>;
-  startedAt?: Date;
-  completedAt?: Date | null;
-  coverageSummary?: Record<string, unknown>;
-}
-
-export interface CreateGraphNodeInput {
-  id?: string;
-  organizationId: string;
-  analysisRunId: string;
-  canonicalId: string;
-  nodeType: GraphNodeType;
-  name: string;
-  path?: string | null;
-  metadata?: Record<string, unknown>;
-  confidence?: number;
-}
-
-export interface CreateGraphEdgeInput {
-  id?: string;
-  organizationId: string;
-  analysisRunId: string;
-  sourceNodeId: string;
-  targetNodeId: string;
-  edgeType: GraphEdgeType;
-  canonicalId?: string | null;
-  metadata?: Record<string, unknown>;
-  confidence?: number;
-  provenance?: GraphEdgeProvenance;
-}
-
-export interface CreateEvidenceInput {
-  id?: string;
-  organizationId: string;
-  analysisRunId: string;
-  subjectType: EvidenceSubjectType;
-  subjectId: string;
-  filePath: string;
-  symbolId?: string | null;
-  lineStart?: number | null;
-  lineEnd?: number | null;
-  columnStart?: number | null;
-  columnEnd?: number | null;
-  relationshipDescription: string;
-  confidence?: number;
-  metadata?: Record<string, unknown>;
-}
 
 interface AnalysisRunRow {
   id: string;
@@ -844,6 +796,199 @@ export async function listEvidenceForAnalysisRun(
       [analysisRunId],
     );
     return result.rows.map(mapEvidenceRow);
+  });
+}
+
+export interface PersistGraphBuildInput {
+  organizationId: string;
+  analysisRunId: string;
+  nodes: readonly CreateGraphNodeInput[];
+  edges: readonly CreateGraphEdgeInput[];
+  evidence: readonly CreateEvidenceInput[];
+}
+
+/**
+ * Atomically persists nodes, edges, and evidence inside a single database transaction.
+ */
+export async function persistGraphBuild(
+  pool: pg.Pool,
+  input: PersistGraphBuildInput,
+): Promise<{
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  evidence: EvidenceRecord[];
+}> {
+  if (
+    !UUID_REGEX.test(input.organizationId) ||
+    !UUID_REGEX.test(input.analysisRunId)
+  ) {
+    throw new AnalysisRunValidationError("Invalid organizationId or analysisRunId");
+  }
+
+  for (const n of input.nodes) {
+    assertGraphNodeInput(n);
+  }
+  for (const e of input.edges) {
+    assertGraphEdgeInput(e);
+  }
+  for (const ev of input.evidence) {
+    assertEvidenceInput(ev);
+  }
+
+  return withTenant(pool, input.organizationId, async (client) => {
+    // 1. Insert Nodes
+    const nodes: GraphNode[] = [];
+    for (const nodeInput of input.nodes) {
+      const metadata = nodeInput.metadata ?? {};
+      const confidence = nodeInput.confidence ?? 1.0;
+
+      const query = nodeInput.id === undefined
+        ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+           VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7)
+           ON CONFLICT (analysis_run_id, canonical_id) DO UPDATE
+             SET name = EXCLUDED.name, metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence
+           RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`
+        : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+           VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8)
+           ON CONFLICT (analysis_run_id, canonical_id) DO UPDATE
+             SET name = EXCLUDED.name, metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence
+           RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`;
+
+      const params = nodeInput.id === undefined
+        ? [
+            nodeInput.analysisRunId,
+            nodeInput.canonicalId.trim(),
+            nodeInput.nodeType.trim(),
+            nodeInput.name.trim(),
+            nodeInput.path ? nodeInput.path.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+          ]
+        : [
+            nodeInput.id,
+            nodeInput.analysisRunId,
+            nodeInput.canonicalId.trim(),
+            nodeInput.nodeType.trim(),
+            nodeInput.name.trim(),
+            nodeInput.path ? nodeInput.path.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+          ];
+
+      const res = await client.query<GraphNodeRow>(query, params);
+      if (res.rows[0]) {
+        nodes.push(mapGraphNodeRow(res.rows[0]));
+      }
+    }
+
+    // 2. Insert Edges
+    const edges: GraphEdge[] = [];
+    for (const edgeInput of input.edges) {
+      const metadata = edgeInput.metadata ?? {};
+      const confidence = edgeInput.confidence ?? 1.0;
+      const provenance = edgeInput.provenance ?? "static-analysis";
+
+      const query = edgeInput.id === undefined
+        ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::jsonb, $7, $8)
+           ON CONFLICT (analysis_run_id, source_node_id, target_node_id, edge_type) DO UPDATE
+             SET metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence, provenance = EXCLUDED.provenance
+           RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`
+        : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+           VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7::jsonb, $8, $9)
+           ON CONFLICT (analysis_run_id, source_node_id, target_node_id, edge_type) DO UPDATE
+             SET metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence, provenance = EXCLUDED.provenance
+           RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`;
+
+      const params = edgeInput.id === undefined
+        ? [
+            edgeInput.analysisRunId,
+            edgeInput.sourceNodeId,
+            edgeInput.targetNodeId,
+            edgeInput.edgeType.trim(),
+            edgeInput.canonicalId ? edgeInput.canonicalId.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+            provenance,
+          ]
+        : [
+            edgeInput.id,
+            edgeInput.analysisRunId,
+            edgeInput.sourceNodeId,
+            edgeInput.targetNodeId,
+            edgeInput.edgeType.trim(),
+            edgeInput.canonicalId ? edgeInput.canonicalId.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+            provenance,
+          ];
+
+      const res = await client.query<GraphEdgeRow>(query, params);
+      if (res.rows[0]) {
+        edges.push(mapGraphEdgeRow(res.rows[0]));
+      }
+    }
+
+    // 3. Insert Evidence
+    const evidence: EvidenceRecord[] = [];
+    for (const evInput of input.evidence) {
+      const metadata = evInput.metadata ?? {};
+      const confidence = evInput.confidence ?? 1.0;
+
+      const query = evInput.id === undefined
+        ? `INSERT INTO evidence (
+             analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
+           )
+           VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
+        : `INSERT INTO evidence (
+             id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
+           )
+           VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
+
+      const params = evInput.id === undefined
+        ? [
+            evInput.analysisRunId,
+            evInput.subjectType.trim(),
+            evInput.subjectId,
+            evInput.filePath.trim(),
+            evInput.symbolId ? evInput.symbolId.trim() : null,
+            evInput.lineStart ?? null,
+            evInput.lineEnd ?? null,
+            evInput.columnStart ?? null,
+            evInput.columnEnd ?? null,
+            evInput.relationshipDescription.trim(),
+            confidence,
+            JSON.stringify(metadata),
+          ]
+        : [
+            evInput.id,
+            evInput.analysisRunId,
+            evInput.subjectType.trim(),
+            evInput.subjectId,
+            evInput.filePath.trim(),
+            evInput.symbolId ? evInput.symbolId.trim() : null,
+            evInput.lineStart ?? null,
+            evInput.lineEnd ?? null,
+            evInput.columnStart ?? null,
+            evInput.columnEnd ?? null,
+            evInput.relationshipDescription.trim(),
+            confidence,
+            JSON.stringify(metadata),
+          ];
+
+      const res = await client.query<EvidenceRow>(query, params);
+      if (res.rows[0]) {
+        evidence.push(mapEvidenceRow(res.rows[0]));
+      }
+    }
+
+    return { nodes, edges, evidence };
   });
 }
 

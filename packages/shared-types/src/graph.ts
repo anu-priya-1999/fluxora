@@ -1,5 +1,5 @@
 /**
- * Graph persistence domain types for Step 27.
+ * Graph persistence domain types for Step 27 & Step 28.
  * Supports GraphNode, GraphEdge, Evidence, and AnalysisRun persistence models.
  */
 
@@ -22,6 +22,17 @@ export interface AnalysisRun {
   readonly completedAt?: Date | null;
   readonly coverageSummary: Record<string, unknown>;
   readonly createdAt: Date;
+}
+
+export interface CreateAnalysisRunInput {
+  id?: string;
+  organizationId: string;
+  snapshotId: string;
+  status?: AnalysisRunStatus;
+  parserVersions?: Record<string, string>;
+  startedAt?: Date;
+  completedAt?: Date | null;
+  coverageSummary?: Record<string, unknown>;
 }
 
 export const GraphNodeTypes = [
@@ -47,6 +58,18 @@ export interface GraphNode {
   readonly metadata: Record<string, unknown>;
   readonly confidence: number;
   readonly createdAt: Date;
+}
+
+export interface CreateGraphNodeInput {
+  id?: string;
+  organizationId: string;
+  analysisRunId: string;
+  canonicalId: string;
+  nodeType: GraphNodeType;
+  name: string;
+  path?: string | null;
+  metadata?: Record<string, unknown>;
+  confidence?: number;
 }
 
 export const GraphEdgeTypes = [
@@ -85,6 +108,19 @@ export interface GraphEdge {
   readonly createdAt: Date;
 }
 
+export interface CreateGraphEdgeInput {
+  id?: string;
+  organizationId: string;
+  analysisRunId: string;
+  sourceNodeId: string;
+  targetNodeId: string;
+  edgeType: GraphEdgeType;
+  canonicalId?: string | null;
+  metadata?: Record<string, unknown>;
+  confidence?: number;
+  provenance?: GraphEdgeProvenance;
+}
+
 export const EvidenceSubjectTypes = [
   "graph_node",
   "graph_edge",
@@ -111,3 +147,19 @@ export interface EvidenceRecord {
   readonly createdAt: Date;
 }
 
+export interface CreateEvidenceInput {
+  id?: string;
+  organizationId: string;
+  analysisRunId: string;
+  subjectType: EvidenceSubjectType;
+  subjectId: string;
+  filePath: string;
+  symbolId?: string | null;
+  lineStart?: number | null;
+  lineEnd?: number | null;
+  columnStart?: number | null;
+  columnEnd?: number | null;
+  relationshipDescription: string;
+  confidence?: number;
+  metadata?: Record<string, unknown>;
+}

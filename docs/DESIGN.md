@@ -10044,6 +10044,65 @@ Step 27 is **storage only**. It does NOT:
 - publish `graph.updated` WebSocket events (Step 32);
 - process LLM/AI explanations or speculative summaries.
 
+---
+
+**## 45. Step 28 - Graph Builder — Transforming Normalized Intelligence into Graph Storage**
+
+Step 28 implements the Graph Builder component (`docs/architecture/05-component-responsibilities.md §5.7`, `docs/architecture/17-implementation-roadmap.md §Phase 4 Step 2`).
+
+### Architecture & Conceptual Flow
+
+The Graph Builder transforms the normalized, deduplicated Phase 3 code-intelligence result (`RepositoryNormalizedResult`) into structured `GraphNode`, `GraphEdge`, and `Evidence` records created by Step 27.
+
+```
+Phase 3 Normalized Output
+            │
+            ▼
+      Graph Builder (Projection & Validation)
+            │
+      ┌─────┼─────┐
+      ▼     ▼     ▼
+    Nodes  Edges Evidence
+      │     │     │
+      └─────┼─────┘
+            ▼
+   PostgreSQL (withTenant Transaction)
+```
+
+### Pure Graph Projection & Endpoint Invariants
+
+- **Decoupled Projection Layer**: `buildGraphProjection` performs in-memory node, edge, and evidence projection without database calls, enabling instant unit testing.
+- **Node Classification**:
+  - `symbols` $\rightarrow$ `GraphNodeType = "symbol"` (preserves canonical symbol IDs `sym:...`).
+  - `modules` $\rightarrow$ `GraphNodeType = "module"` (`mod:${filePath}`).
+  - `routes` $\rightarrow$ `GraphNodeType = "api"` (`route:...`).
+  - `events` $\rightarrow$ `GraphNodeType = "event"` (`event:...`).
+  - `databaseReferences` $\rightarrow$ `GraphNodeType = "database"` (`db:...`).
+- **Endpoint Verification**: Every directed edge requires both source and target nodes to exist in the generated node map. If an edge endpoint is missing or unresolvable, the edge is safely rejected and counted in `statistics.rejectedEdgesCount`.
+- **Non-Fabrication**: Unresolved Phase 3 specifiers or references (`normalizedResult.unresolved`) remain unresolved. Fake nodes or dangling edges are never created.
+
+### Deterministic Identifiers & Idempotency
+
+- **Deterministic UUID Generation**: Primary keys (`id`) are derived deterministically using SHA-256 hashes (`generateDeterministicUuid`).
+- **Deterministic Ordering**: Output nodes, edges, and evidence arrays are sorted lexicographically ASC before returning or persisting.
+- **Idempotency**: Running `buildAndPersistGraph` twice on the same snapshot produces identical IDs and uses `ON CONFLICT (...) DO UPDATE` in PostgreSQL, preventing duplicate records.
+
+### Atomic Transactions & RLS Isolation
+
+- **Atomic Transactions**: `persistGraphBuild` executes all node, edge, and evidence insertions within a single `withTenant` PostgreSQL transaction block.
+- **All-or-Nothing Rollback**: Any error or constraint failure triggers a database `ROLLBACK`, guaranteeing zero partial graph data.
+- **RLS Enforced**: All records inherit `analysis_run_id` and pass `fluxora_analysis_run_in_current_tenant` RLS validation.
+
+### Scope Boundary
+
+Step 28 does NOT:
+- expose graph query or traversal API endpoints (Step 29/30);
+- generate graph diffs across snapshot runs (Step 31);
+- publish `graph.updated` WebSocket events (Step 32);
+- perform golden graph verification as a separate roadmap step (Step 33);
+- invoke LLM/AI reasoning.
+
+
 
 
 

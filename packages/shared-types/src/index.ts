@@ -37,6 +37,7 @@ export * from "./database-references.ts";
 export * from "./tree-sitter.ts";
 export * from "./normalized.ts";
 export * from "./graph.ts";
+export * from "./builder.ts";
 
 
 
