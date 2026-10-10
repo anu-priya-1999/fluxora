@@ -55,7 +55,6 @@ export class GraphStorageConflictError extends Error {
   }
 }
 
-
 interface AnalysisRunRow {
   id: string;
   snapshot_id: string;
@@ -125,32 +124,34 @@ export async function createAnalysisRun(
     const coverageSummary = input.coverageSummary ?? {};
     const startedAt = input.startedAt ?? new Date();
 
-    const query = input.id === undefined
-      ? `INSERT INTO analysis_runs (snapshot_id, status, parser_versions, started_at, completed_at, coverage_summary)
+    const query =
+      input.id === undefined
+        ? `INSERT INTO analysis_runs (snapshot_id, status, parser_versions, started_at, completed_at, coverage_summary)
          VALUES ($1::uuid, $2, $3::jsonb, $4, $5, $6::jsonb)
          RETURNING id, snapshot_id, status, parser_versions, started_at, completed_at, coverage_summary, created_at`
-      : `INSERT INTO analysis_runs (id, snapshot_id, status, parser_versions, started_at, completed_at, coverage_summary)
+        : `INSERT INTO analysis_runs (id, snapshot_id, status, parser_versions, started_at, completed_at, coverage_summary)
          VALUES ($1::uuid, $2::uuid, $3, $4::jsonb, $5, $6, $7::jsonb)
          RETURNING id, snapshot_id, status, parser_versions, started_at, completed_at, coverage_summary, created_at`;
 
-    const params = input.id === undefined
-      ? [
-          input.snapshotId,
-          status,
-          JSON.stringify(parserVersions),
-          startedAt,
-          input.completedAt ?? null,
-          JSON.stringify(coverageSummary),
-        ]
-      : [
-          input.id,
-          input.snapshotId,
-          status,
-          JSON.stringify(parserVersions),
-          startedAt,
-          input.completedAt ?? null,
-          JSON.stringify(coverageSummary),
-        ];
+    const params =
+      input.id === undefined
+        ? [
+            input.snapshotId,
+            status,
+            JSON.stringify(parserVersions),
+            startedAt,
+            input.completedAt ?? null,
+            JSON.stringify(coverageSummary),
+          ]
+        : [
+            input.id,
+            input.snapshotId,
+            status,
+            JSON.stringify(parserVersions),
+            startedAt,
+            input.completedAt ?? null,
+            JSON.stringify(coverageSummary),
+          ];
 
     try {
       const result = await client.query<AnalysisRunRow>(query, params);
@@ -161,7 +162,9 @@ export async function createAnalysisRun(
       return mapAnalysisRunRow(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new GraphStorageConflictError("Analysis run with this ID already exists.");
+        throw new GraphStorageConflictError(
+          "Analysis run with this ID already exists.",
+        );
       }
       throw error;
     }
@@ -253,34 +256,36 @@ export async function createGraphNode(
     const metadata = input.metadata ?? {};
     const confidence = input.confidence ?? 1.0;
 
-    const query = input.id === undefined
-      ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+    const query =
+      input.id === undefined
+        ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
          VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7)
          RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`
-      : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+        : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
          VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8)
          RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`;
 
-    const params = input.id === undefined
-      ? [
-          input.analysisRunId,
-          input.canonicalId.trim(),
-          input.nodeType.trim(),
-          input.name.trim(),
-          input.path ? input.path.trim() : null,
-          JSON.stringify(metadata),
-          confidence,
-        ]
-      : [
-          input.id,
-          input.analysisRunId,
-          input.canonicalId.trim(),
-          input.nodeType.trim(),
-          input.name.trim(),
-          input.path ? input.path.trim() : null,
-          JSON.stringify(metadata),
-          confidence,
-        ];
+    const params =
+      input.id === undefined
+        ? [
+            input.analysisRunId,
+            input.canonicalId.trim(),
+            input.nodeType.trim(),
+            input.name.trim(),
+            input.path ? input.path.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+          ]
+        : [
+            input.id,
+            input.analysisRunId,
+            input.canonicalId.trim(),
+            input.nodeType.trim(),
+            input.name.trim(),
+            input.path ? input.path.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+          ];
 
     try {
       const result = await client.query<GraphNodeRow>(query, params);
@@ -291,7 +296,9 @@ export async function createGraphNode(
       return mapGraphNodeRow(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new GraphStorageConflictError("Graph node canonical_id conflict within analysis run.");
+        throw new GraphStorageConflictError(
+          "Graph node canonical_id conflict within analysis run.",
+        );
       }
       throw error;
     }
@@ -317,38 +324,40 @@ export async function batchCreateGraphNodes(
       const metadata = input.metadata ?? {};
       const confidence = input.confidence ?? 1.0;
 
-      const query = input.id === undefined
-        ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+      const query =
+        input.id === undefined
+          ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
            VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7)
            ON CONFLICT (analysis_run_id, canonical_id) DO UPDATE
              SET name = EXCLUDED.name, metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence
            RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`
-        : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+          : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8)
            ON CONFLICT (analysis_run_id, canonical_id) DO UPDATE
              SET name = EXCLUDED.name, metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence
            RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`;
 
-      const params = input.id === undefined
-        ? [
-            input.analysisRunId,
-            input.canonicalId.trim(),
-            input.nodeType.trim(),
-            input.name.trim(),
-            input.path ? input.path.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-          ]
-        : [
-            input.id,
-            input.analysisRunId,
-            input.canonicalId.trim(),
-            input.nodeType.trim(),
-            input.name.trim(),
-            input.path ? input.path.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-          ];
+      const params =
+        input.id === undefined
+          ? [
+              input.analysisRunId,
+              input.canonicalId.trim(),
+              input.nodeType.trim(),
+              input.name.trim(),
+              input.path ? input.path.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+            ]
+          : [
+              input.id,
+              input.analysisRunId,
+              input.canonicalId.trim(),
+              input.nodeType.trim(),
+              input.name.trim(),
+              input.path ? input.path.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+            ];
 
       const res = await client.query<GraphNodeRow>(query, params);
       if (res.rows[0]) {
@@ -436,36 +445,38 @@ export async function createGraphEdge(
     const confidence = input.confidence ?? 1.0;
     const provenance = input.provenance ?? "static-analysis";
 
-    const query = input.id === undefined
-      ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+    const query =
+      input.id === undefined
+        ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
          VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::jsonb, $7, $8)
          RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`
-      : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+        : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
          VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7::jsonb, $8, $9)
          RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`;
 
-    const params = input.id === undefined
-      ? [
-          input.analysisRunId,
-          input.sourceNodeId,
-          input.targetNodeId,
-          input.edgeType.trim(),
-          input.canonicalId ? input.canonicalId.trim() : null,
-          JSON.stringify(metadata),
-          confidence,
-          provenance,
-        ]
-      : [
-          input.id,
-          input.analysisRunId,
-          input.sourceNodeId,
-          input.targetNodeId,
-          input.edgeType.trim(),
-          input.canonicalId ? input.canonicalId.trim() : null,
-          JSON.stringify(metadata),
-          confidence,
-          provenance,
-        ];
+    const params =
+      input.id === undefined
+        ? [
+            input.analysisRunId,
+            input.sourceNodeId,
+            input.targetNodeId,
+            input.edgeType.trim(),
+            input.canonicalId ? input.canonicalId.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+            provenance,
+          ]
+        : [
+            input.id,
+            input.analysisRunId,
+            input.sourceNodeId,
+            input.targetNodeId,
+            input.edgeType.trim(),
+            input.canonicalId ? input.canonicalId.trim() : null,
+            JSON.stringify(metadata),
+            confidence,
+            provenance,
+          ];
 
     try {
       const result = await client.query<GraphEdgeRow>(query, params);
@@ -476,7 +487,9 @@ export async function createGraphEdge(
       return mapGraphEdgeRow(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new GraphStorageConflictError("Graph edge already exists between source and target for this edge_type.");
+        throw new GraphStorageConflictError(
+          "Graph edge already exists between source and target for this edge_type.",
+        );
       }
       throw error;
     }
@@ -503,40 +516,42 @@ export async function batchCreateGraphEdges(
       const confidence = input.confidence ?? 1.0;
       const provenance = input.provenance ?? "static-analysis";
 
-      const query = input.id === undefined
-        ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+      const query =
+        input.id === undefined
+          ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
            VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::jsonb, $7, $8)
            ON CONFLICT (analysis_run_id, source_node_id, target_node_id, edge_type) DO UPDATE
              SET metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence, provenance = EXCLUDED.provenance
            RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`
-        : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+          : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
            VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7::jsonb, $8, $9)
            ON CONFLICT (analysis_run_id, source_node_id, target_node_id, edge_type) DO UPDATE
              SET metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence, provenance = EXCLUDED.provenance
            RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`;
 
-      const params = input.id === undefined
-        ? [
-            input.analysisRunId,
-            input.sourceNodeId,
-            input.targetNodeId,
-            input.edgeType.trim(),
-            input.canonicalId ? input.canonicalId.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-            provenance,
-          ]
-        : [
-            input.id,
-            input.analysisRunId,
-            input.sourceNodeId,
-            input.targetNodeId,
-            input.edgeType.trim(),
-            input.canonicalId ? input.canonicalId.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-            provenance,
-          ];
+      const params =
+        input.id === undefined
+          ? [
+              input.analysisRunId,
+              input.sourceNodeId,
+              input.targetNodeId,
+              input.edgeType.trim(),
+              input.canonicalId ? input.canonicalId.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+              provenance,
+            ]
+          : [
+              input.id,
+              input.analysisRunId,
+              input.sourceNodeId,
+              input.targetNodeId,
+              input.edgeType.trim(),
+              input.canonicalId ? input.canonicalId.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+              provenance,
+            ];
 
       const res = await client.query<GraphEdgeRow>(query, params);
       if (res.rows[0]) {
@@ -601,15 +616,16 @@ export async function createEvidence(
     const metadata = input.metadata ?? {};
     const confidence = input.confidence ?? 1.0;
 
-    const query = input.id === undefined
-      ? `INSERT INTO evidence (
+    const query =
+      input.id === undefined
+        ? `INSERT INTO evidence (
            analysis_run_id, subject_type, subject_id, file_path, symbol_id,
            line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
          )
          VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
          RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
                    line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
-      : `INSERT INTO evidence (
+        : `INSERT INTO evidence (
            id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
            line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
          )
@@ -617,82 +633,8 @@ export async function createEvidence(
          RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
                    line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
 
-    const params = input.id === undefined
-      ? [
-          input.analysisRunId,
-          input.subjectType.trim(),
-          input.subjectId,
-          input.filePath.trim(),
-          input.symbolId ? input.symbolId.trim() : null,
-          input.lineStart ?? null,
-          input.lineEnd ?? null,
-          input.columnStart ?? null,
-          input.columnEnd ?? null,
-          input.relationshipDescription.trim(),
-          confidence,
-          JSON.stringify(metadata),
-        ]
-      : [
-          input.id,
-          input.analysisRunId,
-          input.subjectType.trim(),
-          input.subjectId,
-          input.filePath.trim(),
-          input.symbolId ? input.symbolId.trim() : null,
-          input.lineStart ?? null,
-          input.lineEnd ?? null,
-          input.columnStart ?? null,
-          input.columnEnd ?? null,
-          input.relationshipDescription.trim(),
-          confidence,
-          JSON.stringify(metadata),
-        ];
-
-    const result = await client.query<EvidenceRow>(query, params);
-    const row = result.rows[0];
-    if (row === undefined) {
-      throw new Error("evidence insert returned no row");
-    }
-    return mapEvidenceRow(row);
-  });
-}
-
-export async function batchCreateEvidence(
-  pool: pg.Pool,
-  organizationId: string,
-  records: readonly CreateEvidenceInput[],
-): Promise<EvidenceRecord[]> {
-  if (records.length === 0) {
-    return [];
-  }
-
-  for (const r of records) {
-    assertEvidenceInput(r);
-  }
-
-  return withTenant(pool, organizationId, async (client) => {
-    const created: EvidenceRecord[] = [];
-    for (const input of records) {
-      const metadata = input.metadata ?? {};
-      const confidence = input.confidence ?? 1.0;
-
-      const query = input.id === undefined
-        ? `INSERT INTO evidence (
-             analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-           )
-           VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
-           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
-        : `INSERT INTO evidence (
-             id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-           )
-           VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
-           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
-
-      const params = input.id === undefined
+    const params =
+      input.id === undefined
         ? [
             input.analysisRunId,
             input.subjectType.trim(),
@@ -722,6 +664,83 @@ export async function batchCreateEvidence(
             confidence,
             JSON.stringify(metadata),
           ];
+
+    const result = await client.query<EvidenceRow>(query, params);
+    const row = result.rows[0];
+    if (row === undefined) {
+      throw new Error("evidence insert returned no row");
+    }
+    return mapEvidenceRow(row);
+  });
+}
+
+export async function batchCreateEvidence(
+  pool: pg.Pool,
+  organizationId: string,
+  records: readonly CreateEvidenceInput[],
+): Promise<EvidenceRecord[]> {
+  if (records.length === 0) {
+    return [];
+  }
+
+  for (const r of records) {
+    assertEvidenceInput(r);
+  }
+
+  return withTenant(pool, organizationId, async (client) => {
+    const created: EvidenceRecord[] = [];
+    for (const input of records) {
+      const metadata = input.metadata ?? {};
+      const confidence = input.confidence ?? 1.0;
+
+      const query =
+        input.id === undefined
+          ? `INSERT INTO evidence (
+             analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
+           )
+           VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
+          : `INSERT INTO evidence (
+             id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
+           )
+           VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
+
+      const params =
+        input.id === undefined
+          ? [
+              input.analysisRunId,
+              input.subjectType.trim(),
+              input.subjectId,
+              input.filePath.trim(),
+              input.symbolId ? input.symbolId.trim() : null,
+              input.lineStart ?? null,
+              input.lineEnd ?? null,
+              input.columnStart ?? null,
+              input.columnEnd ?? null,
+              input.relationshipDescription.trim(),
+              confidence,
+              JSON.stringify(metadata),
+            ]
+          : [
+              input.id,
+              input.analysisRunId,
+              input.subjectType.trim(),
+              input.subjectId,
+              input.filePath.trim(),
+              input.symbolId ? input.symbolId.trim() : null,
+              input.lineStart ?? null,
+              input.lineEnd ?? null,
+              input.columnStart ?? null,
+              input.columnEnd ?? null,
+              input.relationshipDescription.trim(),
+              confidence,
+              JSON.stringify(metadata),
+            ];
 
       const res = await client.query<EvidenceRow>(query, params);
       if (res.rows[0]) {
@@ -822,7 +841,9 @@ export async function persistGraphBuild(
     !UUID_REGEX.test(input.organizationId) ||
     !UUID_REGEX.test(input.analysisRunId)
   ) {
-    throw new AnalysisRunValidationError("Invalid organizationId or analysisRunId");
+    throw new AnalysisRunValidationError(
+      "Invalid organizationId or analysisRunId",
+    );
   }
 
   for (const n of input.nodes) {
@@ -842,38 +863,40 @@ export async function persistGraphBuild(
       const metadata = nodeInput.metadata ?? {};
       const confidence = nodeInput.confidence ?? 1.0;
 
-      const query = nodeInput.id === undefined
-        ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+      const query =
+        nodeInput.id === undefined
+          ? `INSERT INTO graph_nodes (analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
            VALUES ($1::uuid, $2, $3, $4, $5, $6::jsonb, $7)
            ON CONFLICT (analysis_run_id, canonical_id) DO UPDATE
              SET name = EXCLUDED.name, metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence
            RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`
-        : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
+          : `INSERT INTO graph_nodes (id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence)
            VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $8)
            ON CONFLICT (analysis_run_id, canonical_id) DO UPDATE
              SET name = EXCLUDED.name, metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence
            RETURNING id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at`;
 
-      const params = nodeInput.id === undefined
-        ? [
-            nodeInput.analysisRunId,
-            nodeInput.canonicalId.trim(),
-            nodeInput.nodeType.trim(),
-            nodeInput.name.trim(),
-            nodeInput.path ? nodeInput.path.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-          ]
-        : [
-            nodeInput.id,
-            nodeInput.analysisRunId,
-            nodeInput.canonicalId.trim(),
-            nodeInput.nodeType.trim(),
-            nodeInput.name.trim(),
-            nodeInput.path ? nodeInput.path.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-          ];
+      const params =
+        nodeInput.id === undefined
+          ? [
+              nodeInput.analysisRunId,
+              nodeInput.canonicalId.trim(),
+              nodeInput.nodeType.trim(),
+              nodeInput.name.trim(),
+              nodeInput.path ? nodeInput.path.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+            ]
+          : [
+              nodeInput.id,
+              nodeInput.analysisRunId,
+              nodeInput.canonicalId.trim(),
+              nodeInput.nodeType.trim(),
+              nodeInput.name.trim(),
+              nodeInput.path ? nodeInput.path.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+            ];
 
       const res = await client.query<GraphNodeRow>(query, params);
       if (res.rows[0]) {
@@ -888,40 +911,42 @@ export async function persistGraphBuild(
       const confidence = edgeInput.confidence ?? 1.0;
       const provenance = edgeInput.provenance ?? "static-analysis";
 
-      const query = edgeInput.id === undefined
-        ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+      const query =
+        edgeInput.id === undefined
+          ? `INSERT INTO graph_edges (analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
            VALUES ($1::uuid, $2::uuid, $3::uuid, $4, $5, $6::jsonb, $7, $8)
            ON CONFLICT (analysis_run_id, source_node_id, target_node_id, edge_type) DO UPDATE
              SET metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence, provenance = EXCLUDED.provenance
            RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`
-        : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
+          : `INSERT INTO graph_edges (id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance)
            VALUES ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5, $6, $7::jsonb, $8, $9)
            ON CONFLICT (analysis_run_id, source_node_id, target_node_id, edge_type) DO UPDATE
              SET metadata = EXCLUDED.metadata, confidence = EXCLUDED.confidence, provenance = EXCLUDED.provenance
            RETURNING id, analysis_run_id, source_node_id, target_node_id, edge_type, canonical_id, metadata, confidence, provenance, created_at`;
 
-      const params = edgeInput.id === undefined
-        ? [
-            edgeInput.analysisRunId,
-            edgeInput.sourceNodeId,
-            edgeInput.targetNodeId,
-            edgeInput.edgeType.trim(),
-            edgeInput.canonicalId ? edgeInput.canonicalId.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-            provenance,
-          ]
-        : [
-            edgeInput.id,
-            edgeInput.analysisRunId,
-            edgeInput.sourceNodeId,
-            edgeInput.targetNodeId,
-            edgeInput.edgeType.trim(),
-            edgeInput.canonicalId ? edgeInput.canonicalId.trim() : null,
-            JSON.stringify(metadata),
-            confidence,
-            provenance,
-          ];
+      const params =
+        edgeInput.id === undefined
+          ? [
+              edgeInput.analysisRunId,
+              edgeInput.sourceNodeId,
+              edgeInput.targetNodeId,
+              edgeInput.edgeType.trim(),
+              edgeInput.canonicalId ? edgeInput.canonicalId.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+              provenance,
+            ]
+          : [
+              edgeInput.id,
+              edgeInput.analysisRunId,
+              edgeInput.sourceNodeId,
+              edgeInput.targetNodeId,
+              edgeInput.edgeType.trim(),
+              edgeInput.canonicalId ? edgeInput.canonicalId.trim() : null,
+              JSON.stringify(metadata),
+              confidence,
+              provenance,
+            ];
 
       const res = await client.query<GraphEdgeRow>(query, params);
       if (res.rows[0]) {
@@ -935,52 +960,66 @@ export async function persistGraphBuild(
       const metadata = evInput.metadata ?? {};
       const confidence = evInput.confidence ?? 1.0;
 
-      const query = evInput.id === undefined
-        ? `INSERT INTO evidence (
+      const query =
+        evInput.id === undefined
+          ? `INSERT INTO evidence (
              analysis_run_id, subject_type, subject_id, file_path, symbol_id,
              line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
            )
            VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
            RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
                      line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
-        : `INSERT INTO evidence (
-             id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-           )
-           VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
-           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
+          : `INSERT INTO evidence (
+          id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+          line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
+          )
+          VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
+          ON CONFLICT (id) DO UPDATE
+          SET subject_type = EXCLUDED.subject_type,
+          subject_id = EXCLUDED.subject_id,
+          file_path = EXCLUDED.file_path,
+          symbol_id = EXCLUDED.symbol_id,
+          line_start = EXCLUDED.line_start,
+          line_end = EXCLUDED.line_end,
+          column_start = EXCLUDED.column_start,
+          column_end = EXCLUDED.column_end,
+          relationship_description = EXCLUDED. relationship_description,
+          confidence = EXCLUDED.confidence,
+          metadata = EXCLUDED.metadata
+          RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+          line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
 
-      const params = evInput.id === undefined
-        ? [
-            evInput.analysisRunId,
-            evInput.subjectType.trim(),
-            evInput.subjectId,
-            evInput.filePath.trim(),
-            evInput.symbolId ? evInput.symbolId.trim() : null,
-            evInput.lineStart ?? null,
-            evInput.lineEnd ?? null,
-            evInput.columnStart ?? null,
-            evInput.columnEnd ?? null,
-            evInput.relationshipDescription.trim(),
-            confidence,
-            JSON.stringify(metadata),
-          ]
-        : [
-            evInput.id,
-            evInput.analysisRunId,
-            evInput.subjectType.trim(),
-            evInput.subjectId,
-            evInput.filePath.trim(),
-            evInput.symbolId ? evInput.symbolId.trim() : null,
-            evInput.lineStart ?? null,
-            evInput.lineEnd ?? null,
-            evInput.columnStart ?? null,
-            evInput.columnEnd ?? null,
-            evInput.relationshipDescription.trim(),
-            confidence,
-            JSON.stringify(metadata),
-          ];
+      const params =
+        evInput.id === undefined
+          ? [
+              evInput.analysisRunId,
+              evInput.subjectType.trim(),
+              evInput.subjectId,
+              evInput.filePath.trim(),
+              evInput.symbolId ? evInput.symbolId.trim() : null,
+              evInput.lineStart ?? null,
+              evInput.lineEnd ?? null,
+              evInput.columnStart ?? null,
+              evInput.columnEnd ?? null,
+              evInput.relationshipDescription.trim(),
+              confidence,
+              JSON.stringify(metadata),
+            ]
+          : [
+              evInput.id,
+              evInput.analysisRunId,
+              evInput.subjectType.trim(),
+              evInput.subjectId,
+              evInput.filePath.trim(),
+              evInput.symbolId ? evInput.symbolId.trim() : null,
+              evInput.lineStart ?? null,
+              evInput.lineEnd ?? null,
+              evInput.columnStart ?? null,
+              evInput.columnEnd ?? null,
+              evInput.relationshipDescription.trim(),
+              confidence,
+              JSON.stringify(metadata),
+            ];
 
       const res = await client.query<EvidenceRow>(query, params);
       if (res.rows[0]) {
@@ -1076,7 +1115,9 @@ function assertGraphNodeInput(input: CreateGraphNodeInput): void {
     input.nodeType.trim().length === 0 ||
     input.name.trim().length === 0 ||
     (input.confidence !== undefined &&
-      (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1))
+      (!Number.isFinite(input.confidence) ||
+        input.confidence < 0 ||
+        input.confidence > 1))
   ) {
     throw new GraphNodeValidationError();
   }
@@ -1091,7 +1132,9 @@ function assertGraphEdgeInput(input: CreateGraphEdgeInput): void {
     !UUID_REGEX.test(input.organizationId) ||
     input.edgeType.trim().length === 0 ||
     (input.confidence !== undefined &&
-      (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1))
+      (!Number.isFinite(input.confidence) ||
+        input.confidence < 0 ||
+        input.confidence > 1))
   ) {
     throw new GraphEdgeValidationError();
   }
@@ -1107,8 +1150,12 @@ function assertEvidenceInput(input: CreateEvidenceInput): void {
     input.filePath.trim().length === 0 ||
     input.relationshipDescription.trim().length === 0 ||
     (input.confidence !== undefined &&
-      (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1)) ||
-    (input.lineStart !== undefined && input.lineStart !== null && input.lineStart < 1) ||
+      (!Number.isFinite(input.confidence) ||
+        input.confidence < 0 ||
+        input.confidence > 1)) ||
+    (input.lineStart !== undefined &&
+      input.lineStart !== null &&
+      input.lineStart < 1) ||
     (input.lineEnd !== undefined &&
       input.lineEnd !== null &&
       input.lineStart !== undefined &&
@@ -1127,4 +1174,3 @@ function isUniqueViolation(error: unknown): boolean {
     error.code === "23505"
   );
 }
-
