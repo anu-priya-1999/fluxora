@@ -9994,6 +9994,57 @@ Step 26 does NOT:
 
 With Global Step 26 complete, **Phase 3 — Code Intelligence is 100% complete** and ready for Phase 4 graph persistence.
 
+---
+
+**## 44. Step 27 - Graph Storage — GraphNode, GraphEdge, and Evidence Persistence**
+
+Step 27 implements the relational database persistence layer for Fluxora's code knowledge graph (`docs/architecture/05-component-responsibilities.md §5.8`, `docs/architecture/17-implementation-roadmap.md §Phase 4 Step 1`).
+
+### Purpose and Data Model
+
+Step 27 creates four core database tables in `packages/db/migrations/0014_graph_storage.sql`:
+
+1. **`analysis_runs`**: Parent execution scope for graph analysis of a `RepositorySnapshot`.
+2. **`graph_nodes`**: Persists canonical graph entities (modules, symbols, functions, routes, databases, services).
+3. **`graph_edges`**: Persists directed relationships between nodes within an `analysis_run` (`IMPORTS`, `CALLS`, `EXPOSES_ROUTE`, `READS_TABLE`).
+4. **`evidence`**: Persists code provenance records (file paths, line/column ranges, symbol IDs, relationship explanations).
+
+### Conceptual Data-Flow Diagram
+
+```
+Repository / Snapshot / Analysis scope
+                  ↓
+              AnalysisRun
+            /             \
+      GraphNode  ------->  GraphEdge
+          ↓                   ↓
+       Evidence  <-------  Evidence
+```
+
+### Multi-Tenant Isolation & Row-Level Security (RLS)
+
+- **Strict Tenant Boundaries**: All tables enforce PostgreSQL Row-Level Security (RLS).
+- **RLS Helper Functions**: `fluxora_snapshot_in_current_tenant(snapshot_id)` and `fluxora_analysis_run_in_current_tenant(analysis_run_id)` verify that `repositories.organization_id = fluxora_current_org_id()`.
+- **Recursion-Free Policies**: Policies on `analysis_runs` evaluate `fluxora_snapshot_in_current_tenant(snapshot_id)` directly on its foreign key column to eliminate RLS policy recursion loops.
+- **Cross-Tenant Prevention**: Cross-tenant reads, inserts, updates, and deletes are denied at the database layer.
+
+### Referential Integrity & Uniqueness Constraints
+
+- **Composite Foreign Keys**: `graph_edges` uses composite foreign keys `FOREIGN KEY (source_node_id, analysis_run_id) REFERENCES graph_nodes (id, analysis_run_id)` to guarantee at the database level that an edge can ONLY connect nodes belonging to the exact same analysis run and tenant.
+- **Node Deduplication**: `UNIQUE (analysis_run_id, canonical_id)` prevents duplicate canonical nodes per analysis run.
+- **Edge Deduplication**: `UNIQUE (analysis_run_id, source_node_id, target_node_id, edge_type)` prevents duplicate edges of the same type between identical nodes within a run.
+
+### Scope Boundary
+
+Step 27 is **storage only**. It does NOT:
+- construct graph nodes or edges from Phase 3 AST outputs (Step 28);
+- perform recursive graph traversal CTE queries (Step 29);
+- expose graph query API endpoints (Step 30);
+- generate graph diffs across snapshots (Step 31);
+- publish `graph.updated` WebSocket events (Step 32);
+- process LLM/AI explanations or speculative summaries.
+
+
 
 
 

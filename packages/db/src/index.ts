@@ -65,3 +65,5 @@ export {
 /** Workspace package identifier. */
 export const packageName = "@fluxora/db" as const;
 export * from "./repositories/job.ts";
+export * from "./repositories/graph.ts";
+
