@@ -70,6 +70,7 @@ export interface CreateGraphNodeInput {
   path?: string | null;
   metadata?: Record<string, unknown>;
   confidence?: number;
+  evidence?: CreateEvidenceInput;
 }
 
 export const GraphEdgeTypes = [
@@ -119,6 +120,7 @@ export interface CreateGraphEdgeInput {
   metadata?: Record<string, unknown>;
   confidence?: number;
   provenance?: GraphEdgeProvenance;
+  evidence?: CreateEvidenceInput;
 }
 
 export const EvidenceSubjectTypes = [

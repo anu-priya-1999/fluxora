@@ -10102,6 +10102,61 @@ Step 28 does NOT:
 - perform golden graph verification as a separate roadmap step (Step 33);
 - invoke LLM/AI reasoning.
 
+---
+
+## 46. Phase 4 Step 29 Architecture — Evidence Writer & CI Evidence Lint
+
+Step 29 implements the Evidence Writer abstraction and static CI Evidence Lint (`docs/architecture/05-component-responsibilities.md §5.7`, `docs/architecture/12-testing-strategy.md §12.1`, `docs/architecture/17-implementation-roadmap.md §Phase 4 Step 3`).
+
+### Architecture & Data Flow
+
+Every structural conclusion in Fluxora (graph nodes and graph edges) must have corresponding Evidence records preserving exact source provenance. Step 29 introduces `EvidenceWriter` as an explicit architectural component and enforces its usage via static AST analysis in CI.
+
+```
+                  Phase 3 Normalized Intelligence
+                                 │
+                                 ▼
+                 Graph Builder Projection Layer
+                                 │
+           ┌─────────────────────┴─────────────────────┐
+           ▼                                           ▼
+      Graph Nodes                               Evidence Writer
+      & Graph Edges                         (createNodeEvidence /
+           │                                 createEdgeEvidence)
+           └─────────────────────┬─────────────────────┘
+                                 │
+                                 ▼
+                     persistGraphBuild Transaction
+                        (PostgreSQL withTenant)
+                                 │
+           ┌─────────────────────┼─────────────────────┐
+           ▼                     ▼                     ▼
+      graph_nodes           graph_edges             evidence
+     (ON CONFLICT)         (ON CONFLICT)         (ON CONFLICT)
+```
+
+### Evidence Writer Responsibilities (`EvidenceWriter`)
+
+- **Deterministic Identity (`generateEvidenceId`)**: Evidence UUID primary keys are derived deterministically using SHA-256:
+  `${analysisRunId}:evidence:${subjectType}:${subjectId}:${filePath}:${relationshipDescription}`
+- **Validation (`assertEvidenceInput`)**: Validates UUID formats, 1-based line/column numbers (`lineStart >= 1`, `lineEnd >= lineStart`), confidence bounds (`0.0 <= confidence <= 1.0`), and non-empty string attributes.
+- **Non-Fabrication**: Unresolved relationships or missing source maps retain `null` for `symbolId`, `lineStart`, `columnStart`, etc. Source locations are never fabricated.
+- **Single & Batch Database Persistence**: `writeEvidence`, `writeEvidenceBatch`, and `writeEvidenceBatchTx` write evidence records using `ON CONFLICT (id) DO UPDATE` to guarantee idempotency.
+
+### CI Evidence Lint (`verifyGraphWritePaths`)
+
+- **Static AST Inspection**: Uses TypeScript Compiler API (`ts.createSourceFile`) to inspect graph-write implementation files (`packages/db/src/repositories/graph.ts` and `apps/workers/src/builder/graph-builder.ts`) without requiring a live database.
+- **Architectural Invariant Enforcement**: Asserts that every function performing graph node or edge creation/persistence explicitly invokes `EvidenceWriter`.
+- **CI Gate**: Executed via `pnpm lint:evidence` in `.github/workflows/ci.yml`.
+
+### Scope Boundary
+
+Step 29 does NOT:
+- implement bounded-depth recursive CTE queries (Step 30);
+- expose `POST /api/v1/graph/query` (Step 30);
+- compute graph diffs or publish `graph.updated` events (Step 31/32);
+- implement Phase 5 UI visualization or Phase 9 AI reasoning.
+
 
 
 

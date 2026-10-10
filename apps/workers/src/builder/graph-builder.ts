@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type {
   CreateEvidenceInput,
   CreateGraphEdgeInput,
@@ -11,20 +10,13 @@ import type {
   PersistedGraphResult,
   SourceLocation,
 } from "@fluxora/shared-types";
-import { persistGraphBuild } from "@fluxora/db";
+import { EvidenceWriter, persistGraphBuild } from "@fluxora/db";
 
 /**
  * Deterministically computes a valid UUID v4 formatted string from a seed string using SHA-256.
  */
 export function generateDeterministicUuid(seed: string): string {
-  const hash = createHash("sha256").update(seed).digest("hex");
-  return [
-    hash.slice(0, 8),
-    hash.slice(8, 12),
-    `4${hash.slice(13, 16)}`,
-    `${((parseInt(hash.slice(16, 17), 16) & 0x3) | 0x8).toString(16)}${hash.slice(17, 20)}`,
-    hash.slice(20, 32),
-  ].join("-");
+  return EvidenceWriter.generateDeterministicUuid(seed);
 }
 
 /**
@@ -67,7 +59,9 @@ export function buildGraphProjection(
       return existing;
     }
 
-    const id = generateDeterministicUuid(`${analysisRunId}:node:${canonicalId}`);
+    const id = EvidenceWriter.generateDeterministicUuid(
+      `${analysisRunId}:node:${canonicalId}`,
+    );
     const nodeInput: CreateGraphNodeInput = {
       id,
       organizationId,
@@ -91,7 +85,7 @@ export function buildGraphProjection(
     return nodeInput;
   }
 
-  // Helper to add node evidence
+  // Helper to add node evidence via EvidenceWriter
   function addNodeEvidence(
     node: CreateGraphNodeInput,
     filePath: string,
@@ -99,27 +93,18 @@ export function buildGraphProjection(
     location?: SourceLocation,
     symbolId?: string | null,
   ) {
-    if (!node.id) return;
-    const evId = generateDeterministicUuid(
-      `${analysisRunId}:evidence:graph_node:${node.id}:${filePath}:${description}`,
-    );
-
-    evidence.push({
-      id: evId,
+    const evRecord = EvidenceWriter.createNodeEvidence(
       organizationId,
       analysisRunId,
-      subjectType: "graph_node",
-      subjectId: node.id,
-      filePath: filePath.trim(),
-      symbolId: symbolId ?? null,
-      lineStart: location?.start.line ?? null,
-      lineEnd: location?.end.line ?? null,
-      columnStart: location?.start.column ?? null,
-      columnEnd: location?.end.column ?? null,
-      relationshipDescription: description,
-      confidence: 1.0,
-      metadata: { canonicalId: node.canonicalId, nodeType: node.nodeType },
-    });
+      node,
+      filePath,
+      description,
+      location,
+      symbolId,
+    );
+    if (evRecord) {
+      evidence.push(evRecord);
+    }
   }
 
   // 1. Collect and create Module Nodes from all file references in normalized result
@@ -320,31 +305,27 @@ export function buildGraphProjection(
     else if (edgeType === "QUERIES_DB" || edgeType === "WRITES") databaseEdgesCount++;
     else if (edgeType === "RESOLVES_TO") resolveEdgesCount++;
 
-    // Edge Evidence
+    // Edge Evidence via EvidenceWriter
     const evFilePath = filePath || sourceNode.path || "unknown";
     const evDesc =
       description ||
       `Edge ${edgeType} from ${sourceCanonicalId} to ${targetCanonicalId}`;
-    const evId = generateDeterministicUuid(
-      `${analysisRunId}:evidence:graph_edge:${edgeId}:${evFilePath}:${evDesc}`,
-    );
+    const evSymbolId = sourceCanonicalId.startsWith("sym:")
+      ? sourceCanonicalId
+      : null;
 
-    evidence.push({
-      id: evId,
+    const evRecord = EvidenceWriter.createEdgeEvidence(
       organizationId,
       analysisRunId,
-      subjectType: "graph_edge",
-      subjectId: edgeId,
-      filePath: evFilePath.trim(),
-      symbolId: sourceCanonicalId.startsWith("sym:") ? sourceCanonicalId : null,
-      lineStart: location?.start.line ?? null,
-      lineEnd: location?.end.line ?? null,
-      columnStart: location?.start.column ?? null,
-      columnEnd: location?.end.column ?? null,
-      relationshipDescription: evDesc,
-      confidence: 1.0,
-      metadata: { canonicalId, edgeType },
-    });
+      edgeInput,
+      evFilePath,
+      evDesc,
+      location,
+      evSymbolId,
+    );
+    if (evRecord) {
+      evidence.push(evRecord);
+    }
   }
 
   // Process Module Edges

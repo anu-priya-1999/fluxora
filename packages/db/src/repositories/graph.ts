@@ -16,6 +16,10 @@ import type {
 import type pg from "pg";
 
 import { withTenant } from "../tenant.ts";
+import { EvidenceWriter } from "./evidence-writer.ts";
+
+export { EvidenceWriter };
+
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -251,6 +255,9 @@ export async function createGraphNode(
   input: CreateGraphNodeInput,
 ): Promise<GraphNode> {
   assertGraphNodeInput(input);
+  if (input.evidence) {
+    EvidenceWriter.assertEvidenceInput(input.evidence);
+  }
 
   return withTenant(pool, input.organizationId, async (client) => {
     const metadata = input.metadata ?? {};
@@ -293,6 +300,9 @@ export async function createGraphNode(
       if (row === undefined) {
         throw new Error("graph node insert returned no row");
       }
+      if (input.evidence) {
+        await EvidenceWriter.writeEvidenceSingleTx(client, input.evidence);
+      }
       return mapGraphNodeRow(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -316,6 +326,9 @@ export async function batchCreateGraphNodes(
 
   for (const n of nodes) {
     assertGraphNodeInput(n);
+    if (n.evidence) {
+      EvidenceWriter.assertEvidenceInput(n.evidence);
+    }
   }
 
   return withTenant(pool, organizationId, async (client) => {
@@ -361,6 +374,9 @@ export async function batchCreateGraphNodes(
 
       const res = await client.query<GraphNodeRow>(query, params);
       if (res.rows[0]) {
+        if (input.evidence) {
+          await EvidenceWriter.writeEvidenceSingleTx(client, input.evidence);
+        }
         created.push(mapGraphNodeRow(res.rows[0]));
       }
     }
@@ -439,6 +455,9 @@ export async function createGraphEdge(
   input: CreateGraphEdgeInput,
 ): Promise<GraphEdge> {
   assertGraphEdgeInput(input);
+  if (input.evidence) {
+    EvidenceWriter.assertEvidenceInput(input.evidence);
+  }
 
   return withTenant(pool, input.organizationId, async (client) => {
     const metadata = input.metadata ?? {};
@@ -484,6 +503,9 @@ export async function createGraphEdge(
       if (row === undefined) {
         throw new Error("graph edge insert returned no row");
       }
+      if (input.evidence) {
+        await EvidenceWriter.writeEvidenceSingleTx(client, input.evidence);
+      }
       return mapGraphEdgeRow(row);
     } catch (error) {
       if (isUniqueViolation(error)) {
@@ -507,6 +529,9 @@ export async function batchCreateGraphEdges(
 
   for (const e of edges) {
     assertGraphEdgeInput(e);
+    if (e.evidence) {
+      EvidenceWriter.assertEvidenceInput(e.evidence);
+    }
   }
 
   return withTenant(pool, organizationId, async (client) => {
@@ -555,6 +580,9 @@ export async function batchCreateGraphEdges(
 
       const res = await client.query<GraphEdgeRow>(query, params);
       if (res.rows[0]) {
+        if (input.evidence) {
+          await EvidenceWriter.writeEvidenceSingleTx(client, input.evidence);
+        }
         created.push(mapGraphEdgeRow(res.rows[0]));
       }
     }
@@ -610,68 +638,7 @@ export async function createEvidence(
   pool: pg.Pool,
   input: CreateEvidenceInput,
 ): Promise<EvidenceRecord> {
-  assertEvidenceInput(input);
-
-  return withTenant(pool, input.organizationId, async (client) => {
-    const metadata = input.metadata ?? {};
-    const confidence = input.confidence ?? 1.0;
-
-    const query =
-      input.id === undefined
-        ? `INSERT INTO evidence (
-           analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-           line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-         )
-         VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
-         RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                   line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
-        : `INSERT INTO evidence (
-           id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-           line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-         )
-         VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
-         RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                   line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
-
-    const params =
-      input.id === undefined
-        ? [
-            input.analysisRunId,
-            input.subjectType.trim(),
-            input.subjectId,
-            input.filePath.trim(),
-            input.symbolId ? input.symbolId.trim() : null,
-            input.lineStart ?? null,
-            input.lineEnd ?? null,
-            input.columnStart ?? null,
-            input.columnEnd ?? null,
-            input.relationshipDescription.trim(),
-            confidence,
-            JSON.stringify(metadata),
-          ]
-        : [
-            input.id,
-            input.analysisRunId,
-            input.subjectType.trim(),
-            input.subjectId,
-            input.filePath.trim(),
-            input.symbolId ? input.symbolId.trim() : null,
-            input.lineStart ?? null,
-            input.lineEnd ?? null,
-            input.columnStart ?? null,
-            input.columnEnd ?? null,
-            input.relationshipDescription.trim(),
-            confidence,
-            JSON.stringify(metadata),
-          ];
-
-    const result = await client.query<EvidenceRow>(query, params);
-    const row = result.rows[0];
-    if (row === undefined) {
-      throw new Error("evidence insert returned no row");
-    }
-    return mapEvidenceRow(row);
-  });
+  return EvidenceWriter.writeEvidence(pool, input);
 }
 
 export async function batchCreateEvidence(
@@ -679,77 +646,9 @@ export async function batchCreateEvidence(
   organizationId: string,
   records: readonly CreateEvidenceInput[],
 ): Promise<EvidenceRecord[]> {
-  if (records.length === 0) {
-    return [];
-  }
-
-  for (const r of records) {
-    assertEvidenceInput(r);
-  }
-
-  return withTenant(pool, organizationId, async (client) => {
-    const created: EvidenceRecord[] = [];
-    for (const input of records) {
-      const metadata = input.metadata ?? {};
-      const confidence = input.confidence ?? 1.0;
-
-      const query =
-        input.id === undefined
-          ? `INSERT INTO evidence (
-             analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-           )
-           VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
-           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
-          : `INSERT INTO evidence (
-             id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-           )
-           VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
-           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
-
-      const params =
-        input.id === undefined
-          ? [
-              input.analysisRunId,
-              input.subjectType.trim(),
-              input.subjectId,
-              input.filePath.trim(),
-              input.symbolId ? input.symbolId.trim() : null,
-              input.lineStart ?? null,
-              input.lineEnd ?? null,
-              input.columnStart ?? null,
-              input.columnEnd ?? null,
-              input.relationshipDescription.trim(),
-              confidence,
-              JSON.stringify(metadata),
-            ]
-          : [
-              input.id,
-              input.analysisRunId,
-              input.subjectType.trim(),
-              input.subjectId,
-              input.filePath.trim(),
-              input.symbolId ? input.symbolId.trim() : null,
-              input.lineStart ?? null,
-              input.lineEnd ?? null,
-              input.columnStart ?? null,
-              input.columnEnd ?? null,
-              input.relationshipDescription.trim(),
-              confidence,
-              JSON.stringify(metadata),
-            ];
-
-      const res = await client.query<EvidenceRow>(query, params);
-      if (res.rows[0]) {
-        created.push(mapEvidenceRow(res.rows[0]));
-      }
-    }
-    return created;
-  });
+  return EvidenceWriter.writeEvidenceBatch(pool, organizationId, records);
 }
+
 
 export async function getEvidenceById(
   pool: pg.Pool,
@@ -954,78 +853,8 @@ export async function persistGraphBuild(
       }
     }
 
-    // 3. Insert Evidence
-    const evidence: EvidenceRecord[] = [];
-    for (const evInput of input.evidence) {
-      const metadata = evInput.metadata ?? {};
-      const confidence = evInput.confidence ?? 1.0;
-
-      const query =
-        evInput.id === undefined
-          ? `INSERT INTO evidence (
-             analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-             line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-           )
-           VALUES ($1::uuid, $2, $3::uuid, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
-           RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-                     line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`
-          : `INSERT INTO evidence (
-          id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-          line_start, line_end, column_start, column_end, relationship_description, confidence, metadata
-          )
-          VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
-          ON CONFLICT (id) DO UPDATE
-          SET subject_type = EXCLUDED.subject_type,
-          subject_id = EXCLUDED.subject_id,
-          file_path = EXCLUDED.file_path,
-          symbol_id = EXCLUDED.symbol_id,
-          line_start = EXCLUDED.line_start,
-          line_end = EXCLUDED.line_end,
-          column_start = EXCLUDED.column_start,
-          column_end = EXCLUDED.column_end,
-          relationship_description = EXCLUDED. relationship_description,
-          confidence = EXCLUDED.confidence,
-          metadata = EXCLUDED.metadata
-          RETURNING id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
-          line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at`;
-
-      const params =
-        evInput.id === undefined
-          ? [
-              evInput.analysisRunId,
-              evInput.subjectType.trim(),
-              evInput.subjectId,
-              evInput.filePath.trim(),
-              evInput.symbolId ? evInput.symbolId.trim() : null,
-              evInput.lineStart ?? null,
-              evInput.lineEnd ?? null,
-              evInput.columnStart ?? null,
-              evInput.columnEnd ?? null,
-              evInput.relationshipDescription.trim(),
-              confidence,
-              JSON.stringify(metadata),
-            ]
-          : [
-              evInput.id,
-              evInput.analysisRunId,
-              evInput.subjectType.trim(),
-              evInput.subjectId,
-              evInput.filePath.trim(),
-              evInput.symbolId ? evInput.symbolId.trim() : null,
-              evInput.lineStart ?? null,
-              evInput.lineEnd ?? null,
-              evInput.columnStart ?? null,
-              evInput.columnEnd ?? null,
-              evInput.relationshipDescription.trim(),
-              confidence,
-              JSON.stringify(metadata),
-            ];
-
-      const res = await client.query<EvidenceRow>(query, params);
-      if (res.rows[0]) {
-        evidence.push(mapEvidenceRow(res.rows[0]));
-      }
-    }
+    // 3. Insert Evidence via EvidenceWriter
+    const evidence = await EvidenceWriter.writeEvidenceBatchTx(client, input.evidence);
 
     return { nodes, edges, evidence };
   });
