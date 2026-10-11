@@ -10220,7 +10220,76 @@ Step 30 does NOT:
 - compute graph diffs or publish `graph.updated` WebSocket events (Step 32);
 - implement Phase 5 UI visualization or Phase 9 AI reasoning.
 
-With Global Step 30 complete, the next official Phase 4 roadmap item is **Step 31: Implement `POST /api/v1/graph/query` API endpoint**.
+---
+
+## 48. Phase 4 Step 31 Architecture — Graph Query API (POST /api/v1/graph/query)
+
+Step 31 implements the public HTTP boundary for graph queries: `POST /api/v1/graph/query` (`docs/architecture/07-api-architecture.md §7.2`, `docs/architecture/17-implementation-roadmap.md §Phase 4 Step 5`).
+
+### Architecture & Conceptual Flow
+
+`handleGraphQuery` exposes the deterministic, bounded-depth recursive-CTE graph traversal functionality implemented in Step 30 (`traverseGraph`) to authenticated API consumers while isolating internal database concerns.
+
+```
+                      Client HTTP Request
+                POST /api/v1/graph/query
+                           │
+                           ▼
+                 Content-Type Validation
+                (must be application/json)
+                           │
+                           ▼
+                 Bearer JWT Authentication
+                (Clerk verifyToken + Identity)
+                           │
+                           ▼
+                  Tenant Derivation
+             (organizationId from auth session)
+                           │
+                           ▼
+                 Request Body Validation
+          (analysisRunId, startNodeId, direction,
+           maxDepth, edgeTypes, nodeTypes, minConfidence)
+                           │
+                           ▼
+                 Direction Mapping
+         (downstream -> outgoing, upstream -> incoming)
+                           │
+                           ▼
+               Repository Traversal (Step 30)
+                 traverseGraph(pool, options)
+                           │
+                           ▼
+                 Response Formatting
+        (Deterministic confidence filtering,
+         internal-to-public mapping, evidence linking)
+                           │
+                           ▼
+                    JSON Response (200)
+         { nodes: [...], edges: [...], truncated: false }
+```
+
+### Core Invariants & Security Safeguards
+
+1. **Authentication & Tenant Derivation**: The tenant `organization_id` is strictly derived from the authenticated Clerk GitHub session and user record. Request bodies attempting to specify `organization_id` or `organizationId` are explicitly rejected with HTTP 400 (`invalid_request`).
+2. **Direction Mapping**:
+   - `"downstream"` → mapped to internal `"outgoing"` traversal.
+   - `"upstream"` → mapped to internal `"incoming"` traversal.
+   - `"both"` → mapped to internal `"both"` traversal.
+3. **Hard Depth Cap Enforcement**: `max_depth` enforces `0 <= max_depth <= 20` (`HARD_MAX_TRAVERSAL_DEPTH`). Values exceeding 20 or non-integers are rejected with HTTP 400 (`invalid_traversal_options`).
+4. **Deterministic Confidence Filtering**: If `min_confidence` is provided, nodes and edges below the threshold are pruned deterministically, along with any dangling edges or orphaned evidence.
+5. **Read-Only Guarantee**: The endpoint is strictly read-only and performs zero writes or mutations against `graph_nodes`, `graph_edges`, or `evidence`.
+6. **Safe Public Error Contract**: Follows Fluxora's standard error format `{ "error": { "code": "...", "message": "..." } }`. Missing or cross-tenant start nodes return HTTP 404 (`start_node_not_found`) without leaking cross-tenant existence.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 31 does NOT:
+- generate graph diffs across snapshot runs (Step 32);
+- publish `graph.updated` WebSocket events (Step 32);
+- perform golden graph verification as a separate roadmap step (Step 33);
+- implement Phase 5 UI visualization or Phase 9 AI reasoning.
+
+With Global Step 31 complete, the next official Phase 4 roadmap item is **Step 32: Implement `graph.updated` event + diff summary computation**.
 
 
 

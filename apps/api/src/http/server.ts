@@ -35,18 +35,43 @@ import {
 import { handleConnectRepository } from "./repositories.ts";
 import { isRepositoryConnectPath } from "./repository-request.ts";
 import {
+  handleGraphQuery,
+  type GraphQueryHandlerDependencies,
+} from "./graph-query.ts";
+import { isGraphQueryPath } from "./graph-query-request.ts";
+import {
   setupWebSocketServer,
   type FluxoraWsServerOptions,
 } from "../ws/server.ts";
 
+export interface CreateApiServerOptions {
+  wsOptions?: FluxoraWsServerOptions;
+  graphQueryDeps?: GraphQueryHandlerDependencies;
+}
+
 export function createApiServer(
-  wsOptions?: FluxoraWsServerOptions,
+  optionsOrWs?: FluxoraWsServerOptions | CreateApiServerOptions,
 ): http.Server {
+  const wsOptions =
+    optionsOrWs && "wsOptions" in optionsOrWs
+      ? optionsOrWs.wsOptions
+      : (optionsOrWs as FluxoraWsServerOptions | undefined);
+  const graphQueryDeps =
+    optionsOrWs && "graphQueryDeps" in optionsOrWs
+      ? optionsOrWs.graphQueryDeps
+      : undefined;
+
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
 
   const server = http.createServer((req, res) => {
-    void handleRequest(req, res, githubAppConfig, allowedWebOrigins).catch(
+    void handleRequest(
+      req,
+      res,
+      githubAppConfig,
+      allowedWebOrigins,
+      graphQueryDeps,
+    ).catch(
       (error: unknown) => {
         if (res.headersSent) {
           return;
@@ -74,6 +99,7 @@ async function handleRequest(
   res: http.ServerResponse,
   githubAppConfig: GithubAppConfig | null,
   allowedWebOrigins: readonly string[],
+  graphQueryDeps?: GraphQueryHandlerDependencies,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -92,6 +118,26 @@ async function handleRequest(
   if (path === "/api/v1/auth/me" && method === "GET") {
     await currentUser(req, res);
     return;
+  }
+
+  if (isGraphQueryPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "POST") {
+      await handleGraphQuery(req, res, sendJson, graphQueryDeps);
+      return;
+    }
   }
 
   if (isGithubInstallationPath(path) || isRepositoryConnectPath(path)) {
@@ -262,6 +308,7 @@ function isKnownPath(path: string): boolean {
   return (
     path === "/api/v1/auth/me" ||
     path === "/api/v1/telemetry/dummy" ||
+    isGraphQueryPath(path) ||
     isGithubInstallationPath(path) ||
     isRepositoryConnectPath(path)
   );

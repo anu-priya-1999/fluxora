@@ -196,3 +196,70 @@ export interface GraphTraversalResult {
   readonly maxDepthReached: number;
   readonly evidence?: readonly EvidenceRecord[] | undefined;
 }
+
+export const GRAPH_QUERY_PATH = "/api/v1/graph/query" as const;
+
+export const GraphQueryDirections = [
+  "downstream",
+  "upstream",
+  "both",
+] as const;
+
+export type GraphQueryDirection = (typeof GraphQueryDirections)[number];
+
+export interface GraphQueryRequest {
+  readonly analysis_run_id: string;
+  readonly start_node_id: string;
+  readonly direction?: GraphQueryDirection | undefined;
+  readonly max_depth?: number | undefined;
+  readonly edge_types?: readonly string[] | undefined;
+  readonly node_types?: readonly string[] | undefined;
+  readonly min_confidence?: number | undefined;
+  readonly include_evidence?: boolean | undefined;
+}
+
+export interface GraphQueryResponseNode {
+  readonly id: string;
+  readonly type: string;
+  readonly name: string;
+  readonly canonical_id: string;
+  readonly depth: number;
+  readonly confidence: number;
+  readonly path?: string | null | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
+}
+
+export interface GraphQueryResponseEdge {
+  readonly id: string;
+  readonly source: string;
+  readonly target: string;
+  readonly type: string;
+  readonly confidence: number;
+  readonly provenance: string;
+  readonly evidence_id?: string | null | undefined;
+  readonly canonical_id?: string | null | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
+}
+
+export interface GraphQueryResponseEvidence {
+  readonly id: string;
+  readonly subject_type: string;
+  readonly subject_id: string;
+  readonly file_path: string;
+  readonly symbol_id?: string | null | undefined;
+  readonly line_start?: number | null | undefined;
+  readonly line_end?: number | null | undefined;
+  readonly column_start?: number | null | undefined;
+  readonly column_end?: number | null | undefined;
+  readonly relationship_description: string;
+  readonly confidence: number;
+  readonly metadata?: Record<string, unknown> | undefined;
+}
+
+export interface GraphQueryResponse {
+  readonly nodes: readonly GraphQueryResponseNode[];
+  readonly edges: readonly GraphQueryResponseEdge[];
+  readonly max_depth_reached: number;
+  readonly truncated: boolean;
+  readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
+}

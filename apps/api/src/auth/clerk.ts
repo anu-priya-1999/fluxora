@@ -1,6 +1,5 @@
 import { createClerkClient, verifyToken } from "@clerk/backend";
 
-const secretKey = process.env.CLERK_SECRET_KEY;
 const authorizedParties = (
   process.env.CLERK_AUTHORIZED_PARTIES ?? "http://localhost:3000"
 )
@@ -8,11 +7,22 @@ const authorizedParties = (
   .map((value) => value.trim())
   .filter(Boolean);
 
-if (!secretKey) {
-  throw new Error("CLERK_SECRET_KEY is required.");
+let clerkClientInstance: ReturnType<typeof createClerkClient> | null = null;
+
+function getSecretKey(): string {
+  const secretKey = process.env.CLERK_SECRET_KEY;
+  if (!secretKey) {
+    throw new Error("CLERK_SECRET_KEY is required.");
+  }
+  return secretKey;
 }
 
-const clerkClient = createClerkClient({ secretKey });
+function getClerkClient(): ReturnType<typeof createClerkClient> {
+  if (!clerkClientInstance) {
+    clerkClientInstance = createClerkClient({ secretKey: getSecretKey() });
+  }
+  return clerkClientInstance;
+}
 
 export async function authenticateClerkToken(
   authorization: string | undefined,
@@ -28,7 +38,7 @@ export async function authenticateClerkToken(
   }
 
   const payload = await verifyToken(token, {
-    secretKey,
+    secretKey: getSecretKey(),
     authorizedParties,
   });
 
@@ -55,7 +65,7 @@ export type ClerkGithubIdentity =
 export async function getClerkGithubIdentity(
   clerkUserId: string,
 ): Promise<ClerkGithubIdentity> {
-  const user = await clerkClient.users.getUser(clerkUserId);
+  const user = await getClerkClient().users.getUser(clerkUserId);
 
   const github = user.externalAccounts.find((account) => {
     const provider = account.provider.toLowerCase();
