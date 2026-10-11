@@ -10291,7 +10291,65 @@ Step 31 does NOT:
 
 With Global Step 31 complete, the next official Phase 4 roadmap item is **Step 32: Implement `graph.updated` event + diff summary computation**.
 
+---
 
+## 49. Phase 4 Step 32 Architecture — Graph Update Event Emission & Diff Summary
 
+Step 32 implements deterministic graph diff summary computation and transactional `graph.updated` event emission (`docs/architecture/08-events-and-async-architecture.md §8.1`, `docs/architecture/17-implementation-roadmap.md §Phase 4 Step 6`).
 
+### Architecture & Conceptual Flow
+
+When repository ingestion produces an updated graph representation, `persistGraphBuild` computes the structural diff between the previous analysis run graph state and the newly projected graph state. The diff is calculated deterministically in memory, linked to the `graph.updated` domain event payload, and persisted to the transactional outbox (`events` table) within the same `withTenant` PostgreSQL transaction. Once committed, PostgreSQL `LISTEN/NOTIFY` pushes the event envelope to listening WebSocket clients scoped to the tenant organization.
+
+```
+   Worker: buildAndPersistGraph(input, options)
+                     │
+                     ▼
+       withTenant(pool, organizationId) Transaction (Step 28 + Step 32)
+                     │
+       ┌─────────────┴─────────────────────────┐
+       │ 1. Resolve prior graph state          │
+       │    (getGraphStateForAnalysisRunTx)    │
+       │                                       │
+       │ 2. Compute deterministic diff         │
+       │    computeGraphDiff(previous, current)│
+       │                                       │
+       │ 3. Persist nodes, edges, evidence     │
+       │    (EvidenceWriter AST-enforced)      │
+       │                                       │
+       │ 4. Insert outbox event                │
+       │    events.insert(graph.updated)       │
+       └─────────────┬─────────────────────────┘
+                     │ COMMIT
+                     ▼
+         PostgreSQL Trigger: fluxora_notify_event()
+                     │ NOTIFY fluxora_events
+                     ▼
+         API Gateway Event Listener (LISTEN)
+                     │
+                     ▼
+         WebSocket Server (apps/api/src/ws/server.ts)
+                     │
+                     ▼
+      Authenticated Tenant WS Clients
+      { type: "event", event: { type: "graph.updated", payload: { ... } } }
+```
+
+### Core Invariants & Security Safeguards
+
+1. **Deterministic In-Memory Diff Engine**: `computeGraphDiff(previous, current)` compares nodes by canonical ID and edges by `(sourceNodeId, targetNodeId, edgeType)`. Metadata is recursively sorted before serialization (`canonicalStringify`) to eliminate JSON key ordering differences. Added, removed, and changed items are deterministically sorted.
+2. **Transactional Outbox Guarantee**: Graph nodes, edges, evidence, and the `graph.updated` event row are written in the exact same `withTenant` transaction. If graph writes fail or roll back, no event is committed or broadcast.
+3. **Idempotency**: The event uses a deterministic `idempotency_key = graph:updated:<analysisRunId>:<previousAnalysisRunId|initial>`, preventing duplicate outbox event generation on re-runs.
+4. **Strict Multi-Tenant Isolation**: State queries set `app.current_organization_id` under RLS and enforce defensive SQL assertions (`AND fluxora_analysis_run_in_current_tenant(analysis_run_id)`). WebSocket dispatch checks client organization membership before broadcasting.
+5. **No Database Row Leakage**: The public event payload contains only domain-safe fields (`nodeType`, `name`, `path`, `confidence`, `metadata`, `provenance`). Internal table columns and sensitive credentials are never exposed.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 32 does NOT:
+- perform golden fixture graph verification as a standalone roadmap step (Step 33);
+- implement React Flow or interactive visual canvas components (Phase 5);
+- calculate PR blast radius or change impact traversal (Phase 6);
+- generate natural language explanations or LLM summaries (Phase 9).
+
+With Global Step 32 complete, the next official Phase 4 roadmap item is **Step 33: Golden graph verification (end-to-end fixture: TypeScript repo -> full graph in DB)**.
 

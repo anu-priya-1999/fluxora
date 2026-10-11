@@ -23,4 +23,3 @@ export * from "./database/detector.ts";
 export * from "./tree-sitter/index.ts";
 export * from "./pipeline/phase3.ts";
 export * from "./builder/graph-builder.ts";
-

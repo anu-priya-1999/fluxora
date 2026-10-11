@@ -1,3 +1,4 @@
+import type { FluxoraEvent, GraphDiff, GraphUpdatedPayload } from "./events.ts";
 import type {
   CreateEvidenceInput,
   CreateGraphEdgeInput,
@@ -21,6 +22,8 @@ export interface GraphBuilderScope {
  */
 export interface GraphBuilderOptions extends GraphBuilderScope {
   readonly normalizedResult: RepositoryNormalizedResult;
+  readonly previousAnalysisRunId?: string | null | undefined;
+  readonly emitEvent?: boolean | undefined;
 }
 
 /**
@@ -61,5 +64,6 @@ export interface PersistedGraphResult {
   readonly edges: readonly GraphEdge[];
   readonly evidence: readonly EvidenceRecord[];
   readonly statistics: GraphBuilderStatistics;
+  readonly diff?: GraphDiff | undefined;
+  readonly event?: FluxoraEvent<GraphUpdatedPayload> | undefined;
 }
-

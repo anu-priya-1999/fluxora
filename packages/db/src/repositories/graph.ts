@@ -7,6 +7,8 @@ import type {
   CreateGraphNodeInput,
   EvidenceRecord,
   EvidenceSubjectType,
+  FluxoraEvent,
+  GraphDiff,
   GraphEdge,
   GraphEdgeProvenance,
   GraphEdgeType,
@@ -15,14 +17,23 @@ import type {
   GraphTraversalNode,
   GraphTraversalOptions,
   GraphTraversalResult,
+  GraphUpdatedPayload,
 } from "@fluxora/shared-types";
 import {
+  GRAPH_UPDATED_EVENT_TYPE,
+  graphUpdatedIdempotencyKey,
   HARD_MAX_TRAVERSAL_DEPTH,
 } from "@fluxora/shared-types";
 import type pg from "pg";
 
 import { withTenant } from "../tenant.ts";
+import { createEventClient } from "./event.ts";
 import { EvidenceWriter } from "./evidence-writer.ts";
+import {
+  computeGraphDiff,
+  resolveAnalysisRunCorrelationTx,
+  resolvePreviousGraphStateTx,
+} from "./graph-diff.ts";
 
 export { EvidenceWriter };
 
@@ -737,19 +748,26 @@ export interface PersistGraphBuildInput {
   nodes: readonly CreateGraphNodeInput[];
   edges: readonly CreateGraphEdgeInput[];
   evidence: readonly CreateEvidenceInput[];
+  previousAnalysisRunId?: string | null | undefined;
+  emitEvent?: boolean | undefined;
+}
+
+export interface PersistGraphBuildResult {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  evidence: EvidenceRecord[];
+  diff?: GraphDiff | undefined;
+  event?: FluxoraEvent<GraphUpdatedPayload> | undefined;
 }
 
 /**
  * Atomically persists nodes, edges, and evidence inside a single database transaction.
+ * Computes deterministic graph diff and creates transactional graph.updated event.
  */
 export async function persistGraphBuild(
   pool: pg.Pool,
   input: PersistGraphBuildInput,
-): Promise<{
-  nodes: GraphNode[];
-  edges: GraphEdge[];
-  evidence: EvidenceRecord[];
-}> {
+): Promise<PersistGraphBuildResult> {
   if (
     !UUID_REGEX.test(input.organizationId) ||
     !UUID_REGEX.test(input.analysisRunId)
@@ -770,6 +788,19 @@ export async function persistGraphBuild(
   }
 
   return withTenant(pool, input.organizationId, async (client) => {
+    // 0. Compute diff against previous graph state
+    const { previousRunId, state: prevState } =
+      await resolvePreviousGraphStateTx(
+        client,
+        input.organizationId,
+        input.analysisRunId,
+        input.previousAnalysisRunId,
+      );
+    const diff = computeGraphDiff(prevState, {
+      nodes: input.nodes,
+      edges: input.edges,
+    });
+
     // 1. Insert Nodes
     const nodes: GraphNode[] = [];
     for (const nodeInput of input.nodes) {
@@ -870,7 +901,43 @@ export async function persistGraphBuild(
     // 3. Insert Evidence via EvidenceWriter
     const evidence = await EvidenceWriter.writeEvidenceBatchTx(client, input.evidence);
 
-    return { nodes, edges, evidence };
+    // 4. Optionally emit graph.updated event in the same transaction
+    let event: FluxoraEvent<GraphUpdatedPayload> | undefined;
+    if (input.emitEvent !== false) {
+      const { repositoryId, commitSha } =
+        await resolveAnalysisRunCorrelationTx(client, input.analysisRunId);
+
+      const payload: GraphUpdatedPayload = {
+        organizationId: input.organizationId,
+        organization_id: input.organizationId,
+        analysisRunId: input.analysisRunId,
+        analysis_run_id: input.analysisRunId,
+        ...(repositoryId !== undefined
+          ? { repositoryId, repository_id: repositoryId }
+          : {}),
+        ...(commitSha !== undefined
+          ? { commitSha, commit_sha: commitSha }
+          : {}),
+        previousAnalysisRunId: previousRunId,
+        previous_analysis_run_id: previousRunId,
+        summary: diff.summary,
+        diff,
+      };
+
+      const idempotencyKey = graphUpdatedIdempotencyKey(
+        input.analysisRunId,
+        previousRunId,
+      );
+
+      event = await createEventClient<GraphUpdatedPayload>(client, {
+        organizationId: input.organizationId,
+        type: GRAPH_UPDATED_EVENT_TYPE,
+        idempotencyKey,
+        payload,
+      });
+    }
+
+    return { nodes, edges, evidence, diff, event };
   });
 }
 

@@ -584,6 +584,8 @@ export async function buildAndPersistGraph(
     nodes: projection.nodes,
     edges: projection.edges,
     evidence: projection.evidence,
+    previousAnalysisRunId: options.previousAnalysisRunId,
+    emitEvent: options.emitEvent,
   });
 
   return {
@@ -591,6 +593,8 @@ export async function buildAndPersistGraph(
     edges: persisted.edges,
     evidence: persisted.evidence,
     statistics: projection.statistics,
+    diff: persisted.diff,
+    event: persisted.event,
   };
 }
 

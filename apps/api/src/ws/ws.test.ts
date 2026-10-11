@@ -369,6 +369,50 @@ test("WebSocket server: authenticated /api/v1/ws connection and live repository.
   // Client B (in Org B) must NOT have received Org A's event!
   assert.equal(clientBMessages.length, beforeBCount);
 
+  // 6. Broadcast graph.updated event for Org A (Step 32)
+  const graphUpdatedEventA: FluxoraEventEnvelope = {
+    event_id: "99999999-9999-4999-8999-999999999999",
+    event_type: "graph.updated",
+    organization_id: ORG_A,
+    occurred_at: new Date().toISOString(),
+    idempotency_key: "graph.updated:run-1:snap-1",
+    payload: {
+      organization_id: ORG_A,
+      analysis_run_id: "run-1",
+      summary: {
+        nodes_added: 5,
+        nodes_removed: 0,
+        nodes_changed: 1,
+        edges_added: 3,
+        edges_removed: 0,
+        edges_changed: 0,
+      },
+      diff: {
+        addedNodes: [],
+        removedNodes: [],
+        changedNodes: [],
+        addedEdges: [],
+        removedEdges: [],
+        changedEdges: [],
+      },
+    },
+    schema_version: 1,
+  };
+
+  const countBeforeGraphUpdateA = clientAMessages.length;
+  const countBeforeGraphUpdateB = clientBMessages.length;
+
+  hub.broadcast(graphUpdatedEventA);
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+
+  assert.equal(clientAMessages.length, countBeforeGraphUpdateA + 1);
+  const rawGraphMsg = clientAMessages[clientAMessages.length - 1]!;
+  const parsedGraphMsg = JSON.parse(rawGraphMsg);
+  assert.equal(parsedGraphMsg.event_type, "graph.updated");
+  assert.equal(parsedGraphMsg.payload.summary.nodes_added, 5);
+  assert.equal(clientBMessages.length, countBeforeGraphUpdateB);
+
   clientA.close();
   clientB.close();
 });
