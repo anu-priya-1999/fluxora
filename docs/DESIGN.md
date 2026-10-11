@@ -10157,6 +10157,70 @@ Step 29 does NOT:
 - compute graph diffs or publish `graph.updated` events (Step 31/32);
 - implement Phase 5 UI visualization or Phase 9 AI reasoning.
 
+---
+
+## 47. Phase 4 Step 30 Architecture — Bounded-Depth Recursive-CTE Graph Traversal
+
+Step 30 implements Bounded-Depth Recursive-CTE Graph Traversal as a reusable internal query function (`traverseGraph`) in `@fluxora/db` (`docs/architecture/05-component-responsibilities.md §5.9`, `docs/architecture/06-database-schema.md §6.1`, `docs/architecture/17-implementation-roadmap.md §Phase 4 Step 4`).
+
+### Architecture & Conceptual Flow
+
+`traverseGraph` provides tenant-isolated, analysis-run scoped, bounded-depth graph exploration over PostgreSQL using a recursive Common Table Expression (`WITH RECURSIVE`).
+
+```
+                   Graph Traversal Request
+            (orgId, analysisRunId, startNodeId, maxDepth)
+                               │
+                               ▼
+            Validation & Hard Cap Enforcement (maxDepth <= 20)
+                               │
+                               ▼
+                   PostgreSQL withTenant Session
+                     (app.current_org_id set)
+                               │
+                               ▼
+                  PostgreSQL Recursive CTE (WITH RECURSIVE)
+         ┌─────────────────────┴─────────────────────┐
+         ▼                                           ▼
+   Anchor Member                              Recursive Member
+(startNode at depth 0)                     (joins edges & target nodes)
+         │                                           │
+         └─────────────────────┬─────────────────────┘
+                               │
+                       Cycle Check (WHERE NOT (next_node.id::text = ANY(t.path)))
+                       Depth Check (WHERE t.depth < maxDepth)
+                               │
+                               ▼
+               Shortest Path & Distinct Node Selection
+            (ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth ASC))
+                               │
+                               ▼
+                      Evidence Collection
+          (queries evidence for traversed nodes & edges)
+                               │
+                               ▼
+                    GraphTraversalResult
+         (startNode, nodes[], edges[], maxDepthReached, evidence[])
+```
+
+### Core Invariants & Security Safeguards
+
+1. **Deterministic Core**: Graph reachability calculations are purely structural and 100% deterministic, depending only on graph records and query options (`docs/architecture/03-architecture-principles.md §P1`).
+2. **Server-Side Hard Depth Cap**: Validation enforces `0 <= maxDepth <= 20` (`HARD_MAX_TRAVERSAL_DEPTH`), preventing runaway recursion or client-driven denial of service. Inside PostgreSQL, `WHERE t.depth < maxDepth` halts recursion at `maxDepth`.
+3. **Cycle Prevention**: Each CTE iteration maintains a path array (`ARRAY[n.id::text]`). The recursive member checks `WHERE NOT (next_node.id::text = ANY(t.path))`, pruning cyclic graph paths (`n5 -> n6 -> n7 -> n5`).
+4. **Shortest Path & Fan-In Deduplication**: Uses `ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth ASC, path::text ASC) WHERE rn = 1` to collapse multiple paths to the same node while preserving minimum depth and deterministic path ordering.
+5. **Multi-Tenancy & RLS Isolation**: All traversal operations execute within `withTenant(pool, organizationId, ...)` and explicitly filter on `analysis_run_id = $2::uuid` across all CTE queries.
+6. **Parameterized SQL**: All query values use parameterized SQL placeholders (`$1, $2, $3...`). Raw user values are never interpolated into SQL strings.
+7. **Evidence Preservation**: Associated `evidence` records for traversed nodes and edges are retrieved without altering or fabricating source provenance.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 30 does NOT:
+- expose `POST /api/v1/graph/query` HTTP API endpoints (Step 31);
+- compute graph diffs or publish `graph.updated` WebSocket events (Step 32);
+- implement Phase 5 UI visualization or Phase 9 AI reasoning.
+
+With Global Step 30 complete, the next official Phase 4 roadmap item is **Step 31: Implement `POST /api/v1/graph/query` API endpoint**.
 
 
 

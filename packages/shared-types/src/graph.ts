@@ -165,3 +165,34 @@ export interface CreateEvidenceInput {
   confidence?: number;
   metadata?: Record<string, unknown>;
 }
+
+export const DEFAULT_MAX_TRAVERSAL_DEPTH = 5;
+export const HARD_MAX_TRAVERSAL_DEPTH = 20;
+
+export const TraversalDirections = ["outgoing", "incoming", "both"] as const;
+export type TraversalDirection = (typeof TraversalDirections)[number];
+
+export interface GraphTraversalOptions {
+  readonly organizationId: string;
+  readonly analysisRunId: string;
+  readonly startNodeId: string;
+  readonly maxDepth: number;
+  readonly direction?: TraversalDirection;
+  readonly edgeTypes?: readonly GraphEdgeType[];
+  readonly nodeTypes?: readonly GraphNodeType[];
+  readonly includeEvidence?: boolean;
+}
+
+export interface GraphTraversalNode {
+  readonly node: GraphNode;
+  readonly depth: number;
+  readonly path: readonly string[];
+}
+
+export interface GraphTraversalResult {
+  readonly startNode: GraphNode | null;
+  readonly nodes: readonly GraphTraversalNode[];
+  readonly edges: readonly GraphEdge[];
+  readonly maxDepthReached: number;
+  readonly evidence?: readonly EvidenceRecord[] | undefined;
+}

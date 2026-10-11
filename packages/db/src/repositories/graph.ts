@@ -12,6 +12,12 @@ import type {
   GraphEdgeType,
   GraphNode,
   GraphNodeType,
+  GraphTraversalNode,
+  GraphTraversalOptions,
+  GraphTraversalResult,
+} from "@fluxora/shared-types";
+import {
+  HARD_MAX_TRAVERSAL_DEPTH,
 } from "@fluxora/shared-types";
 import type pg from "pg";
 
@@ -58,6 +64,14 @@ export class GraphStorageConflictError extends Error {
     this.name = "GraphStorageConflictError";
   }
 }
+
+export class GraphTraversalValidationError extends Error {
+  constructor(message = "Graph traversal fields are invalid.") {
+    super(message);
+    this.name = "GraphTraversalValidationError";
+  }
+}
+
 
 interface AnalysisRunRow {
   id: string;
@@ -1002,4 +1016,249 @@ function isUniqueViolation(error: unknown): boolean {
     "code" in error &&
     error.code === "23505"
   );
+}
+
+// ---------------------------------------------------------------------------
+// Graph Traversal DB Method (Step 30)
+// ---------------------------------------------------------------------------
+
+export async function traverseGraph(
+  pool: pg.Pool,
+  options: GraphTraversalOptions,
+): Promise<GraphTraversalResult> {
+  const {
+    organizationId,
+    analysisRunId,
+    startNodeId,
+    maxDepth,
+    direction = "outgoing",
+    edgeTypes,
+    nodeTypes,
+    includeEvidence = true,
+  } = options;
+
+  if (
+    !UUID_REGEX.test(organizationId) ||
+    !UUID_REGEX.test(analysisRunId) ||
+    !UUID_REGEX.test(startNodeId)
+  ) {
+    throw new GraphTraversalValidationError(
+      "Invalid organizationId, analysisRunId, or startNodeId UUID.",
+    );
+  }
+
+  if (
+    typeof maxDepth !== "number" ||
+    !Number.isInteger(maxDepth) ||
+    maxDepth < 0 ||
+    maxDepth > HARD_MAX_TRAVERSAL_DEPTH
+  ) {
+    throw new GraphTraversalValidationError(
+      `maxDepth must be an integer between 0 and ${HARD_MAX_TRAVERSAL_DEPTH}. Received: ${maxDepth}`,
+    );
+  }
+
+  if (
+    direction !== "outgoing" &&
+    direction !== "incoming" &&
+    direction !== "both"
+  ) {
+    throw new GraphTraversalValidationError(`Invalid direction: ${direction}`);
+  }
+
+  return withTenant(pool, organizationId, async (client) => {
+    // 1. Verify start node exists in current tenant & analysis run
+    const startNodeRes = await client.query<GraphNodeRow>(
+      `SELECT id, analysis_run_id, canonical_id, node_type, name, path, metadata, confidence, created_at
+       FROM graph_nodes
+       WHERE id = $1::uuid AND analysis_run_id = $2::uuid`,
+      [startNodeId, analysisRunId],
+    );
+
+    const startNodeRow = startNodeRes.rows[0];
+    if (!startNodeRow) {
+      return {
+        startNode: null,
+        nodes: [],
+        edges: [],
+        maxDepthReached: 0,
+        evidence: includeEvidence ? [] : undefined,
+      };
+    }
+    const startNode = mapGraphNodeRow(startNodeRow);
+
+    if (maxDepth === 0) {
+      const startNodeEvidence = includeEvidence
+        ? await listEvidenceForSubject(
+            pool,
+            organizationId,
+            analysisRunId,
+            "graph_node",
+            startNode.id,
+          )
+        : undefined;
+
+      return {
+        startNode,
+        nodes: [
+          {
+            node: startNode,
+            depth: 0,
+            path: [startNode.id],
+          },
+        ],
+        edges: [],
+        maxDepthReached: 0,
+        evidence: startNodeEvidence,
+      };
+    }
+
+    // 2. Build parameterized recursive CTE
+    // Params: $1 = startNodeId, $2 = analysisRunId, $3 = maxDepth, $4 = direction
+    const queryParams: unknown[] = [
+      startNodeId,
+      analysisRunId,
+      maxDepth,
+      direction,
+    ];
+
+    let edgeTypeFilterSql = "";
+    if (edgeTypes && edgeTypes.length > 0) {
+      queryParams.push(edgeTypes.map((t) => t.trim()));
+      edgeTypeFilterSql = `AND e.edge_type = ANY($${queryParams.length}::text[])`;
+    }
+
+    let nodeTypeFilterSql = "";
+    if (nodeTypes && nodeTypes.length > 0) {
+      queryParams.push(nodeTypes.map((t) => t.trim()));
+      nodeTypeFilterSql = `AND next_node.node_type = ANY($${queryParams.length}::text[])`;
+    }
+
+    const cteSql = `
+      WITH RECURSIVE traversal AS (
+        SELECT
+          n.id AS node_id,
+          0 AS depth,
+          ARRAY[n.id::text] AS path,
+          NULL::uuid AS edge_id
+        FROM graph_nodes n
+        WHERE n.id = $1::uuid AND n.analysis_run_id = $2::uuid
+
+        UNION ALL
+
+        SELECT
+          next_node.id AS node_id,
+          t.depth + 1 AS depth,
+          t.path || next_node.id::text AS path,
+          e.id AS edge_id
+        FROM traversal t
+        JOIN graph_edges e ON e.analysis_run_id = $2::uuid
+          AND (
+            ($4 = 'outgoing' AND e.source_node_id = t.node_id)
+            OR
+            ($4 = 'incoming' AND e.target_node_id = t.node_id)
+            OR
+            ($4 = 'both' AND (
+              (e.source_node_id = t.node_id AND NOT (e.target_node_id::text = ANY(t.path))) OR
+              (e.target_node_id = t.node_id AND NOT (e.source_node_id::text = ANY(t.path)))
+            ))
+          )
+          ${edgeTypeFilterSql}
+        JOIN graph_nodes next_node ON next_node.analysis_run_id = $2::uuid
+          AND next_node.id = (
+            CASE
+              WHEN e.source_node_id = t.node_id THEN e.target_node_id
+              ELSE e.source_node_id
+            END
+          )
+          ${nodeTypeFilterSql}
+        WHERE t.depth < $3::integer
+          AND NOT (next_node.id::text = ANY(t.path))
+      )
+    `;
+
+    const nodesQuery = `
+      ${cteSql}
+      SELECT
+        n.id, n.analysis_run_id, n.canonical_id, n.node_type, n.name, n.path, n.metadata, n.confidence, n.created_at,
+        d.depth AS depth,
+        d.path AS shortest_path
+      FROM (
+        SELECT
+          node_id,
+          depth,
+          path,
+          ROW_NUMBER() OVER (PARTITION BY node_id ORDER BY depth ASC, path::text ASC) AS rn
+        FROM traversal
+      ) d
+      JOIN graph_nodes n ON n.id = d.node_id AND n.analysis_run_id = $2::uuid
+      WHERE d.rn = 1
+      ORDER BY d.depth ASC, n.canonical_id ASC, n.id ASC;
+    `;
+
+    interface TraversalNodeRow extends GraphNodeRow {
+      depth: number;
+      shortest_path: string[];
+    }
+
+    const nodesRes = await client.query<TraversalNodeRow>(nodesQuery, queryParams);
+
+    const edgesQuery = `
+      ${cteSql}
+      SELECT DISTINCT
+        e.id, e.analysis_run_id, e.source_node_id, e.target_node_id, e.edge_type, e.canonical_id, e.metadata, e.confidence, e.provenance, e.created_at
+      FROM graph_edges e
+      WHERE e.analysis_run_id = $2::uuid
+        AND e.id IN (SELECT edge_id FROM traversal WHERE edge_id IS NOT NULL)
+      ORDER BY e.edge_type ASC, e.source_node_id ASC, e.target_node_id ASC, e.id ASC;
+    `;
+
+    const edgesRes = await client.query<GraphEdgeRow>(edgesQuery, queryParams);
+
+    const traversalNodes: GraphTraversalNode[] = nodesRes.rows.map((row) => ({
+      node: mapGraphNodeRow(row),
+      depth: Number(row.depth),
+      path: row.shortest_path,
+    }));
+
+    const edges: GraphEdge[] = edgesRes.rows.map(mapGraphEdgeRow);
+
+    const maxDepthReached = traversalNodes.reduce(
+      (max, tn) => Math.max(max, tn.depth),
+      0,
+    );
+
+    let evidence: EvidenceRecord[] | undefined;
+    if (includeEvidence) {
+      const nodeIds = traversalNodes.map((tn) => tn.node.id);
+      const edgeIds = edges.map((e) => e.id);
+
+      if (nodeIds.length === 0 && edgeIds.length === 0) {
+        evidence = [];
+      } else {
+        const evRes = await client.query<EvidenceRow>(
+          `SELECT id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+                  line_start, line_end, column_start, column_end, relationship_description, confidence, metadata, created_at
+           FROM evidence
+           WHERE analysis_run_id = $1::uuid
+             AND (
+               (subject_type = 'graph_node' AND subject_id = ANY($2::uuid[]))
+               OR
+               (subject_type = 'graph_edge' AND subject_id = ANY($3::uuid[]))
+             )
+           ORDER BY created_at ASC, id ASC`,
+          [analysisRunId, nodeIds, edgeIds],
+        );
+        evidence = evRes.rows.map(mapEvidenceRow);
+      }
+    }
+
+    return {
+      startNode,
+      nodes: traversalNodes,
+      edges,
+      maxDepthReached,
+      evidence,
+    };
+  });
 }
