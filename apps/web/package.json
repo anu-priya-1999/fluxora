@@ -8,11 +8,12 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts"
+    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts src/components/graph/graph-canvas.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.7",
     "@fluxora/shared-types": "workspace:*",
+    "@xyflow/react": "^12.12.0",
     "next": "16.3.6",
     "react": "19.2.0",
     "react-dom": "19.2.0"

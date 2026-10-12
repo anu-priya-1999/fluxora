@@ -10422,4 +10422,76 @@ Step 33 does NOT:
 - Implement PR change-impact traversal or GitHub webhooks (Phase 6);
 - Implement AI reasoning or natural language summaries (Phase 9).
 
-With Global Step 33 complete, the next official Phase 4 roadmap item is **Step 34: Graph architecture review & transition to Phase 5**.
+With Global Step 33 complete, the roadmap advances to **Global Step 34: React Flow Graph Canvas + Node Renderers**.
+
+---
+
+## Global Step 34 — React Flow Graph Canvas + Node Renderers
+
+### Overview & Objective
+
+Global Step 34 initiates Phase 5 (Architecture UI) by integrating `@xyflow/react` (React Flow) into `apps/web` and delivering the deterministic graph canvas and per-node-type rendering foundation.
+
+The primary objective is to bridge the deterministic graph contracts verified in Phase 4 (`GraphNode`, `GraphEdge`, and `GraphQueryResponse`) to an interactive React Flow diagram without introducing duplicate graph logic, random IDs, or client-side dependency inference.
+
+### Component Architecture & Data Flow
+
+```
+   ┌──────────────────────────────────────────────────────────────┐
+   │ Fluxora Backend (Steps 27–33)                                │
+   │ Deterministic Graph State (PostgreSQL + RLS + EvidenceWriter)│
+   └──────────────────────────────┬───────────────────────────────┘
+                                  │ POST /api/v1/graph/query (Step 31)
+                                  ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ Graph Query Response / Domain Graph                          │
+   │ { nodes: GraphQueryResponseNode[], edges: ... }              │
+   └──────────────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼
+               mapDomainGraphToFlow(inputNodes, inputEdges)
+                                  │
+                                  ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ React Flow Model                                             │
+   │ - nodes: Node<FluxoraNodeData>[] (deterministic layout)      │
+   │ - edges: Edge[] (stroke, labels, animation)                  │
+   └──────────────────────────────┬───────────────────────────────┘
+                                  │
+                                  ▼
+   ┌──────────────────────────────────────────────────────────────┐
+   │ GraphCanvas Component ("use client")                        │
+   │ ┌──────────────────────────────────────────────────────────┐ │
+   │ │ ReactFlow Viewport (Pan, Zoom, FitView)                  │ │
+   │ │  ├─ NodeRenderer (per-node-type styling & handles)       │ │
+   │ │  ├─ Background (Dots pattern)                            │ │
+   │ │  └─ Controls (Zoom in / out / reset)                     │ │
+   │ └──────────────────────────────────────────────────────────┘ │
+   └──────────────────────────────────────────────────────────────┘
+```
+
+### Core Invariants Preserved
+
+1. **Deterministic Core vs. UI Projection**:
+   The frontend canvas never invents graph relationships, synthesizes phantom nodes, or calculates change propagation. The UI is strictly a presentational consumer of server-verified graph records.
+2. **Stable Node & Edge Identity**:
+   Domain IDs (`canonical_id` / `canonicalId`, node `id`, edge `id`) are preserved 1:1. Render keys and React Flow identifiers are never generated using `Date.now()`, `Math.random()`, or client UUIDs.
+3. **Decoupled Data Fetching**:
+   `GraphCanvas` and `NodeRenderer` contain zero `fetch` or React Query calls. State fetching remains the responsibility of route and container components.
+4. **Per-Node-Type Visual Differentiation**:
+   All 8 domain node categories (`application`, `service`, `package`, `module`, `symbol`, `api`, `event`, `database`) are visually distinct through tokens in `node-styles.ts`, while maintaining uniform handle positions, depth markers, path displays, and confidence indicators.
+5. **Resilient Graph Mapping**:
+   `mapDomainGraphToFlow` handles empty graphs, preserves source/target mappings, filters dangling edges pointing to non-existent nodes, and computes deterministic grid positions without external physics.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 34 does NOT:
+- Implement `/repositories/[repoId]/explorer` route or page layout (Step 35);
+- Implement API data fetching or React Query query hooks (Step 35);
+- Implement `NodeInspectorPanel` or `EvidenceTrail` (Step 36);
+- Implement `GraphFilters` (Step 37);
+- Implement clustering / level-of-detail pre-aggregation (Step 38);
+- Implement live WebSocket invalidation (Step 39);
+- Implement change-mode or simulation-mode overlays (Phase 6 / Phase 8).
+
+With Global Step 34 complete, the next official Phase 5 roadmap item is **Step 35: Architecture Explorer Route (`/repositories/[repoId]/explorer`) + API Fetching via `POST /graph/query`**.
