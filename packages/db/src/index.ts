@@ -1,4 +1,5 @@
 export { getDatabaseUrl } from "./config.ts";
+export { loadRootEnvFile } from "./cli/env.ts";
 export { closePool, getPool } from "./pool.ts";
 export {
   setTenantOnClient,

@@ -10353,3 +10353,73 @@ Step 32 does NOT:
 
 With Global Step 32 complete, the next official Phase 4 roadmap item is **Step 33: Golden graph verification (end-to-end fixture: TypeScript repo -> full graph in DB)**.
 
+---
+
+## Global Step 33 — Golden Fixture Graph Verification
+
+### Overview & Objective
+
+Global Step 33 establishes the end-to-end integration and verification gate for the complete code intelligence to relational graph persistence pipeline (`docs/architecture/17-implementation-roadmap.md §Phase 4 Step 7`).
+
+Step 33 takes the multi-file canonical fixture (`packages/db/src/fixtures/taxonomy`), runs it through Phase 3 AST extraction and normalization, executes the Graph Builder (`buildAndPersistGraph`), persists the resulting nodes, edges, and evidence to PostgreSQL under Row-Level Security, and reads the entire state back using production repository APIs to assert canonical contracts.
+
+### End-to-End Pipeline Data Flow
+
+```
+[ Golden Fixture: taxonomy ]
+           │
+           ▼
+[ Step 18–26: runNormalizedAnalysisPipeline ]
+           │
+           ▼
+[ Step 28: buildAndPersistGraph ]
+           │
+           ├── withTenant Transaction
+           │     ├── EvidenceWriter.createNodeEvidence (graph_nodes + evidence)
+           │     ├── EvidenceWriter.createEdgeEvidence (graph_edges + evidence)
+           │     └── Step 32 Diff Engine (events table outbox)
+           ▼ COMMIT
+[ PostgreSQL: graph_nodes, graph_edges, evidence, events ]
+           │
+           ▼ Production Repositories (listGraphNodes, listGraphEdges, etc.)
+[ Step 33 Canonical Contract Verification Suite (apps/workers/src/pipeline/golden-graph.test.ts) ]
+```
+
+### Canonical Contracts Verified
+
+1. **Canonical GraphNodes Contract**:
+   - Asserts 490 total nodes: 367 `symbol`, 118 `module`, 5 `api`.
+   - Asserts canonical ID formats: `mod:<path>`, `sym:<path>#<name>:<line>`, `route:<path>#<handler>:<method>:<path>:<line>`.
+   - Asserts uniqueness: zero duplicate canonical IDs within the analysis run.
+2. **Canonical GraphEdges Contract**:
+   - Asserts 888 total edges: 511 `IMPORTS`, 372 `RESOLVES_TO`, 5 `EXPOSES_ROUTE`.
+   - Asserts valid directionality (`IMPORTS` module->module, `EXPOSES_ROUTE` module->route).
+   - Asserts complete referential integrity with zero dangling endpoints.
+3. **Evidence Provenance Contract**:
+   - Asserts 1378 total evidence records (490 node evidence + 888 edge evidence).
+   - Asserts valid file paths, confidence scores of 1.0, and positive 1-based start coordinates.
+4. **Determinism & Idempotency Contract**:
+   - Asserts that re-running graph construction on identical source code produces identical nodes and edges.
+   - Asserts that repeated persistence does not create duplicate graph records.
+5. **Tenant and Analysis-Run Isolation Contract**:
+   - Asserts that PostgreSQL Row-Level Security (RLS) completely isolates Organization A's graph from Organization B.
+   - Asserts that separate analysis runs within the same organization do not cross-contaminate.
+6. **Meaningful Negative Assertions**:
+   - Asserts the absence of non-existent files (`services/billing.ts`), phantom symbols, and synthetic routes.
+7. **Step 30 Recursive-CTE Traversal Smoke Test**:
+   - Asserts that bounded-depth CTE graph traversal successfully navigates module, symbol, and route chains on the persisted golden graph.
+
+### Architectural Hardening & Bug Fixes Discovered
+
+1. **Multi-line Evidence Coordinate Validation**: Fixed `EvidenceWriter` coordinate checks and database check constraint `0015_evidence_coordinates_constraint.sql` to support tokens where `column_end < column_start` across multi-line declarations.
+2. **PostgreSQL NOTIFY Payload Limit**: Added database migration `0016_event_notify_payload_truncation.sql` ensuring event notifications exceeding 7500 bytes send a summary envelope to prevent PostgreSQL `pg_notify` 8000-byte errors, while preserving full durable payloads in the `events` table.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 33 does NOT:
+- Implement Global Step 34 (Phase 4 completion review & transition);
+- Implement React Flow, visual graph layout, or web canvas UI (Phase 5);
+- Implement PR change-impact traversal or GitHub webhooks (Phase 6);
+- Implement AI reasoning or natural language summaries (Phase 9).
+
+With Global Step 33 complete, the next official Phase 4 roadmap item is **Step 34: Graph architecture review & transition to Phase 5**.

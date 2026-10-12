@@ -72,6 +72,23 @@ BEGIN
     'schema_version', NEW.schema_version
   );
 
+  IF octet_length(v_notification::text) > 7500 THEN
+    v_notification := json_build_object(
+      'event_id', NEW.id,
+      'event_type', NEW.type,
+      'organization_id', NEW.organization_id,
+      'occurred_at', NEW.occurred_at,
+      'idempotency_key', NEW.idempotency_key,
+      'payload', json_build_object(
+        '_truncated', true,
+        'summary', NEW.payload->'summary',
+        'analysis_run_id', NEW.payload->'analysis_run_id',
+        'repository_id', NEW.payload->'repository_id'
+      ),
+      'schema_version', NEW.schema_version
+    );
+  END IF;
+
   PERFORM pg_notify('fluxora_events', v_notification::text);
   RETURN NEW;
 END;

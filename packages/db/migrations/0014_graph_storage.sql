@@ -274,7 +274,13 @@ CREATE TABLE IF NOT EXISTS evidence (
     CHECK (column_start IS NULL OR column_start >= 1),
 
   CONSTRAINT evidence_column_end_valid
-    CHECK (column_end IS NULL OR (column_start IS NOT NULL AND column_end >= column_start))
+    CHECK (
+      column_end IS NULL OR
+      (column_start IS NOT NULL AND (
+        (line_end IS NOT NULL AND line_start IS NOT NULL AND line_end > line_start)
+        OR column_end >= column_start
+      ))
+    )
 );
 
 CREATE INDEX IF NOT EXISTS evidence_analysis_run_id_idx

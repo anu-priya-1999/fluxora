@@ -219,9 +219,11 @@ export class EvidenceWriter {
         input.columnStart < 1) ||
       (input.columnEnd !== undefined &&
         input.columnEnd !== null &&
-        input.columnStart !== undefined &&
-        input.columnStart !== null &&
-        input.columnEnd < input.columnStart)
+        (input.columnEnd < 1 ||
+          (input.columnStart !== undefined &&
+            input.columnStart !== null &&
+            (input.lineStart === input.lineEnd || input.lineStart === null || input.lineStart === undefined) &&
+            input.columnEnd < input.columnStart)))
     ) {
       throw new EvidenceValidationError(
         "Invalid Evidence input: missing or malformed fields or invalid coordinates.",
