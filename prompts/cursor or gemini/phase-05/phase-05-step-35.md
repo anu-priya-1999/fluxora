@@ -1,234 +1,353 @@
-Implement ONLY Fluxora Global Step 34: React Flow Graph Canvas + Node Renderers.
+Implement ONLY Fluxora Global Step 35: Architecture Explorer Route + Graph Query Fetching.
 
-Do not implement Step 35 or any later Phase 5 work.
+Do not implement Step 36 or any later Phase 5 work.
 
-CURRENT CONTEXT
+CURRENT STATE
+
 Fluxora has completed:
-- Phase 3 code intelligence Steps 18–26
-- Phase 4 graph storage/builder/evidence/traversal Steps 27–29
-- Step 30 bounded-depth recursive graph traversal
-- Step 31 POST /api/v1/graph/query
-- Step 32 graph.updated events + deterministic graph diffs
-- Step 33 golden-fixture graph verification
+- Phase 3: Steps 18–26
+- Phase 4: Steps 27–33
+- Step 34: React Flow integration, GraphCanvas, NodeRenderer, deterministic graph mapping, and graph UI tests
 
-Step 33 verified that the persisted graph is deterministic, canonical, evidence-backed, idempotent, and tenant/run isolated.
+Step 34 created the rendering foundation in:
+apps/web/src/components/graph/
 
-PHASE 5 STEP 34 SCOPE
-The roadmap defines Step 34 as:
-1. Integrate React Flow.
-2. Implement GraphCanvas.
-3. Implement per-node-type NodeRenderer.
+GraphCanvas is intentionally presentational and does NOT perform API requests.
 
-The next step (Step 35) will create:
-- /repositories/[repoId]/explorer
-- API fetching through POST /graph/query
+STEP 35 GOAL
 
-Therefore Step 34 MUST NOT implement:
-- explorer route
-- graph API fetching
-- React Query graph queries
-- WebSocket updates
+Implement the Architecture Explorer route:
+
+/repositories/[repoId]/explorer
+
+The route must obtain the repository's current/latest usable analysis-run context and fetch graph data through the existing API contract:
+
+POST /api/v1/graph/query
+
+Then pass the returned graph into the existing Step 34 GraphCanvas.
+
+The frontend must remain a consumer of backend graph truth.
+Do not recreate graph logic in the browser.
+
+ARCHITECTURAL SOURCE OF TRUTH
+
+Before editing, inspect:
+1. docs/architecture/17-implementation-roadmap.md
+2. docs/architecture/10-frontend-architecture.md
+3. docs/DESIGN.md
+4. current apps/web structure
+5. existing authentication patterns
+6. existing API/client-fetch patterns
+7. existing repository/analysis-run types
+8. existing GraphQueryRequest / GraphQueryResponse shared types
+9. existing Step 34 GraphCanvas and graph-mapping implementation
+10. existing tests in apps/web
+
+Reuse existing conventions.
+Do not create a second frontend architecture.
+
+STRICT STEP BOUNDARY
+
+Step 35 MAY implement:
+- /repositories/[repoId]/explorer route
+- route-level graph loading
+- authenticated graph API request
+- obtaining the repository's relevant analysis-run identifier using existing backend/data contracts
+- transforming the GraphQueryResponse into the Step 34 GraphCanvas input
+- basic page-level loading/error/empty handling required for this route
+- tests for the above
+
+Step 35 MUST NOT implement:
 - NodeInspectorPanel
 - EvidenceTrail
 - GraphFilters
-- clustering / level-of-detail
-- impact overlays
-- simulation overlays
-- AI UI
-- Phase 6 functionality
-
-IMPORTANT ARCHITECTURAL RULE
-The frontend must visualize deterministic graph data returned by Fluxora.
-The frontend must never invent graph relationships or become a second graph-building system.
-
-BEFORE EDITING
-1. Inspect the current apps/web structure and existing Next.js App Router implementation.
-2. Inspect the current package.json files and existing frontend dependencies.
-3. Inspect docs/architecture/10-frontend-architecture.md.
-4. Inspect docs/architecture/17-implementation-roadmap.md.
-5. Inspect docs/DESIGN.md.
-6. Inspect existing shared graph types in @fluxora/shared-types.
-7. Inspect existing graph-query response types/contracts.
-8. Reuse the repository's existing frontend conventions and test setup.
-9. Do NOT introduce a new testing framework as part of Step 34.
-10. Do NOT migrate existing node:test tests to Vitest as part of this step.
-
-IMPLEMENTATION
-
-A. React Flow integration
-- Add the appropriate React Flow React dependency using the project's existing package-manager conventions.
-- Use the currently appropriate React Flow package for this repository rather than introducing a different graph library.
-- Keep the integration isolated to apps/web.
-- Do not create a parallel graph model unrelated to the shared graph contracts.
-
-B. GraphCanvas
-Create the graph canvas component at the architecture-aligned location:
-apps/web/src/components/graph/GraphCanvas.tsx
-(or the repository's established equivalent if the current web structure already has a component convention).
-
-GraphCanvas responsibilities for Step 34:
-- client-side React Flow wrapper
-- accept typed graph nodes/edges as props
-- map domain graph records into React Flow node/edge objects
-- provide basic pan/zoom interaction
-- render the graph deterministically
-- define nodeTypes cleanly
-- keep backend fetching completely outside this component
-- keep business logic out of the canvas
-- expose a small, typed component API suitable for Step 35+
-- preserve a clear boundary between Fluxora domain graph data and React Flow rendering data
-
-Do not add API requests inside GraphCanvas.
-
-C. NodeRenderer
-Create:
-apps/web/src/components/graph/NodeRenderer.tsx
-
-Implement per-node-type rendering for the node types that already exist in the shared graph domain.
-
-The renderer must:
-- use the existing GraphNode type/category vocabulary
-- render node identity clearly
-- visually distinguish node types
-- expose important safe metadata available in the graph response
-- support selected/active visual state through props
-- remain presentational
-- avoid fetching data
-- avoid modifying graph state
-- avoid embedding business rules
-
-Do not invent additional graph node types.
-
-D. Domain → React Flow mapping
-Create the smallest appropriate mapping utility/helper if needed.
-
-Requirements:
-- deterministic node IDs
-- deterministic edge IDs
-- preserve source/target relationships
-- preserve node type information
-- preserve relevant metadata needed by NodeRenderer
-- no random IDs
-- no Date.now()
-- no UUID generation for render identity
-- no mutation of source API/domain objects
-
-E. Layout
-For Step 34, implement only a simple deterministic initial layout sufficient to make the graph usable.
-
-Do NOT implement:
 - clustering
 - level-of-detail
-- server-side aggregation
-- advanced graph layout algorithms
-- large-graph optimization
+- WebSocket live updates
+- graph.updated cache invalidation
+- impact/change mode
+- simulation mode
+- AI UI
+- Phase 6 PR impact analysis
+- new backend graph algorithms
+- changes to Step 30 traversal
+- changes to Step 31 graph-query semantics
+- changes to Step 32 events/diffs
+- changes to Step 33 golden fixture behavior
+- another graph rendering library
+- a new state-management library
 
-A straightforward deterministic layout is sufficient at this step.
+A. EXPLORER ROUTE
 
-F. Styling
-Use the existing Fluxora frontend styling conventions:
-- Tailwind
-- existing design tokens/components where appropriate
+Create the route according to the current Next.js App Router conventions:
 
-The canvas must be visually understandable but does not need final product polish.
+apps/web/src/app/repositories/[repoId]/explorer/page.tsx
 
-Keep node styling extensible for later:
-- selected state
-- confidence presentation
-- change-mode overlays
-- simulation-mode overlays
+Use the existing route/layout patterns in apps/web.
 
-Do not implement those later modes now.
+The page must:
+- receive repoId from the route params
+- resolve the repository's relevant/latest analysis context using existing application contracts
+- request graph data through POST /api/v1/graph/query
+- pass the resulting graph to the existing GraphCanvas
+- keep browser-only React Flow behavior inside the existing client GraphCanvas boundary
+- avoid putting backend business rules into the page
 
-TESTING
+Do not duplicate graph traversal or graph construction logic in the web app.
 
-Add component-focused tests using the repository's EXISTING web testing setup.
+B. AUTHENTICATED API REQUEST
 
-Tests must verify at minimum:
-1. GraphCanvas renders supplied graph nodes.
-2. GraphCanvas renders supplied edges.
-3. NodeRenderer selects the correct presentation for each supported node type.
-4. Domain IDs are preserved deterministically.
-5. Empty graph renders without crashing.
-6. A graph with multiple node types renders without crashing.
-7. Rendering does not perform network requests.
-8. No unexpected node/edge duplication is introduced during mapping.
+Use the repository's existing Clerk authentication pattern.
 
-Keep tests focused on Step 34 behavior.
+The browser/server boundary must follow the current architecture.
 
-Do not weaken existing tests.
+Do not:
+- expose secrets
+- send organization_id from the browser
+- invent a new authentication mechanism
+- bypass the existing API
 
-DOCUMENTATION REQUIRED
+The API already derives tenant identity from the authenticated session.
+The web client should provide only the information the existing API contract actually requires.
+
+Use:
+POST /api/v1/graph/query
+
+Reuse the existing GraphQueryRequest shape from @fluxora/shared-types.
+
+Do not alter the public Step 31 API contract unless an absolutely necessary compatibility issue is discovered.
+If an existing contract is insufficient, stop and document the issue rather than silently redesigning Step 31.
+
+C. ANALYSIS RUN RESOLUTION
+
+The explorer needs an analysisRunId for graph queries.
+
+Inspect the existing repository and analysis-run APIs/repositories before implementing this.
+
+Prefer an already-existing read contract.
+
+Do NOT create a new analysis-run backend feature as part of Step 35 unless the current architecture genuinely has no existing way to resolve the repository's analysis run.
+
+If multiple completed runs exist:
+- use the architecture's existing notion of the latest/current usable run
+- do not invent arbitrary sorting rules
+- reuse existing status semantics
+
+If no usable analysis run exists:
+- render a deterministic empty/not-ready state
+- do not fabricate a graph
+
+D. GRAPH REQUEST
+
+The initial Explorer request should use the existing graph-query contract.
+
+For the first implementation:
+- query the relevant analysis run
+- use a safe default start-node strategy consistent with the current graph-query API
+- do not invent an API field
+- do not add cluster_by
+- do not add advanced filters
+- do not query unlimited depth
+- use the existing hard traversal limits
+
+IMPORTANT:
+The Explorer must not assume that every repository has a single arbitrary root node.
+
+Inspect current graph node types and repository/analysis contracts and choose the smallest correct initial query strategy supported by the existing system.
+
+If the current API intentionally requires a start_node_id and there is not yet an existing repository-root graph contract, implement the smallest route-level mechanism that resolves a valid initial graph node from existing graph data without modifying the graph architecture.
+
+E. DATA MAPPING
+
+Reuse:
+apps/web/src/components/graph/graph-mapping.ts
+
+Do not create a second domain→React Flow mapper.
+
+Flow should conceptually be:
+
+repository route
+    ↓
+resolve repository / analysis run
+    ↓
+POST /api/v1/graph/query
+    ↓
+GraphQueryResponse
+    ↓
+existing graph mapping
+    ↓
+GraphCanvas
+    ↓
+React Flow
+
+The API response remains the source of truth.
+
+F. LOADING / EMPTY / ERROR STATES
+
+Implement only the route-level states necessary for Step 35:
+
+Loading:
+- clear loading indication while graph/repository context is being resolved
+
+Empty:
+- repository exists but there is no usable graph/analysis result
+- explain that graph analysis is not ready yet
+
+Error:
+- repository unavailable
+- analysis unavailable
+- graph API failure
+- authentication failure
+
+Do not build the final Step 40 polish system yet.
+
+Keep the state handling simple and accessible.
+
+G. SERVER VS CLIENT BOUNDARY
+
+Follow the current Next.js App Router pattern.
+
+Prefer:
+- server-side data resolution where appropriate
+- client-side interactivity only where needed
+- GraphCanvas remains the client component
+
+Do not mark the entire Explorer page as "use client" unless the existing architecture proves that necessary.
+
+Do not move Clerk/backend logic into a browser-only component unnecessarily.
+
+H. TESTING
+
+Add Step 35-focused tests using the EXISTING web testing setup.
+
+At minimum verify:
+
+1. /repositories/[repoId]/explorer resolves the expected repository/analysis context.
+2. The graph query request targets POST /api/v1/graph/query.
+3. The request uses the existing GraphQueryRequest contract.
+4. No organization_id / organizationId is invented or sent from the client.
+5. A successful GraphQueryResponse is mapped into GraphCanvas input.
+6. The GraphCanvas receives deterministic graph data.
+7. Empty graph/analysis state renders correctly.
+8. Graph API errors render a safe error state.
+9. Authentication failures do not leak sensitive information.
+10. No network logic is introduced into GraphCanvas itself.
+11. Existing Step 34 graph mapping tests continue to pass.
+
+Mock network/API boundaries rather than requiring a real external deployment.
+
+Do not skip failing tests.
+Do not weaken existing assertions.
+
+I. COMPONENT STRUCTURE
+
+Use the smallest reasonable structure.
+
+Possible shape:
+
+apps/web/src/app/repositories/[repoId]/explorer/
+  page.tsx
+  loading.tsx          (only if consistent with current app conventions)
+  error.tsx            (only if useful and consistent)
+
+Create additional helper/client files only when they provide a real separation of responsibility.
+
+Do not prematurely create Step 36 components.
+
+J. DOCUMENTATION REQUIRED
 
 Create:
-- learning/implementations/phase-05/step-34-react-flow-graph-canvas.md
-- learning/notes/34. React Flow Graph Canvas and Node Rendering.md
-- learning/interviews/34. Step 34 React Flow Graph Canvas Interview CheatSheet.md
+
+learning/implementations/phase-05/step-35-architecture-explorer-route.md
+
+learning/notes/35. Architecture Explorer Route and Graph API Fetching.md
+
+learning/interviews/35. Step 35 Architecture Explorer Interview CheatSheet.md
 
 Update:
-- docs/DESIGN.md
 
-Do NOT delete or rewrite historical DESIGN.md content.
-Add the Step 34 implementation state and make Step 35 the next step only after the implementation is actually complete.
+docs/DESIGN.md
 
-DOCUMENTATION CONTENT
+Do not delete historical content.
 
-Explain in plain English:
-- what Step 34 adds
-- why React Flow is used
-- GraphCanvas responsibility
-- NodeRenderer responsibility
-- domain graph data vs. rendering-library data
-- how node/edge identity stays deterministic
-- why fetching is intentionally not inside GraphCanvas
-- client-component considerations in Next.js
-- rendering boundaries and separation of concerns
-- what Step 34 does NOT implement
-- how Step 35 will build on this foundation
+The Step 35 documentation must explain in plain English:
+- what the Architecture Explorer route is
+- why the route exists separately from GraphCanvas
+- server/client boundary
+- how repository → analysis run → graph query works
+- how authentication is preserved
+- why the browser does not construct graph truth
+- how GraphQueryResponse becomes GraphCanvas input
+- loading/error/empty handling
+- why analysis-run resolution matters
+- determinism and tenant-security considerations
+- what Step 35 does NOT implement
+- how Step 36 will build on this foundation
 - testing strategy
-- performance limitations at this stage
-- likely senior-level interview questions and answers
+- senior-level interview questions and answers
 
-IMPORTANT
-Do not modify:
-- apps/api graph query behavior
-- apps/workers graph construction
-- PostgreSQL graph schema
-- Step 30 traversal
-- Step 32 graph.updated event behavior
-- Step 33 golden fixture semantics
+K. DESIGN.md
 
-Only make backend/shared-type changes when absolutely necessary to expose an already-existing contract cleanly to the frontend. Prefer no backend changes.
+Add the Step 35 state to the living implementation snapshot.
 
-VERIFICATION
+Update the next step to Step 36 only after implementation and verification are actually complete.
 
-Run:
-1. focused Step 34 web component tests
-2. relevant existing web tests
-3. pnpm typecheck
-4. pnpm lint
-5. pnpm lint:evidence
-6. pnpm build
-7. git diff --check
+Do not rewrite historical Phase 5 information.
 
-Do not claim success unless the commands actually pass.
+L. IMPORTANT BACKEND RULE
 
-FINAL REPORT
+Avoid backend changes.
+
+Step 35 is primarily a web/application integration step.
+
+Do NOT modify:
+- graph-builder logic
+- graph traversal SQL
+- graph persistence
+- evidence writer
+- graph.updated events
+- Step 31 response semantics
+- Step 33 fixture contracts
+
+Only modify shared types/backend code if an existing public contract has a clearly demonstrated integration gap.
+Prefer adapting the web route to the existing contracts.
+
+M. VERIFICATION
+
+Run, in a sensible order:
+
+1. focused Step 35 web tests
+2. pnpm --filter @fluxora/web test
+3. pnpm --filter @fluxora/web typecheck
+4. pnpm typecheck
+5. pnpm lint
+6. pnpm lint:evidence
+7. pnpm build
+8. git diff --check
+
+Do not claim a command passed unless it actually passed.
+
+N. FINAL REPORT
 
 Report:
 1. exact files created
 2. exact files modified
-3. dependency changes
-4. tests run + results
-5. typecheck/lint/build results
-6. architectural decisions
-7. assumptions
-8. explicit confirmation:
-   - Step 35 NOT implemented
-   - no graph API fetching added
-   - no WebSocket work added
-   - no NodeInspectorPanel/EvidenceTrail/GraphFilters added
-   - no clustering/LOD added
-   - no Phase 6+ work added
+3. dependency changes, if any
+4. exact tests run + results
+5. typecheck/lint/evidence-lint/build results
+6. repository/analysis-run resolution approach
+7. authentication/data-flow approach
+8. assumptions
+9. explicit scope confirmation
 
-Do NOT commit or push.
+Explicitly confirm:
+- Step 36 NOT implemented
+- NodeInspectorPanel NOT implemented
+- EvidenceTrail NOT implemented
+- GraphFilters NOT implemented
+- clustering/LOD NOT implemented
+- WebSocket/live updates NOT implemented
+- impact/simulation/AI UI NOT implemented
+- no Phase 6+ functionality implemented
+
+DO NOT COMMIT OR PUSH.

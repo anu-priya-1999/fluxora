@@ -10495,3 +10495,73 @@ Step 34 does NOT:
 - Implement change-mode or simulation-mode overlays (Phase 6 / Phase 8).
 
 With Global Step 34 complete, the next official Phase 5 roadmap item is **Step 35: Architecture Explorer Route (`/repositories/[repoId]/explorer`) + API Fetching via `POST /graph/query`**.
+
+
+---
+
+## Global Step 35 — Architecture Explorer Route & Graph API Fetching
+
+### Overview & Objective
+
+Global Step 35 connects the Next.js frontend to the backend graph query engine by implementing the dedicated Architecture Explorer route (`/repositories/[repoId]/explorer`). The route resolves the repository's analysis context, executes authenticated graph queries against `POST /api/v1/graph/query` (Step 31), maps the resulting `GraphQueryResponse` into React Flow primitives, and mounts the presentational `GraphCanvas` (Step 34).
+
+### Component Architecture & Data Flow
+
+```
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Browser / Next.js Route Navigation                          │
+  │ /repositories/[repoId]/explorer?analysis_run_id=...&start_node_id=...│
+  └──────────────────────────────┬──────────────────────────────┘
+                                 │
+                                 ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Server Component (page.tsx)                                 │
+  │ - Enforces Clerk auth() session                             │
+  │ - Resolves repository & analysis run context                │
+  │ - Renders empty/not-ready state if analysis context missing │
+  │ - Hands off apiUrl and context to Client Boundary           │
+  └──────────────────────────────┬──────────────────────────────┘
+                                 │
+                                 ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Client Component (ArchitectureExplorerClient)               │
+  │ - Retrieves Clerk JWT token via useAuth().getToken()        │
+  │ - Issues POST /api/v1/graph/query (Never sends org_id)      │
+  │ - Handles loading, empty, and error states                  │
+  │ - Transforms GraphQueryResponse via mapDomainGraphToFlow()   │
+  └──────────────────────────────┬──────────────────────────────┘
+                                 │
+                                 ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │ Presentational Canvas (Step 34 GraphCanvas)                 │
+  │ - Zero network logic                                        │
+  │ - Renders interactive React Flow graph deterministically     │
+  └─────────────────────────────────────────────────────────────┘
+```
+
+### Core Invariants Preserved
+
+1. **Frontend Does Not Own the DB Boundary**:
+   The frontend application (`apps/web`) communicates with the backend exclusively via HTTP API contracts. `apps/web` does not import `@fluxora/db`, execute SQL queries, or manage database connection pools.
+2. **Backend Derives Tenancy**:
+   `POST /api/v1/graph/query` receives a Bearer JWT token from Clerk. The client never supplies `organization_id` or `organizationId` in request bodies or query parameters. The API server derives tenant isolation deterministically from verified authentication tokens and scopes transactions using Row-Level Security (RLS).
+3. **Deterministic Core vs. UI Projection**:
+   The frontend performs zero graph traversal, cycle detection, or relationship derivation. All nodes, edges, types, confidence values, and depth measurements are returned by the backend's bounded recursive CTE traversal (Step 30/31).
+4. **Decoupled Architecture**:
+   `GraphCanvas` remains strictly presentational and reusable across future visualization features (e.g., simulation, impact diffs). Data fetching, error handling, and route-level state live entirely in the route container.
+5. **Robust State Handling**:
+   - **Loading State**: Accessible spinner/indicator during API query execution.
+   - **Not Ready / Empty State**: Clear explanation when no completed analysis run or start node is specified, rather than fabricating a graph.
+   - **Error State**: Safe error presentation without leaking authentication secrets or server internals.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 35 does NOT:
+- Implement `NodeInspectorPanel` or `EvidenceTrail` (Step 36);
+- Implement `GraphFilters` (Step 37);
+- Implement clustering / level-of-detail pre-aggregation (Step 38);
+- Implement live WebSocket invalidation or `graph.updated` cache handling (Step 39);
+- Implement change-mode, simulation-mode, or AI explanation overlays (Phase 6 / Phase 8);
+- Introduce any database or PostgreSQL dependencies into `apps/web`.
+
+With Global Step 35 complete, the next official Phase 5 roadmap item is **Step 36: Node Inspector Panel & Evidence Trail (selection state, node details, source coordinates, file links)**.

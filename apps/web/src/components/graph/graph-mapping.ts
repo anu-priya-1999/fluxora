@@ -12,15 +12,15 @@ import type { Edge, Node } from "@xyflow/react";
  */
 export interface CanvasInputNode {
   readonly id: string;
-  readonly canonicalId?: string;
-  readonly canonical_id?: string;
-  readonly nodeType?: GraphNodeType;
-  readonly type?: string;
+  readonly canonicalId?: string | undefined;
+  readonly canonical_id?: string | undefined;
+  readonly nodeType?: GraphNodeType | undefined;
+  readonly type?: string | undefined;
   readonly name: string;
-  readonly path?: string | null;
+  readonly path?: string | null | undefined;
   readonly confidence: number;
-  readonly depth?: number;
-  readonly metadata?: Record<string, unknown>;
+  readonly depth?: number | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
 }
 
 /**
@@ -29,17 +29,17 @@ export interface CanvasInputNode {
  */
 export interface CanvasInputEdge {
   readonly id: string;
-  readonly sourceNodeId?: string;
-  readonly source?: string;
-  readonly targetNodeId?: string;
-  readonly target?: string;
-  readonly edgeType?: string;
-  readonly type?: string;
-  readonly confidence?: number;
-  readonly provenance?: string;
-  readonly canonicalId?: string | null;
-  readonly canonical_id?: string | null;
-  readonly metadata?: Record<string, unknown>;
+  readonly sourceNodeId?: string | undefined;
+  readonly source?: string | undefined;
+  readonly targetNodeId?: string | undefined;
+  readonly target?: string | undefined;
+  readonly edgeType?: string | undefined;
+  readonly type?: string | undefined;
+  readonly confidence?: number | undefined;
+  readonly provenance?: string | undefined;
+  readonly canonicalId?: string | null | undefined;
+  readonly canonical_id?: string | null | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
 }
 
 /**
