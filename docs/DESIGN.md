@@ -10642,3 +10642,84 @@ Step 36 does NOT:
 
 With Global Step 36 complete, the next official Phase 5 roadmap item is **Step 37: Graph Filters (Node Types, Confidence Thresholds, Edge Types)**.
 
+---
+
+## Global Step 37 — Graph Filters
+
+### Overview & Objective
+
+Global Step 37 implements the `GraphFilters` component and typed filtering state for the Architecture Explorer. It empowers engineers to narrow the displayed digital twin by node types, edge types, minimum confidence scores, and maximum traversal depth.
+
+All filters are applied through the existing backend graph query contract (`POST /api/v1/graph/query` created in Step 31) without fabricating client-side traversal logic, altering backend graph truth, introducing global state libraries, or exposing database operations to the browser.
+
+### Component Architecture & Data Flow
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │ GraphFilters Component (Presentational UI)                 │
+   │ - Node types (GraphNodeTypes buttons)                       │
+   │ - Edge types (GraphEdgeTypes buttons)                       │
+   │ - Min confidence (Range slider 0–100%)                      │
+   │ - Max depth (Slider & input bounded to 1–20)                │
+   │ - Reset Filters button                                      │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │ onChange(nextFilters) / onReset()
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ ArchitectureExplorerClient State                            │
+   │ - filters: GraphFilterState                                 │
+   │ - selectedNodeId: string | null                             │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │ buildGraphQueryRequest({ context, filters })
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ POST /api/v1/graph/query                                    │
+   │ - node_types?: string[]                                     │
+   │ - edge_types?: string[]                                     │
+   │ - min_confidence?: number                                   │
+   │ - max_depth?: number                                        │
+   │ - organization_id NOT passed (enforced by Clerk session)    │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │ GraphQueryResponse
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ Selection & Inspector Reconciliation                        │
+   │ - Does selectedNodeId still exist in response.nodes?        │
+   │   YES ──> Keep selection & synchronized NodeInspectorPanel  │
+   │   NO  ──> Safely clear selectedNodeId & empty inspector     │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ React Flow GraphCanvas                                      │
+   │ Renders updated filtered nodes and edges deterministically  │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+### Core Invariants Preserved
+
+1. **Backend as Source of Graph Truth**:
+   Filtering is not performed by arbitrarily hiding nodes or running client-side graph algorithms. All query filters are communicated through `GraphQueryRequest` (`node_types`, `edge_types`, `min_confidence`, `max_depth`), preserving the backend recursive CTE's traversal correctness and depth guarantees.
+2. **Deterministic Filter State & Reset**:
+   Filter state is represented as a focused immutable interface (`GraphFilterState`). Reset restores `DEFAULT_GRAPH_FILTERS` (unconstrained) without altering repository context, analysis run context, or authentication.
+3. **Selection & Inspector Synchronization**:
+   When filters remove the currently selected node from the graph, `selectedNodeId` is cleared, safely returning `NodeInspectorPanel` and `EvidenceTrail` to their default empty states without error.
+4. **Race Condition Prevention**:
+   Effect-level cleanup and cancellation ensure slow or out-of-order network responses never overwrite newer filter queries.
+5. **Database Boundary Protection**:
+   `apps/web` does **not** import `@fluxora/db`, execute SQL queries, or connect directly to PostgreSQL.
+6. **Hard Depth Limits**:
+   The browser UI enforces `HARD_MAX_TRAVERSAL_DEPTH = 20`. Traversal bounds cannot exceed backend invariants.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 37 does NOT:
+- Implement clustering or Level of Detail (LOD) pre-aggregation (Step 38);
+- Implement live WebSocket invalidation or `graph.updated` subscriptions (Step 39);
+- Implement final Step 40 visual polish;
+- Implement PR change-impact or simulation UI (Phase 6 / Phase 8);
+- Implement AI-driven explanations (Phase 9);
+- Introduce Zustand, Redux, Jotai, or another state-management library.
+
+With Global Step 37 complete, the next official Phase 5 roadmap item is **Step 38: Graph Performance & LOD (Clustering, Virtualization, Level of Detail)**.
+

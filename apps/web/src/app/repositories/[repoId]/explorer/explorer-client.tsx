@@ -6,6 +6,12 @@ import Link from "next/link";
 import { GraphCanvas } from "../../../../components/graph/GraphCanvas";
 import { NodeInspectorPanel } from "../../../../components/graph/NodeInspectorPanel";
 import {
+  GraphFilters,
+  DEFAULT_GRAPH_FILTERS,
+  type GraphFilterState,
+} from "../../../../components/graph/GraphFilters";
+import {
+  buildGraphQueryRequest,
   fetchGraphQuery,
   transformGraphResponseToFlow,
   type ExplorerState,
@@ -22,6 +28,7 @@ export function ArchitectureExplorerClient({
   context,
 }: ArchitectureExplorerClientProps): React.JSX.Element {
   const { isLoaded, getToken } = useAuth();
+  const [filters, setFilters] = useState<GraphFilterState>(DEFAULT_GRAPH_FILTERS);
   const [state, setState] = useState<ExplorerState>({ status: "loading" });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
 
@@ -40,16 +47,25 @@ export function ArchitectureExplorerClient({
     let isCancelled = false;
 
     async function loadGraph() {
-      setState({ status: "loading" });
+      setState((prev) => {
+        // If we already have a ready graph, keep the existing data visible or update smoothly
+        if (prev.status === "ready") {
+          return prev;
+        }
+        return { status: "loading" };
+      });
+
+      const request = buildGraphQueryRequest({
+        context,
+        filters,
+        direction: "both",
+        includeEvidence: true,
+      });
 
       const result = await fetchGraphQuery({
         apiUrl,
         getToken,
-        request: {
-          analysis_run_id: context.analysisRunId,
-          start_node_id: context.defaultStartNodeId,
-          direction: "both",
-        },
+        request,
       });
 
       if (isCancelled) {
@@ -69,6 +85,7 @@ export function ArchitectureExplorerClient({
           status: "not_ready",
           message: "No graph nodes returned from the server for this query.",
         });
+        setSelectedNodeId(null);
         return;
       }
 
@@ -82,6 +99,13 @@ export function ArchitectureExplorerClient({
         flowNodes: flow.nodes,
         flowEdges: flow.edges,
       });
+
+      // Synchronize selectedNodeId: preserve if still exists in the returned nodes, otherwise clear safely
+      setSelectedNodeId((currentSelectedId) => {
+        if (!currentSelectedId) return null;
+        const exists = result.data.nodes.some((n) => n.id === currentSelectedId);
+        return exists ? currentSelectedId : null;
+      });
     }
 
     void loadGraph();
@@ -89,7 +113,7 @@ export function ArchitectureExplorerClient({
     return () => {
       isCancelled = true;
     };
-  }, [apiUrl, context.analysisRunId, context.defaultStartNodeId, context.repositoryId, isLoaded, getToken]);
+  }, [apiUrl, context, filters, isLoaded, getToken]);
 
   if (state.status === "loading") {
     return (
@@ -134,6 +158,11 @@ export function ArchitectureExplorerClient({
           Run: {state.analysisRunId} | Nodes: {state.graph.nodes.length} | Edges: {state.graph.edges.length}
         </span>
       </header>
+      <GraphFilters
+        filters={filters}
+        onChange={(next) => setFilters(next)}
+        onReset={() => setFilters(DEFAULT_GRAPH_FILTERS)}
+      />
       <div className="flex-1 w-full flex flex-row overflow-hidden relative" style={{ minHeight: "650px", height: "100%" }}>
         <div className="flex-1 h-full relative">
           <GraphCanvas

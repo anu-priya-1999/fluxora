@@ -126,6 +126,52 @@ export async function fetchGraphQuery(input: {
 }
 
 /**
+ * Builds a typed GraphQueryRequest from analysis context and user filter state.
+ * Never includes organization_id (handled by session auth).
+ * Omits empty arrays / default unconstrained values to keep query clean and deterministic.
+ */
+export function buildGraphQueryRequest(input: {
+  readonly context: ResolvedAnalysisContext;
+  readonly filters?: import("../../../../components/graph/GraphFilters.tsx").GraphFilterState | undefined;
+  readonly direction?: import("@fluxora/shared-types").GraphQueryDirection | undefined;
+  readonly includeEvidence?: boolean | undefined;
+}): GraphQueryRequest {
+  const { context, filters, direction = "both", includeEvidence = true } = input;
+  const request: {
+    analysis_run_id: string;
+    start_node_id: string;
+    direction?: import("@fluxora/shared-types").GraphQueryDirection;
+    max_depth?: number;
+    edge_types?: readonly string[];
+    node_types?: readonly string[];
+    min_confidence?: number;
+    include_evidence?: boolean;
+  } = {
+    analysis_run_id: context.analysisRunId,
+    start_node_id: context.defaultStartNodeId,
+    direction,
+    include_evidence: includeEvidence,
+  };
+
+  if (filters) {
+    if (filters.nodeTypes.length > 0) {
+      request.node_types = filters.nodeTypes;
+    }
+    if (filters.edgeTypes.length > 0) {
+      request.edge_types = filters.edgeTypes;
+    }
+    if (filters.minConfidence > 0) {
+      request.min_confidence = filters.minConfidence;
+    }
+    if (filters.maxDepth > 0) {
+      request.max_depth = filters.maxDepth;
+    }
+  }
+
+  return request;
+}
+
+/**
  * Transforms a GraphQueryResponse into mapped React Flow nodes and edges using Step 34 graph mapping.
  */
 export function transformGraphResponseToFlow(response: GraphQueryResponse): {
