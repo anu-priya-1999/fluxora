@@ -1,0 +1,570 @@
+import React from "react";
+import type {
+  GraphQueryResponseEvidence,
+  GraphQueryResponseNode,
+} from "@fluxora/shared-types";
+import { getNodeVisualConfig } from "./node-styles.ts";
+
+export interface EvidenceTrailProps {
+  /**
+   * The evidence records from the GraphQueryResponse.
+   */
+  readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
+  /**
+   * The currently selected node ID. When provided, filters evidence strictly to this node.
+   */
+  readonly selectedNodeId?: string | null | undefined;
+  /**
+   * Optional custom container CSS classes.
+   */
+  readonly className?: string;
+}
+
+export interface NodeInspectorPanelProps {
+  /**
+   * Currently selected graph node. When null or undefined, renders an empty state.
+   */
+  readonly node?: GraphQueryResponseNode | null | undefined;
+  /**
+   * Graph evidence records from the existing GraphQueryResponse.
+   */
+  readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
+  /**
+   * Optional callback when the user clears or closes the selection.
+   */
+  readonly onClose?: () => void;
+  /**
+   * Optional container CSS classes.
+   */
+  readonly className?: string;
+}
+
+/**
+ * Formats line and column coordinates into a readable string safely.
+ * Handles partial or missing coordinate fields without crashing.
+ */
+export function formatCoordinates(
+  evidence: Pick<
+    GraphQueryResponseEvidence,
+    "line_start" | "line_end" | "column_start" | "column_end"
+  >,
+): string | null {
+  const { line_start, line_end, column_start, column_end } = evidence;
+  const hasLine = typeof line_start === "number";
+  const hasCol = typeof column_start === "number";
+
+  if (!hasLine && !hasCol) {
+    return null;
+  }
+
+  let linePart = "";
+  if (hasLine) {
+    if (typeof line_end === "number" && line_end !== line_start) {
+      linePart = `Lines ${line_start}–${line_end}`;
+    } else {
+      linePart = `Line ${line_start}`;
+    }
+  }
+
+  let colPart = "";
+  if (hasCol) {
+    if (typeof column_end === "number" && column_end !== column_start) {
+      colPart = `Col ${column_start}–${column_end}`;
+    } else {
+      colPart = `Col ${column_start}`;
+    }
+  }
+
+  if (linePart && colPart) {
+    return `${linePart}, ${colPart}`;
+  }
+  return linePart || colPart;
+}
+
+/**
+ * Filters and sorts evidence for a given node deterministically.
+ *
+ * Rules:
+ * 1. Only accepts evidence where subject_type === "graph_node" AND subject_id === nodeId.
+ * 2. Never includes edge evidence (subject_type === "graph_edge") or evidence for other nodes.
+ * 3. Sorts deterministically by:
+ *    a. file_path (lexicographical)
+ *    b. line_start (numerical ascending)
+ *    c. line_end (numerical ascending)
+ *    d. id (lexicographical)
+ */
+export function filterAndSortNodeEvidence(
+  evidenceList: readonly GraphQueryResponseEvidence[] | undefined,
+  nodeId: string | null | undefined,
+): GraphQueryResponseEvidence[] {
+  if (!evidenceList || !Array.isArray(evidenceList) || evidenceList.length === 0 || !nodeId) {
+    return [];
+  }
+
+  const filtered = evidenceList.filter(
+    (e) => e.subject_type === "graph_node" && e.subject_id === nodeId,
+  );
+
+  return filtered.slice().sort((a, b) => {
+    // 1. file_path
+    const pathA = a.file_path ?? "";
+    const pathB = b.file_path ?? "";
+    const pathCmp = pathA.localeCompare(pathB);
+    if (pathCmp !== 0) return pathCmp;
+
+    // 2. line_start
+    const startA = a.line_start ?? -1;
+    const startB = b.line_start ?? -1;
+    if (startA !== startB) return startA - startB;
+
+    // 3. line_end
+    const endA = a.line_end ?? -1;
+    const endB = b.line_end ?? -1;
+    if (endA !== endB) return endA - endB;
+
+    // 4. id
+    const idA = a.id ?? "";
+    const idB = b.id ?? "";
+    return idA.localeCompare(idB);
+  });
+}
+
+/**
+ * Safely stringifies a metadata value without dumping unbounded payloads.
+ */
+export function safeFormatMetadataValue(value: unknown): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+
+  try {
+    const serialized = JSON.stringify(value);
+    if (serialized.length > 200) {
+      return serialized.slice(0, 197) + "...";
+    }
+    return serialized;
+  } catch {
+    return "[Unserializable object]";
+  }
+}
+
+/**
+ * Resolves the selected node object from a list of nodes and a selected node ID.
+ */
+export function resolveSelectedNode(
+  nodes: readonly GraphQueryResponseNode[] | undefined,
+  selectedNodeId: string | null | undefined,
+): GraphQueryResponseNode | null {
+  if (!nodes || !selectedNodeId) {
+    return null;
+  }
+  return nodes.find((n) => n.id === selectedNodeId) ?? null;
+}
+
+/**
+ * EvidenceTrail component for Step 36.
+ *
+ * Responsibilities:
+ * - Displays source code provenance linking the selected graph node to exact source files.
+ * - Explicitly associates evidence by subject_type === "graph_node" and subject_id === selectedNodeId.
+ * - Deterministically sorts evidence by file_path, line_start, line_end, id.
+ * - Renders relationship descriptions, file paths, coordinates, symbol identifiers, confidence, and metadata.
+ * - Safely handles missing, empty, or partial data without crashing.
+ * - Does not perform any network calls or database access.
+ */
+export function EvidenceTrail({
+  evidence,
+  selectedNodeId,
+  className,
+}: EvidenceTrailProps): React.JSX.Element {
+  const nodeEvidence = filterAndSortNodeEvidence(evidence, selectedNodeId);
+
+  if (nodeEvidence.length === 0) {
+    return React.createElement(
+      "div",
+      {
+        "data-testid": "evidence-empty-state",
+        className:
+          "p-4 text-center text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md",
+      },
+      "No evidence records found for this node.",
+    );
+  }
+
+  const items = nodeEvidence.map((ev) => {
+    const coords = formatCoordinates(ev);
+    const confidencePct = `${Math.round((ev.confidence ?? 1.0) * 100)}%`;
+
+    const children: React.ReactNode[] = [
+      // Header: Relationship description & Confidence score
+      React.createElement(
+        "div",
+        {
+          key: "header",
+          className: "flex items-start justify-between gap-2",
+        },
+        React.createElement(
+          "span",
+          {
+            "data-testid": "evidence-relationship",
+            className: "font-semibold text-slate-900 break-words leading-tight",
+          },
+          ev.relationship_description,
+        ),
+        React.createElement(
+          "span",
+          {
+            "data-testid": "evidence-confidence",
+            className:
+              "inline-block text-[11px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 shrink-0",
+          },
+          confidencePct,
+        ),
+      ),
+
+      // File path
+      React.createElement(
+        "div",
+        {
+          key: "file-path",
+          "data-testid": "evidence-file-path",
+          className:
+            "font-mono text-[11px] text-slate-700 break-all bg-slate-50 px-2 py-1 rounded border border-slate-100",
+        },
+        ev.file_path,
+      ),
+
+      // Coordinates if present
+      coords !== null
+        ? React.createElement(
+            "div",
+            {
+              key: "coordinates",
+              "data-testid": "evidence-coordinates",
+              className: "font-mono text-[11px] text-slate-500",
+            },
+            coords,
+          )
+        : null,
+
+      // Symbol ID if present
+      ev.symbol_id
+        ? React.createElement(
+            "div",
+            {
+              key: "symbol",
+              "data-testid": "evidence-symbol",
+              className:
+                "font-mono text-[11px] text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded border border-indigo-100 break-all self-start",
+            },
+            ev.symbol_id,
+          )
+        : null,
+
+      // Metadata if present and non-empty
+      ev.metadata && Object.keys(ev.metadata).length > 0
+        ? React.createElement(
+            "div",
+            {
+              key: "metadata",
+              "data-testid": "evidence-metadata",
+              className: "mt-1 pt-1 border-t border-slate-100 text-[11px] text-slate-600 space-y-0.5",
+            },
+            ...Object.entries(ev.metadata).map(([key, val]) =>
+              React.createElement(
+                "div",
+                { key, className: "break-all" },
+                React.createElement("span", { className: "font-medium text-slate-700" }, `${key}: `),
+                React.createElement("span", { className: "font-mono" }, safeFormatMetadataValue(val)),
+              ),
+            ),
+          )
+        : null,
+    ];
+
+    return React.createElement(
+      "div",
+      {
+        key: ev.id,
+        "data-testid": `evidence-item-${ev.id}`,
+        className:
+          "p-3 border border-slate-200 rounded-lg bg-white shadow-sm flex flex-col gap-1.5 text-xs",
+      },
+      ...children,
+    );
+  });
+
+  return React.createElement(
+    "div",
+    {
+      "data-testid": "evidence-trail",
+      className: `flex flex-col gap-2.5 ${className ?? ""}`,
+    },
+    ...items,
+  );
+}
+
+/**
+ * NodeInspectorPanel component for Step 36.
+ *
+ * Responsibilities:
+ * - Displays the attributes, properties, and metadata of the selected node.
+ * - Embeds the EvidenceTrail for verified source code provenance.
+ * - Displays a clear empty state when no node is selected.
+ * - Provides a clear/close action to deselect the active node.
+ * - Does not perform any network calls, side effects, or database access.
+ */
+export function NodeInspectorPanel({
+  node,
+  evidence,
+  onClose,
+  className,
+}: NodeInspectorPanelProps): React.JSX.Element {
+  // Empty State: No node is currently selected
+  if (!node) {
+    return React.createElement(
+      "div",
+      {
+        "data-testid": "inspector-empty-state",
+        className: `flex flex-col items-center justify-center h-full p-6 text-center text-slate-500 bg-slate-50 ${className ?? ""}`,
+      },
+      React.createElement(
+        "div",
+        {
+          className:
+            "w-10 h-10 mb-3 rounded-full bg-slate-200 flex items-center justify-center text-slate-400 font-bold text-lg select-none",
+        },
+        "i",
+      ),
+      React.createElement(
+        "h3",
+        { className: "text-sm font-semibold text-slate-700 mb-1" },
+        "No Node Selected",
+      ),
+      React.createElement(
+        "p",
+        { className: "text-xs text-slate-500 max-w-xs leading-relaxed" },
+        "Select a node in the graph canvas to inspect its architecture properties and evidence trail.",
+      ),
+    );
+  }
+
+  const visualConfig = getNodeVisualConfig(node.type);
+  const confidencePercent = `${Math.round(node.confidence * 100)}%`;
+
+  const metadataEntries =
+    node.metadata && typeof node.metadata === "object"
+      ? Object.entries(node.metadata)
+      : [];
+
+  return React.createElement(
+    "div",
+    {
+      "data-testid": "node-inspector-panel",
+      className: `flex flex-col h-full overflow-y-auto bg-white border-l border-slate-200 divide-y divide-slate-100 ${className ?? ""}`,
+    },
+
+    // 1. Header: Node Type Badge, Name, and Close Action
+    React.createElement(
+      "header",
+      {
+        className: "p-4 flex flex-col gap-2 bg-slate-50/50",
+      },
+      React.createElement(
+        "div",
+        { className: "flex items-center justify-between gap-2" },
+        React.createElement(
+          "span",
+          {
+            "data-testid": "inspector-node-type",
+            style: {
+              backgroundColor: visualConfig.badgeBg,
+              color: visualConfig.badgeColor,
+            },
+            className:
+              "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-block",
+          },
+          visualConfig.label,
+        ),
+        onClose !== undefined
+          ? React.createElement(
+              "button",
+              {
+                type: "button",
+                "data-testid": "clear-selection-button",
+                onClick: onClose,
+                className:
+                  "text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded px-1.5 py-0.5 text-xs transition-colors",
+                title: "Clear node selection",
+              },
+              "Clear",
+            )
+          : null,
+      ),
+      React.createElement(
+        "h2",
+        {
+          "data-testid": "inspector-node-name",
+          className: "text-base font-bold text-slate-900 break-words leading-snug",
+        },
+        node.name,
+      ),
+    ),
+
+    // 2. Identity & Architecture Properties
+    React.createElement(
+      "section",
+      {
+        "data-testid": "inspector-node-details",
+        className: "p-4 flex flex-col gap-3 text-xs",
+      },
+      React.createElement(
+        "h3",
+        { className: "text-xs font-semibold text-slate-500 uppercase tracking-wider" },
+        "Node Properties",
+      ),
+
+      // Node ID
+      React.createElement(
+        "div",
+        { className: "flex flex-col gap-0.5" },
+        React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Node ID"),
+        React.createElement(
+          "span",
+          {
+            "data-testid": "inspector-node-id",
+            className: "font-mono text-slate-800 break-all bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100",
+          },
+          node.id,
+        ),
+      ),
+
+      // Canonical ID
+      React.createElement(
+        "div",
+        { className: "flex flex-col gap-0.5" },
+        React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Canonical ID"),
+        React.createElement(
+          "span",
+          {
+            "data-testid": "inspector-node-canonical-id",
+            className: "font-mono text-slate-800 break-all bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100",
+          },
+          node.canonical_id,
+        ),
+      ),
+
+      // Path if present
+      node.path
+        ? React.createElement(
+            "div",
+            { className: "flex flex-col gap-0.5" },
+            React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Path"),
+            React.createElement(
+              "span",
+              {
+                "data-testid": "inspector-node-path",
+                className: "font-mono text-slate-800 break-all bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100",
+              },
+              node.path,
+            ),
+          )
+        : null,
+
+      // Depth & Confidence row
+      React.createElement(
+        "div",
+        { className: "grid grid-cols-2 gap-2 pt-1" },
+        React.createElement(
+          "div",
+          { className: "flex flex-col gap-0.5" },
+          React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Depth"),
+          React.createElement(
+            "span",
+            {
+              "data-testid": "inspector-node-depth",
+              className: "font-semibold text-slate-800",
+            },
+            String(node.depth),
+          ),
+        ),
+        React.createElement(
+          "div",
+          { className: "flex flex-col gap-0.5" },
+          React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Confidence"),
+          React.createElement(
+            "span",
+            {
+              "data-testid": "inspector-node-confidence",
+              className: "font-semibold text-slate-800",
+            },
+            confidencePercent,
+          ),
+        ),
+      ),
+    ),
+
+    // 3. Metadata Section (only when metadata keys exist)
+    metadataEntries.length > 0
+      ? React.createElement(
+          "section",
+          {
+            "data-testid": "inspector-node-metadata",
+            className: "p-4 flex flex-col gap-2 text-xs",
+          },
+          React.createElement(
+            "h3",
+            { className: "text-xs font-semibold text-slate-500 uppercase tracking-wider" },
+            "Metadata",
+          ),
+          React.createElement(
+            "div",
+            { className: "bg-slate-50 rounded-md p-2.5 border border-slate-200/60 flex flex-col gap-1.5" },
+            ...metadataEntries.map(([key, val]) =>
+              React.createElement(
+                "div",
+                {
+                  key,
+                  "data-testid": `metadata-item-${key}`,
+                  className: "flex flex-col gap-0.5",
+                },
+                React.createElement(
+                  "span",
+                  { className: "text-[11px] font-medium text-slate-600" },
+                  key,
+                ),
+                React.createElement(
+                  "span",
+                  { className: "font-mono text-[11px] text-slate-800 break-all" },
+                  safeFormatMetadataValue(val),
+                ),
+              ),
+            ),
+          ),
+        )
+      : null,
+
+    // 4. Evidence Trail Section
+    React.createElement(
+      "section",
+      {
+        className: "p-4 flex flex-col gap-2 text-xs flex-1",
+      },
+      React.createElement(
+        "div",
+        { className: "flex items-center justify-between" },
+        React.createElement(
+          "h3",
+          { className: "text-xs font-semibold text-slate-500 uppercase tracking-wider" },
+          "Evidence Trail",
+        ),
+      ),
+      React.createElement(EvidenceTrail, {
+        evidence,
+        selectedNodeId: node.id,
+      }),
+    ),
+  );
+}
+

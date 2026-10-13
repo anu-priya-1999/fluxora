@@ -1,9 +1,10 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { GraphCanvas } from "../../../../components/graph/GraphCanvas";
+import { NodeInspectorPanel } from "../../../../components/graph/NodeInspectorPanel";
 import {
   fetchGraphQuery,
   transformGraphResponseToFlow,
@@ -22,6 +23,14 @@ export function ArchitectureExplorerClient({
 }: ArchitectureExplorerClientProps): React.JSX.Element {
   const { isLoaded, getToken } = useAuth();
   const [state, setState] = useState<ExplorerState>({ status: "loading" });
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const selectedNode = useMemo(() => {
+    if (state.status !== "ready" || !selectedNodeId) {
+      return null;
+    }
+    return state.graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
+  }, [state, selectedNodeId]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -125,14 +134,29 @@ export function ArchitectureExplorerClient({
           Run: {state.analysisRunId} | Nodes: {state.graph.nodes.length} | Edges: {state.graph.edges.length}
         </span>
       </header>
-      <div className="flex-1 w-full relative" style={{ minHeight: "650px", height: "100%" }}>
-        <GraphCanvas
-          nodes={state.graph.nodes}
-          edges={state.graph.edges}
-          showControls={true}
-          showMiniMap={false}
-          showBackground={true}
-        />
+      <div className="flex-1 w-full flex flex-row overflow-hidden relative" style={{ minHeight: "650px", height: "100%" }}>
+        <div className="flex-1 h-full relative">
+          <GraphCanvas
+            nodes={state.graph.nodes}
+            edges={state.graph.edges}
+            selectedNodeId={selectedNodeId}
+            onNodeClick={(id) => setSelectedNodeId(id)}
+            onPaneClick={() => setSelectedNodeId(null)}
+            showControls={true}
+            showMiniMap={false}
+            showBackground={true}
+          />
+        </div>
+        <aside
+          data-testid="explorer-inspector-aside"
+          className="w-80 md:w-96 border-l border-slate-200 bg-white flex flex-col h-full overflow-hidden shrink-0"
+        >
+          <NodeInspectorPanel
+            node={selectedNode}
+            evidence={state.graph.evidence}
+            onClose={() => setSelectedNodeId(null)}
+          />
+        </aside>
       </div>
     </div>
   );

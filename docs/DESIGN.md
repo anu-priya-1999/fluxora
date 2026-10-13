@@ -10565,3 +10565,80 @@ Step 35 does NOT:
 - Introduce any database or PostgreSQL dependencies into `apps/web`.
 
 With Global Step 35 complete, the next official Phase 5 roadmap item is **Step 36: Node Inspector Panel & Evidence Trail (selection state, node details, source coordinates, file links)**.
+
+---
+
+## Global Step 36 — Node Inspector Panel & Evidence Trail
+
+### Overview & Objective
+
+Global Step 36 extends the Architecture Explorer (`/repositories/[repoId]/explorer`) by introducing interactive node selection, the `NodeInspectorPanel`, and the `EvidenceTrail`. When an engineer selects any node in the React Flow canvas, the right-side inspector renders the node's architectural properties, metadata, and verified source code evidence trail linking the node directly to its concrete AST declarations.
+
+All node properties and evidence records originate strictly from the backend's existing `GraphQueryResponse` (`POST /api/v1/graph/query`). No secondary network queries or database operations are executed.
+
+### Component Architecture & Data Flow
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │ Backend Engine (POST /api/v1/graph/query)                   │
+   │ Bounded CTE traversal + verified EvidenceWriter records     │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ ArchitectureExplorerClient State                            │
+   │ - graph: GraphQueryResponse (nodes, edges, evidence)        │
+   │ - selectedNodeId: string | null (React useState)            │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+            ┌─────────────────────┴─────────────────────┐
+            ▼                                           ▼
+   ┌─────────────────────────────┐             ┌─────────────────────────────┐
+   │ GraphCanvas (Left Pane)     │             │ NodeInspectorPanel (Right)  │
+   │ - onNodeClick(id)           │             │ - node details & metadata   │
+   │ - onPaneClick() (clear)     │             │ - onClose() (clear button)  │
+   │ - isSelected visually shown │             │ - empty state when null     │
+   └─────────────────────────────┘             └──────────────┬──────────────┘
+                                                              │
+                                                              ▼
+                                               ┌─────────────────────────────┐
+                                               │ EvidenceTrail               │
+                                               │ - explicit association:     │
+                                               │   subject_type='graph_node' │
+                                               │   AND subject_id=node.id    │
+                                               │ - deterministic sort:       │
+                                               │   path → start → end → id   │
+                                               └─────────────────────────────┘
+```
+
+### Core Invariants Preserved
+
+1. **Deterministic Core vs. UI Projection**:
+   The browser does not compute, infer, or hallucinate evidence relationships. All evidence items match the verified provenance collected by `EvidenceWriter` during ingestion and stored in PostgreSQL.
+2. **Explicit Evidence Association**:
+   Evidence records are associated strictly via:
+   `evidence.subject_type === "graph_node" && evidence.subject_id === selectedNode.id`.
+   Edge evidence (`subject_type === "graph_edge"`), other subject types, and other node IDs are strictly excluded.
+3. **Deterministic Multi-Key Ordering**:
+   Evidence items are sorted using a stable comparator: `file_path` → `line_start` → `line_end` → `id`.
+4. **Least-Privilege State Management**:
+   Selection state is owned cleanly at the minimal shared parent (`ArchitectureExplorerClient`) using React `useState`. No external state libraries (e.g., Zustand, Redux) are introduced.
+5. **Database Boundary Protection**:
+   `apps/web` does **not** import `@fluxora/db`, execute SQL queries, or connect directly to PostgreSQL.
+6. **Robust Sanitization and Formatting**:
+   - `formatCoordinates` handles full ranges, single lines, and partial/missing coordinates safely.
+   - `safeFormatMetadataValue` serializes complex objects and enforces a strict length cap (200 characters) to prevent UI overflow.
+   - Content is rendered as text nodes to guarantee XSS prevention.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 36 does NOT:
+- Implement `GraphFilters` (Step 37);
+- Implement clustering / level-of-detail pre-aggregation (Step 38);
+- Implement live WebSocket invalidation or `graph.updated` subscriptions (Step 39);
+- Implement final Step 40 visual polish;
+- Implement PR change-impact or simulation UI (Phase 6 / Phase 8);
+- Implement AI-driven explanations (Phase 9).
+
+With Global Step 36 complete, the next official Phase 5 roadmap item is **Step 37: Graph Filters (Node Types, Confidence Thresholds, Edge Types)**.
+

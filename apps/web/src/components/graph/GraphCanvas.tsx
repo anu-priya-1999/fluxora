@@ -40,6 +40,10 @@ export interface GraphCanvasProps {
    */
   readonly onNodeClick?: (nodeId: string) => void;
   /**
+   * Optional callback when the canvas background pane is clicked.
+   */
+  readonly onPaneClick?: () => void;
+  /**
    * Optional controls flag (default true).
    */
   readonly showControls?: boolean;
@@ -94,6 +98,7 @@ export function GraphCanvas({
   edges: inputEdges,
   selectedNodeId,
   onNodeClick,
+  onPaneClick,
   showControls = true,
   showMiniMap = false,
   showBackground = true,
@@ -134,6 +139,13 @@ export function GraphCanvas({
     };
   }, [onNodeClick]);
 
+  const handlePaneClick = useMemo(() => {
+    if (!onPaneClick) return undefined;
+    return () => {
+      onPaneClick();
+    };
+  }, [onPaneClick]);
+
   return (
     <div
       data-testid="fluxora-graph-canvas"
@@ -155,6 +167,7 @@ export function GraphCanvas({
         {...(onNodesChange !== undefined ? { onNodesChange } : {})}
         {...(onEdgesChange !== undefined ? { onEdgesChange } : {})}
         {...(handleNodeClick !== undefined ? { onNodeClick: handleNodeClick } : {})}
+        {...(handlePaneClick !== undefined ? { onPaneClick: handlePaneClick } : {})}
         fitView
         nodesDraggable={true}
         nodesConnectable={false}
