@@ -10873,3 +10873,99 @@ Step 39 does NOT:
 
 With Global Step 39 complete, the next official Phase 5 roadmap item is **Step 40: Explorer Polish (Loading, Empty, and Error States)**.
 
+
+---
+
+## Global Step 40 — Final Architecture Explorer UI Polish
+
+### Overview & Objective
+
+Global Step 40 concludes Phase 5 (Architecture Explorer UI) by delivering production-quality UX feedback across all graph query lifecycle and connection states.
+
+The existing backend, graph semantics, query API (`POST /api/v1/graph/query`), Step 37 filters, Step 38 level-of-detail (LOD), Step 36 node inspector/evidence trail, and Step 39 WebSocket invalidation remain authoritative and unchanged. Step 40 is strictly a presentation and UX hardening step that eliminates blank or unexplained UI states, adds non-blocking background refresh feedback, provides clear actionable error and empty states, displays live connection health, and ensures lightweight accessibility compliance.
+
+### State Model Architecture
+
+The explorer explicitly separates the **query lifecycle** from the **live WebSocket connection status**:
+
+```
+                         ┌──────────────────────────────────────────┐
+                         │              Explorer State              │
+                         │                                          │
+                         │   Query Lifecycle (ExplorerState):       │
+                         │   • loading                              │
+                         │   • ready                                │
+                         │   • empty                                │
+                         │   • not_ready                            │
+                         │   • error                                │
+                         │                                          │
+                         │   Connection Status:                     │
+                         │   • connected                            │
+                         │   • reconnecting                         │
+                         │   • disconnected                         │
+                         │                                          │
+                         │   Supplementary Flags:                   │
+                         │   • isRefreshing (boolean)               │
+                         │   • refreshError (string | null)         │
+                         └──────────────────────────────────────────┘
+```
+
+1. **Query Lifecycle (`ExplorerState`)**:
+   - `loading`: Initial query in flight; no graph data loaded yet. Full-screen `ExplorerLoadingState` with accessible spinner and announcement.
+   - `ready`: Graph query succeeded with ≥ 1 renderable nodes. Renders `GraphCanvas`, `GraphFilters`, and `NodeInspectorPanel`.
+   - `empty`: Graph query succeeded but returned 0 renderable nodes for active filters. Renders `ExplorerEmptyState` with guidance to adjust filters.
+   - `not_ready`: Repository analysis is still running or pending. Renders `ExplorerAnalysisNotReady` with distinct icon (⏳) and guidance.
+   - `error`: Initial query failed (network, auth, or server error). Renders `ExplorerErrorState` with retry button and accessible alert role.
+
+2. **Background Refresh & Stale-Data Preservation**:
+   - When a refetch is triggered (via `graph.updated` WebSocket invalidation, filter changes, or retry) and an existing graph is already displayed (`ready`), the current graph remains visible.
+   - A non-blocking `ExplorerUpdatingIndicator` (animated progress bar at top) signals the in-flight query.
+   - If the refresh succeeds: the displayed graph updates smoothly, selection is reconciled, and LOD is reapplied.
+   - If the refresh fails: the existing graph remains visible and interactive; an `ExplorerRefreshErrorBanner` displays the failure with a retry action.
+
+3. **Live Connection Status (`ExplorerConnectionStatus`)**:
+   - Derived from `ExplorerWsStatus` via `mapWsStatusToConnectionStatus()`:
+     - `connected` → "Live" (green dot)
+     - `connecting` → "Reconnecting" (amber dot)
+     - `idle` / `disconnected` / `closed` → "Offline" (gray dot)
+   - Rendered as `ExplorerConnectionBadge` in the explorer header.
+   - A WebSocket disconnection or reconnection attempt **never** hides or disables an already-loaded graph.
+
+### Component Structure
+
+```
+ apps/web/src/components/graph/
+ ├── explorer-status-data.ts       <-- Pure TS component implementations & status mapping
+ ├── ExplorerStatus.tsx            <-- Re-export barrel wrapper
+ ├── index.ts                      <-- Package barrel re-export
+ └── explorer-status.test.ts       <-- 20 focused Step 40 verification tests
+
+ apps/web/src/app/repositories/[repoId]/explorer/
+ ├── explorer-client.tsx           <-- Wired with loading/refresh/empty/error/connection states
+ └── explorer-data.ts             <-- Updated ExplorerState union ("empty" status added)
+```
+
+### Core Invariants Preserved
+
+1. **Deterministic Core & Backend Authoritativeness**:
+   All graph nodes, edges, reachable paths, and evidence provenance remain strictly determined by the backend recursive CTE via `POST /api/v1/graph/query`. No client-side graph simulation, synthetic clustering, or BFS/DFS was added.
+2. **Stale-Data Resilience**:
+   Already-valid graph data is never destroyed because a later background refresh failed. The existing graph remains interactive under refresh failures.
+3. **Single Fetch Path on Retry**:
+   Manual retries increment `liveUpdateTrigger`, re-entering the standard `buildGraphQueryRequest` → `fetchGraphQuery` pipeline with current context, filters, and LOD settings intact. No secondary data-fetch path exists.
+4. **WebSocket Decoupled from Graph Availability**:
+   WebSocket state informs connection indicators only; an outage never blocks graph exploration. No HTTP polling fallback was introduced.
+5. **Selection & LOD Continuity**:
+   Selection survival is checked against refreshed node IDs (`exists ? current : null`). Zoom thresholds and LOD tier calculations remain identical to Step 38.
+6. **Accessible Presentation**:
+   Appropriate ARIA roles (`role="status"`, `role="alert"`, `aria-live="polite"`, `aria-live="assertive"`) and descriptive accessible names (`aria-label`) are used across all status and retry elements.
+
+### Scope Boundary & Phase 5 Completion
+
+Step 40 does NOT:
+- Add backend API endpoints, database tables, or migrations;
+- Alter WebSocket authentication, routing, or event contracts;
+- Modify traversal algorithms, blast-radius queries, or RLS policies;
+- Introduce Phase 6 functionality (PR impact analysis, GitHub webhooks, diff traversal).
+
+With Global Step 40 verified, **Phase 5 (Architecture Explorer UI) is officially complete**. The Architecture Explorer is production-ready.

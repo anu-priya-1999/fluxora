@@ -5,3 +5,5 @@ export * from "./GraphCanvas.tsx";
 export * from "./EvidenceTrail.tsx";
 export * from "./NodeInspectorPanel.tsx";
 export * from "./graph-lod.ts";
+export * from "./explorer-status-data.ts";
+export * from "./ExplorerStatus.tsx";

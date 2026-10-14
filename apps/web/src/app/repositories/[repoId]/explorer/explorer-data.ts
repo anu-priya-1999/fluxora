@@ -19,6 +19,7 @@ export type FetchGraphQueryResult =
 export type ExplorerState =
   | { readonly status: "loading" }
   | { readonly status: "not_ready"; readonly message: string }
+  | { readonly status: "empty"; readonly message: string }
   | { readonly status: "error"; readonly message: string }
   | {
       readonly status: "ready";

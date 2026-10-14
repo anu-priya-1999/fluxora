@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { GraphCanvas } from "../../../../components/graph/GraphCanvas";
 import { NodeInspectorPanel } from "../../../../components/graph/NodeInspectorPanel";
@@ -11,7 +11,19 @@ import {
   type GraphFilterState,
 } from "../../../../components/graph/GraphFilters";
 import {
+  ExplorerLoadingState,
+  ExplorerEmptyState,
+  ExplorerAnalysisNotReady,
+  ExplorerErrorState,
+  ExplorerConnectionBadge,
+  ExplorerUpdatingIndicator,
+  ExplorerRefreshErrorBanner,
+  mapWsStatusToConnectionStatus,
+  type ExplorerConnectionStatus,
+} from "../../../../components/graph/ExplorerStatus";
+import {
   createExplorerWebSocketClient,
+  type ExplorerWsStatus,
   type WebSocketFactory,
 } from "../../../../events/explorer-ws-client";
 import { isGraphUpdatedEventRelevant } from "../../../../events/graph-events";
@@ -39,6 +51,9 @@ export function ArchitectureExplorerClient({
   const [state, setState] = useState<ExplorerState>({ status: "loading" });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [liveUpdateTrigger, setLiveUpdateTrigger] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<ExplorerConnectionStatus>("disconnected");
 
   const selectedNode = useMemo(() => {
     if (state.status !== "ready" || !selectedNodeId) {
@@ -47,21 +62,32 @@ export function ArchitectureExplorerClient({
     return state.graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
   }, [state, selectedNodeId]);
 
+  // Manual retry: increment trigger to re-run the fetch effect
+  const handleRetry = useCallback(() => {
+    setLiveUpdateTrigger((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
     if (!isLoaded) {
       return;
     }
 
     let isCancelled = false;
+    const hasExistingGraph = state.status === "ready";
 
     async function loadGraph() {
-      setState((prev) => {
-        // If we already have a ready graph, keep the existing data visible or update smoothly
-        if (prev.status === "ready") {
-          return prev;
-        }
-        return { status: "loading" };
-      });
+      if (hasExistingGraph) {
+        // Background refresh: keep existing graph visible
+        setIsRefreshing(true);
+        setRefreshError(null);
+      } else {
+        setState((prev) => {
+          if (prev.status === "ready") {
+            return prev;
+          }
+          return { status: "loading" };
+        });
+      }
 
       const request = buildGraphQueryRequest({
         context,
@@ -81,6 +107,12 @@ export function ArchitectureExplorerClient({
       }
 
       if (!result.ok) {
+        if (hasExistingGraph) {
+          // Background refresh failed: preserve existing graph, show non-blocking error
+          setIsRefreshing(false);
+          setRefreshError(result.message);
+          return;
+        }
         setState({
           status: "error",
           message: result.message,
@@ -89,9 +121,14 @@ export function ArchitectureExplorerClient({
       }
 
       if (result.data.nodes.length === 0) {
+        if (hasExistingGraph) {
+          // Background refresh returned empty: update to empty state
+          setIsRefreshing(false);
+          setRefreshError(null);
+        }
         setState({
-          status: "not_ready",
-          message: "No graph nodes returned from the server for this query.",
+          status: "empty",
+          message: "The graph query returned successfully but contained no renderable nodes for the current filters.",
         });
         setSelectedNodeId(null);
         return;
@@ -108,6 +145,9 @@ export function ArchitectureExplorerClient({
         flowEdges: flow.edges,
       });
 
+      setIsRefreshing(false);
+      setRefreshError(null);
+
       // Synchronize selectedNodeId: preserve if still exists in the returned nodes, otherwise clear safely
       setSelectedNodeId((currentSelectedId) => {
         if (!currentSelectedId) return null;
@@ -121,6 +161,9 @@ export function ArchitectureExplorerClient({
     return () => {
       isCancelled = true;
     };
+    // NOTE: state.status is deliberately excluded from deps to avoid infinite loops.
+    // The hasExistingGraph check is captured at effect start time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiUrl, context, filters, isLoaded, getToken, liveUpdateTrigger]);
 
   // Live WebSocket subscription for graph.updated invalidation
@@ -138,6 +181,9 @@ export function ArchitectureExplorerClient({
           setLiveUpdateTrigger((prev) => prev + 1);
         }
       },
+      onStatusChange: (wsStatus: ExplorerWsStatus) => {
+        setConnectionStatus(mapWsStatusToConnectionStatus(wsStatus));
+      },
     });
 
     void wsClient.connect();
@@ -147,78 +193,133 @@ export function ArchitectureExplorerClient({
     };
   }, [apiUrl, context, isLoaded, getToken, webSocketFactory]);
 
+  // --- INITIAL LOADING STATE ---
   if (state.status === "loading") {
-    return (
-      <div data-testid="explorer-loading-state" className="p-8 text-center text-slate-600">
-        <h2 className="text-xl font-semibold mb-2">Loading Architecture Explorer</h2>
-        <p>Fetching graph context from the Fluxora API...</p>
-      </div>
-    );
+    return React.createElement(ExplorerLoadingState, null);
   }
 
+  // --- ANALYSIS NOT READY STATE ---
   if (state.status === "not_ready") {
-    return (
-      <div data-testid="explorer-empty-state" className="p-8 text-center text-slate-600">
-        <h2 className="text-xl font-semibold mb-2">Graph Not Ready</h2>
-        <p className="mb-4">{state.message}</p>
-        <Link href="/dashboard" className="text-blue-600 hover:underline">
-          Return to Dashboard
-        </Link>
-      </div>
+    return React.createElement(
+      "div",
+      {
+        "data-testid": "explorer-not-ready-container",
+        style: { display: "flex", flexDirection: "column" as const, height: "100%" },
+      },
+      React.createElement(ExplorerAnalysisNotReady, { message: state.message }),
+      React.createElement(
+        "div",
+        { style: { textAlign: "center" as const, paddingBottom: "24px" } },
+        React.createElement(
+          Link,
+          { href: "/dashboard", className: "text-blue-600 hover:underline" },
+          "Return to Dashboard",
+        ),
+      ),
     );
   }
 
+  // --- EMPTY GRAPH STATE ---
+  if (state.status === "empty") {
+    return React.createElement(
+      "div",
+      {
+        "data-testid": "explorer-empty-container",
+        style: { display: "flex", flexDirection: "column" as const, height: "100%" },
+      },
+      React.createElement(ExplorerEmptyState, { message: state.message }),
+    );
+  }
+
+  // --- INITIAL ERROR STATE (no graph available) ---
   if (state.status === "error") {
-    return (
-      <div data-testid="explorer-error-state" className="p-8 text-center text-red-600">
-        <h2 className="text-xl font-semibold mb-2">Graph API Error</h2>
-        <p className="mb-4">{state.message}</p>
-        <Link href="/dashboard" className="text-blue-600 hover:underline">
-          Return to Dashboard
-        </Link>
-      </div>
-    );
+    return React.createElement(ExplorerErrorState, {
+      message: state.message,
+      onRetry: handleRetry,
+    });
   }
 
-  return (
-    <div data-testid="explorer-ready-state" className="w-full h-full flex flex-col flex-1" style={{ minHeight: "80vh" }}>
-      <header className="px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center text-sm">
-        <span className="font-semibold text-slate-800">
-          Repository: {context.repositoryName ?? context.repositoryId}
-        </span>
-        <span className="text-slate-500 font-mono text-xs">
-          Run: {state.analysisRunId} | Nodes: {state.graph.nodes.length} | Edges: {state.graph.edges.length}
-        </span>
-      </header>
-      <GraphFilters
-        filters={filters}
-        onChange={(next) => setFilters(next)}
-        onReset={() => setFilters(DEFAULT_GRAPH_FILTERS)}
-      />
-      <div className="flex-1 w-full flex flex-row overflow-hidden relative" style={{ minHeight: "650px", height: "100%" }}>
-        <div className="flex-1 h-full relative">
-          <GraphCanvas
-            nodes={state.graph.nodes}
-            edges={state.graph.edges}
-            selectedNodeId={selectedNodeId}
-            onNodeClick={(id) => setSelectedNodeId(id)}
-            onPaneClick={() => setSelectedNodeId(null)}
-            showControls={true}
-            showMiniMap={false}
-            showBackground={true}
-          />
-        </div>
-        <aside
-          data-testid="explorer-inspector-aside"
-          className="w-80 md:w-96 border-l border-slate-200 bg-white flex flex-col h-full overflow-hidden shrink-0"
-        >
-          <NodeInspectorPanel
-            node={selectedNode}
-            evidence={state.graph.evidence}
-            onClose={() => setSelectedNodeId(null)}
-          />
-        </aside>
-      </div>
-    </div>
+  // --- READY STATE (graph is loaded and visible) ---
+  return React.createElement(
+    "div",
+    {
+      "data-testid": "explorer-ready-state",
+      className: "w-full h-full flex flex-col flex-1",
+      style: { minHeight: "80vh", position: "relative" as const },
+    },
+    // Updating indicator (non-blocking progress bar during background refresh)
+    React.createElement(ExplorerUpdatingIndicator, { visible: isRefreshing }),
+    // Header bar
+    React.createElement(
+      "header",
+      {
+        className: "px-4 py-2 border-b border-slate-200 bg-white flex justify-between items-center text-sm",
+      },
+      React.createElement(
+        "span",
+        { className: "font-semibold text-slate-800" },
+        `Repository: ${context.repositoryName ?? context.repositoryId}`,
+      ),
+      React.createElement(
+        "div",
+        {
+          style: { display: "flex", alignItems: "center", gap: "12px" },
+        },
+        React.createElement(
+          "span",
+          { className: "text-slate-500 font-mono text-xs" },
+          `Run: ${state.analysisRunId} | Nodes: ${state.graph.nodes.length} | Edges: ${state.graph.edges.length}`,
+        ),
+        React.createElement(ExplorerConnectionBadge, { status: connectionStatus }),
+      ),
+    ),
+    // Refresh error banner (non-blocking, shown above the graph)
+    refreshError
+      ? React.createElement(ExplorerRefreshErrorBanner, {
+          message: refreshError,
+          onRetry: handleRetry,
+          onDismiss: () => setRefreshError(null),
+        })
+      : null,
+    // Filters
+    React.createElement(GraphFilters, {
+      filters,
+      onChange: (next: GraphFilterState) => setFilters(next),
+      onReset: () => setFilters(DEFAULT_GRAPH_FILTERS),
+    }),
+    // Main content area: Graph Canvas + Inspector
+    React.createElement(
+      "div",
+      {
+        className: "flex-1 w-full flex flex-row overflow-hidden relative",
+        style: { minHeight: "650px", height: "100%" },
+      },
+      React.createElement(
+        "div",
+        { className: "flex-1 h-full relative" },
+        React.createElement(GraphCanvas, {
+          nodes: state.graph.nodes,
+          edges: state.graph.edges,
+          selectedNodeId,
+          onNodeClick: (id: string) => setSelectedNodeId(id),
+          onPaneClick: () => setSelectedNodeId(null),
+          showControls: true,
+          showMiniMap: false,
+          showBackground: true,
+        }),
+      ),
+      React.createElement(
+        "aside",
+        {
+          "data-testid": "explorer-inspector-aside",
+          className: "w-80 md:w-96 border-l border-slate-200 bg-white flex flex-col h-full overflow-hidden shrink-0",
+        },
+        React.createElement(NodeInspectorPanel, {
+          node: selectedNode,
+          evidence: state.graph.evidence,
+          onClose: () => setSelectedNodeId(null),
+        }),
+      ),
+    ),
   );
 }

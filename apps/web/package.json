@@ -8,7 +8,7 @@
     "build": "node --max-old-space-size=4096 ./node_modules/next/dist/bin/next build",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts src/events/graph-events.test.ts src/events/explorer-ws-client.test.ts src/components/graph/graph-canvas.test.ts src/components/graph/graph-lod.test.ts src/app/repositories/[[]repoId[]]/explorer/explorer.test.ts src/components/graph/node-inspector.test.ts src/components/graph/graph-filters.test.ts"
+    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts src/events/graph-events.test.ts src/events/explorer-ws-client.test.ts src/components/graph/graph-canvas.test.ts src/components/graph/graph-lod.test.ts src/app/repositories/[[]repoId[]]/explorer/explorer.test.ts src/components/graph/node-inspector.test.ts src/components/graph/graph-filters.test.ts src/components/graph/explorer-status.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.7",
