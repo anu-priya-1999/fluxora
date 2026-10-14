@@ -38,6 +38,7 @@ export async function fetchGraphQuery(input: {
   readonly getToken: () => Promise<string | null>;
   readonly request: GraphQueryRequest;
   readonly fetchImpl?: (url: string, init: RequestInit) => Promise<Response>;
+  readonly signal?: AbortSignal | undefined;
 }): Promise<FetchGraphQueryResult> {
   let token: string | null;
   try {
@@ -62,7 +63,7 @@ export async function fetchGraphQuery(input: {
   let response: Response;
 
   try {
-    response = await fetchImpl(`${input.apiUrl}${GRAPH_QUERY_PATH}`, {
+    const init: RequestInit = {
       method: "POST",
       headers: {
         accept: "application/json",
@@ -70,8 +71,17 @@ export async function fetchGraphQuery(input: {
         "content-type": "application/json",
       },
       body: JSON.stringify(input.request),
-    });
+      ...(input.signal !== undefined ? { signal: input.signal } : {}),
+    };
+    response = await fetchImpl(`${input.apiUrl}${GRAPH_QUERY_PATH}`, init);
   } catch {
+    if (input.signal?.aborted) {
+      return {
+        ok: false,
+        reason: "network_error",
+        message: "Graph query request was cancelled.",
+      };
+    }
     return {
       ok: false,
       reason: "network_error",

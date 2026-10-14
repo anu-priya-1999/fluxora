@@ -10793,3 +10793,83 @@ Step 38 does NOT:
 
 With Global Step 38 complete, the next official Phase 5 roadmap item is **Step 39: Live Updates & Analysis Invalidation**.
 
+---
+
+## Global Step 39 — WebSocket Live Updates & Analysis Invalidation
+
+### Overview & Objective
+
+Global Step 39 connects the existing `graph.updated` domain event bus to the Architecture Explorer. Authenticated clients receive real-time graph-update notifications for their tenant and refresh the displayed graph safely and deterministically.
+
+Rather than requiring manual page reloads or running continuous database-draining polling loops, Step 39 wires the explorer directly into the existing Step 32 outbox and WebSocket architecture (`apps/api/src/ws/`). The WebSocket operates strictly as an **invalidation channel**: receipt of a relevant event triggers a fresh `POST /api/v1/graph/query`, ensuring that the backend recursive CTE remains the sole source of graph truth.
+
+### Architecture & Data Flow
+
+```
+ Worker Ingestion / Analysis Pipeline
+               │
+               ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │ 1. Ingestion completes, commits nodes/edges in PostgreSQL   │
+ │ 2. Outbox event persisted: type = "graph.updated"           │
+ │ 3. pg_notify('fluxora_events', envelope) triggered          │
+ └──────────────────────────────┬──────────────────────────────┘
+                                │ PostgreSQL LISTEN/NOTIFY
+                                ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │ PostgresEventListener (apps/api/src/ws/listener.ts)         │
+ │ - Forwards notification envelope to WebSocketHub            │
+ └──────────────────────────────┬──────────────────────────────┘
+                                │
+                                ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │ WebSocketHub (apps/api/src/ws/hub.ts)                       │
+ │ - Matches client organizationId with envelope.organization_id │
+ │ - Broadcasts solely to authenticated tenant sockets         │
+ └──────────────────────────────┬──────────────────────────────┘
+                                │ RFC 6455 WebSocket
+                                ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │ Explorer WebSocket Client (apps/web/src/events/)            │
+ │ - Subprotocol auth: ["bearer." + sessionToken]              │
+ │ - Bounded exponential backoff (max 5 retries, 1s - 10s)     │
+ │ - Strict teardown & timer cancellation on unmount           │
+ └──────────────────────────────┬──────────────────────────────┘
+                                │ Valid & Relevant Event
+                                ▼
+ ┌─────────────────────────────────────────────────────────────┐
+ │ ArchitectureExplorerClient Refetch Cycle                    │
+ │ 1. Validates repository_id and analysis_run_id              │
+ │ 2. Dispatches POST /api/v1/graph/query                      │
+ │ 3. Preserves current Step 37 filters (types, depth, conf)   │
+ │ 4. Replaces displayed graph with fresh authoritative data   │
+ │ 5. Preserves Step 38 LOD tier and viewport pan/zoom         │
+ │ 6. Synchronizes Step 36 selection (retains or safely clears)│
+ └─────────────────────────────────────────────────────────────┘
+```
+
+### Core Invariants Preserved
+
+1. **WebSocket as Invalidation Signal, Graph Query as Source of Truth**:
+   The client never mutates its graph state directly from differential event payloads. The backend recursive CTE remains the sole engine determining topological structure, reachable depth, and confidence thresholds.
+2. **Server-Authoritative Tenant Isolation**:
+   The browser never supplies `organization_id` for WebSocket subscriptions. Tenancy is derived server-side from the verified Clerk session token via `Sec-WebSocket-Protocol: bearer.<jwt>`.
+3. **No Polling Fallback**:
+   The system does not fall back to HTTP polling. If the WebSocket connection is unavailable or interrupted, the explorer continues to function seamlessly with its current loaded state.
+4. **Race-Condition & Stale Response Protection**:
+   Effect-level cancellation and sequence generation tracking ensure slow out-of-order responses from earlier queries cannot overwrite newer authoritative graph data.
+5. **Selection & LOD Continuity**:
+   If the currently selected node exists in the refreshed graph, `selectedNodeId` is preserved and the inspector stays open. If the node was deleted or filtered out, selection is safely reset to `null`. Step 38 LOD is reapplied to the fresh graph data without resetting viewport zoom or pan.
+6. **Strict Lifecycle & Clean Teardown**:
+   Unmounting the explorer or navigating between repositories cancels any scheduled backoff timers, unregisters all event listeners, and cleanly closes the underlying socket. React Strict Mode duplicate mounting is handled gracefully without leaking orphaned connections.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 39 does NOT:
+- Implement Step 40 loading/empty/error UI polish, skeleton animations, or visual refinements;
+- Modify backend recursive CTE traversal logic or database schemas;
+- Add client-side BFS/DFS or client-side synthetic clustering;
+- Introduce direct database imports or SQL execution in `apps/web`.
+
+With Global Step 39 complete, the next official Phase 5 roadmap item is **Step 40: Explorer Polish (Loading, Empty, and Error States)**.
+

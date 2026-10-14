@@ -11,6 +11,11 @@ import {
   type GraphFilterState,
 } from "../../../../components/graph/GraphFilters";
 import {
+  createExplorerWebSocketClient,
+  type WebSocketFactory,
+} from "../../../../events/explorer-ws-client";
+import { isGraphUpdatedEventRelevant } from "../../../../events/graph-events";
+import {
   buildGraphQueryRequest,
   fetchGraphQuery,
   transformGraphResponseToFlow,
@@ -21,16 +26,19 @@ import {
 export interface ArchitectureExplorerClientProps {
   readonly apiUrl: string;
   readonly context: ResolvedAnalysisContext;
+  readonly webSocketFactory?: WebSocketFactory | undefined;
 }
 
 export function ArchitectureExplorerClient({
   apiUrl,
   context,
+  webSocketFactory,
 }: ArchitectureExplorerClientProps): React.JSX.Element {
   const { isLoaded, getToken } = useAuth();
   const [filters, setFilters] = useState<GraphFilterState>(DEFAULT_GRAPH_FILTERS);
   const [state, setState] = useState<ExplorerState>({ status: "loading" });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [liveUpdateTrigger, setLiveUpdateTrigger] = useState(0);
 
   const selectedNode = useMemo(() => {
     if (state.status !== "ready" || !selectedNodeId) {
@@ -113,7 +121,31 @@ export function ArchitectureExplorerClient({
     return () => {
       isCancelled = true;
     };
-  }, [apiUrl, context, filters, isLoaded, getToken]);
+  }, [apiUrl, context, filters, isLoaded, getToken, liveUpdateTrigger]);
+
+  // Live WebSocket subscription for graph.updated invalidation
+  useEffect(() => {
+    if (!isLoaded) {
+      return;
+    }
+
+    const wsClient = createExplorerWebSocketClient({
+      apiUrl,
+      getToken,
+      ...(webSocketFactory !== undefined ? { webSocketFactory } : {}),
+      onGraphUpdated: (notification) => {
+        if (isGraphUpdatedEventRelevant(notification.payload, context)) {
+          setLiveUpdateTrigger((prev) => prev + 1);
+        }
+      },
+    });
+
+    void wsClient.connect();
+
+    return () => {
+      wsClient.close();
+    };
+  }, [apiUrl, context, isLoaded, getToken, webSocketFactory]);
 
   if (state.status === "loading") {
     return (
