@@ -17,6 +17,11 @@ import "@xyflow/react/dist/style.css";
 import type { CanvasInputEdge, CanvasInputNode, FluxoraFlowNode } from "./graph-mapping.ts";
 import { mapDomainGraphToFlow } from "./graph-mapping.ts";
 import { NodeRenderer } from "./NodeRenderer.tsx";
+import {
+  computeLodGraph,
+  getLodLevelFromZoom,
+  type LodLevel,
+} from "./graph-lod.ts";
 
 const DEFAULT_NODE_TYPES: NodeTypes = {
   fluxoraNode: NodeRenderer,
@@ -79,10 +84,22 @@ export interface GraphCanvasProps {
    * Optional inline styles for wrapper container.
    */
   readonly style?: React.CSSProperties;
+  /**
+   * Optional flag to enable viewport zoom-driven Level-of-Detail (default true).
+   */
+  readonly enableLod?: boolean;
+  /**
+   * Optional explicit initial LOD tier (default "module").
+   */
+  readonly initialLod?: LodLevel;
+  /**
+   * Optional callback when LOD tier changes due to viewport zoom.
+   */
+  readonly onLodChange?: (lod: LodLevel) => void;
 }
 
 /**
- * GraphCanvas component for Fluxora (Step 34).
+ * GraphCanvas component for Fluxora (Step 34 & Step 38).
  *
  * Responsibilities:
  * - Client-side wrapper around React Flow.
@@ -90,6 +107,7 @@ export interface GraphCanvasProps {
  * - Deterministically maps domain graph models to React Flow nodes/edges.
  * - Renders per-node-type presentations via NodeRenderer.
  * - Provides pan/zoom viewport controls.
+ * - Provides deterministic Level-of-Detail (LOD) based on viewport zoom (Step 38).
  * - Does NOT perform data fetching or backend queries.
  * - Keeps domain logic and state persistence outside the canvas.
  */
@@ -108,10 +126,45 @@ export function GraphCanvas({
   onEdgesChange,
   className,
   style,
+  enableLod = true,
+  initialLod = "module",
+  onLodChange,
 }: GraphCanvasProps): React.JSX.Element {
+  const [currentLod, setCurrentLod] = React.useState<LodLevel>(initialLod);
+
+  const handleMoveEnd = React.useCallback(
+    (_event: unknown, viewport: { x: number; y: number; zoom: number }) => {
+      if (!enableLod) return;
+      const nextLod = getLodLevelFromZoom(viewport.zoom);
+      setCurrentLod((prev) => {
+        if (prev !== nextLod) {
+          if (onLodChange) {
+            onLodChange(nextLod);
+          }
+          return nextLod;
+        }
+        return prev;
+      });
+    },
+    [enableLod, onLodChange],
+  );
+
+  // Compute LOD filtered nodes and edges if enableLod is active
+  const { visibleNodes, visibleEdges } = useMemo(() => {
+    if (!enableLod) {
+      return { visibleNodes: inputNodes, visibleEdges: inputEdges };
+    }
+    return computeLodGraph({
+      nodes: inputNodes,
+      edges: inputEdges,
+      lod: currentLod,
+      selectedNodeId,
+    });
+  }, [inputNodes, inputEdges, enableLod, currentLod, selectedNodeId]);
+
   // Map input nodes and edges deterministically to React Flow format
   const { nodes, edges } = useMemo(() => {
-    const mapped = mapDomainGraphToFlow(inputNodes, inputEdges);
+    const mapped = mapDomainGraphToFlow(visibleNodes, visibleEdges);
 
     if (selectedNodeId) {
       const updatedNodes = mapped.nodes.map((n) => {
@@ -130,7 +183,7 @@ export function GraphCanvas({
     }
 
     return mapped;
-  }, [inputNodes, inputEdges, selectedNodeId]);
+  }, [visibleNodes, visibleEdges, selectedNodeId]);
 
   const handleNodeClick = useMemo(() => {
     if (!onNodeClick) return undefined;
@@ -168,6 +221,7 @@ export function GraphCanvas({
         {...(onEdgesChange !== undefined ? { onEdgesChange } : {})}
         {...(handleNodeClick !== undefined ? { onNodeClick: handleNodeClick } : {})}
         {...(handlePaneClick !== undefined ? { onPaneClick: handlePaneClick } : {})}
+        onMoveEnd={handleMoveEnd}
         fitView
         nodesDraggable={true}
         nodesConnectable={false}
@@ -175,6 +229,47 @@ export function GraphCanvas({
         minZoom={0.2}
         maxZoom={2.5}
       >
+        {enableLod && (
+          <div
+            data-testid="graph-lod-badge"
+            style={{
+              position: "absolute",
+              bottom: "12px",
+              left: "12px",
+              zIndex: 10,
+              backgroundColor: "rgba(255, 255, 255, 0.9)",
+              backdropFilter: "blur(4px)",
+              border: "1px solid #cbd5e1",
+              borderRadius: "6px",
+              padding: "4px 8px",
+              fontSize: "11px",
+              fontFamily: "ui-monospace, monospace",
+              color: "#475569",
+              display: "flex",
+              alignItems: "center",
+              gap: "6px",
+              boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
+            }}
+          >
+            <span
+              style={{
+                display: "inline-block",
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                backgroundColor:
+                  currentLod === "detail"
+                    ? "#10b981"
+                    : currentLod === "module"
+                      ? "#3b82f6"
+                      : "#8b5cf6",
+              }}
+            />
+            <span>
+              LOD: <strong>{currentLod}</strong> ({nodes.length}/{inputNodes.length} nodes)
+            </span>
+          </div>
+        )}
         {showBackground && (
           <Background
             variant={BackgroundVariant.Dots}

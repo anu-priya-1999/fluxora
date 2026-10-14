@@ -4,3 +4,4 @@ export * from "./NodeRenderer.tsx";
 export * from "./GraphCanvas.tsx";
 export * from "./EvidenceTrail.tsx";
 export * from "./NodeInspectorPanel.tsx";
+export * from "./graph-lod.ts";

@@ -10723,3 +10723,73 @@ Step 37 does NOT:
 
 With Global Step 37 complete, the next official Phase 5 roadmap item is **Step 38: Graph Performance & LOD (Clustering, Virtualization, Level of Detail)**.
 
+---
+
+## Global Step 38 — Graph Clustering / Level-of-Detail (LOD)
+
+### Overview & Objective
+
+Global Step 38 adds deterministic client-side Level-of-Detail (LOD) and visual aggregation to the Architecture Explorer.
+
+As repository graphs expand to thousands of AST symbols, rendering every node at low zoom levels produces unreadable visual clutter and degrades browser frame rates. Step 38 ties visual granularity to the React Flow viewport zoom level:
+- **`overview` (`zoom < 0.6`)**: Shows high-level architectural components (`application`, `service`, `database`, `package`), reducing visual density.
+- **`module` (`0.6 <= zoom < 1.1`)**: Displays module-level structures, routes, APIs, and event channels (`module`, `api`, `event`).
+- **`detail` (`zoom >= 1.1`)**: Reveals fine-grained code symbols (`symbol`) with complete call and declaration edges.
+
+### Architecture & Data Flow
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │ React Flow Viewport Zoom Change                             │
+   │ onMoveEnd(viewport) ──> zoom                                │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ getLodLevelFromZoom(zoom)                                   │
+   │ - zoom < 0.6   ──> "overview"                               │
+   │ - 0.6 <= zoom < 1.1 ──> "module"                            │
+   │ - zoom >= 1.1  ──> "detail"                                 │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ computeLodGraph({ nodes, edges, lod, selectedNodeId })      │
+   │ 1. Filter nodes by LOD priority                             │
+   │ 2. Always preserve selectedNodeId (Selected Node Immunity)  │
+   │ 3. Prune dangling edges (both endpoints must be visible)    │
+   │ 4. Retain exact domain IDs and stable source ordering       │
+   └──────────────────────────────┬──────────────────────────────┘
+                                  │
+                                  ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │ mapDomainGraphToFlow & NodeRenderer                         │
+   │ Renders visible nodes and edges cleanly in React Flow       │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+### Core Invariants Preserved
+
+1. **Presentation Layer Isolation**:
+   LOD is strictly a visual projection. The backend `POST /api/v1/graph/query` remains the sole authority for graph truth. The browser does not perform BFS/DFS or graph discovery.
+2. **Selected Node Immunity**:
+   If a node is selected (`selectedNodeId`), it is **always visible** across all zoom tiers. Selection state, `NodeInspectorPanel`, and `EvidenceTrail` are never broken by zoom changes.
+3. **No Dangling Edges**:
+   Edges are included if and only if both source and target nodes are in the visible node set.
+4. **Stable Identity Guarantee**:
+   All node IDs, edge IDs, and canonical IDs remain exact and deterministic. No synthetic clusters or random IDs are fabricated.
+5. **Composability with Step 37 Filters**:
+   LOD filters are applied over the authoritative response of Step 37 filters; LOD never re-introduces nodes filtered out by the user.
+6. **No External Dependencies**:
+   Implemented using pure TypeScript functions and React Flow hooks without adding external libraries.
+
+### Scope Boundary & Next Roadmap Item
+
+Step 38 does NOT:
+- Implement live WebSocket invalidation or `graph.updated` subscriptions (Step 39);
+- Implement final Step 40 loading/empty/error UI polish;
+- Modify backend CTE recursive traversal or database schemas;
+- Introduce synthetic cluster abstractions that distort evidence provenance.
+
+With Global Step 38 complete, the next official Phase 5 roadmap item is **Step 39: Live Updates & Analysis Invalidation**.
+

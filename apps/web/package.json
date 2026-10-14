@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts src/components/graph/graph-canvas.test.ts src/app/repositories/[[]repoId[]]/explorer/explorer.test.ts src/components/graph/node-inspector.test.ts src/components/graph/graph-filters.test.ts"
+    "test": "node --experimental-strip-types --test src/github/github-setup.test.ts src/events/repository-events.test.ts src/components/graph/graph-canvas.test.ts src/components/graph/graph-lod.test.ts src/app/repositories/[[]repoId[]]/explorer/explorer.test.ts src/components/graph/node-inspector.test.ts src/components/graph/graph-filters.test.ts"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.9.7",
