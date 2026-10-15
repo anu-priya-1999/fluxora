@@ -40,6 +40,11 @@ import {
 } from "./graph-query.ts";
 import { isGraphQueryPath } from "./graph-query-request.ts";
 import {
+  handleGithubWebhook,
+  isGithubWebhookPath,
+  type GithubWebhookHandlerDependencies,
+} from "./github-webhooks.ts";
+import {
   setupWebSocketServer,
   type FluxoraWsServerOptions,
 } from "../ws/server.ts";
@@ -47,6 +52,7 @@ import {
 export interface CreateApiServerOptions {
   wsOptions?: FluxoraWsServerOptions;
   graphQueryDeps?: GraphQueryHandlerDependencies;
+  githubWebhookDeps?: GithubWebhookHandlerDependencies;
 }
 
 export function createApiServer(
@@ -60,6 +66,10 @@ export function createApiServer(
     optionsOrWs && "graphQueryDeps" in optionsOrWs
       ? optionsOrWs.graphQueryDeps
       : undefined;
+  const githubWebhookDeps =
+    optionsOrWs && "githubWebhookDeps" in optionsOrWs
+      ? optionsOrWs.githubWebhookDeps
+      : undefined;
 
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
@@ -71,6 +81,7 @@ export function createApiServer(
       githubAppConfig,
       allowedWebOrigins,
       graphQueryDeps,
+      githubWebhookDeps,
     ).catch(
       (error: unknown) => {
         if (res.headersSent) {
@@ -100,6 +111,7 @@ async function handleRequest(
   githubAppConfig: GithubAppConfig | null,
   allowedWebOrigins: readonly string[],
   graphQueryDeps?: GraphQueryHandlerDependencies,
+  githubWebhookDeps?: GithubWebhookHandlerDependencies,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -170,6 +182,13 @@ async function handleRequest(
       }
 
       await handleConnectRepository(req, res, githubAppConfig, sendJson);
+      return;
+    }
+  }
+
+  if (isGithubWebhookPath(path)) {
+    if (method === "POST") {
+      await handleGithubWebhook(req, res, sendJson, githubWebhookDeps);
       return;
     }
   }
@@ -310,7 +329,8 @@ function isKnownPath(path: string): boolean {
     path === "/api/v1/telemetry/dummy" ||
     isGraphQueryPath(path) ||
     isGithubInstallationPath(path) ||
-    isRepositoryConnectPath(path)
+    isRepositoryConnectPath(path) ||
+    isGithubWebhookPath(path)
   );
 }
 

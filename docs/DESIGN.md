@@ -10977,3 +10977,73 @@ Step 40 does NOT:
 - Introduce Phase 6 functionality (PR impact analysis, GitHub webhooks, diff traversal).
 
 With Global Step 40 verified, **Phase 5 (Architecture Explorer UI) is officially complete**. The Architecture Explorer is production-ready.
+
+---
+
+## Global Step 41 — GitHub Pull Request Webhook Handling
+
+### Overview & Objective
+
+Global Step 41 begins Phase 6 (PR Impact Analysis) by establishing the secure ingestion boundary for GitHub pull request events.
+
+It implements the HTTP webhook endpoint (`/api/v1/webhooks/github` and `/api/v1/github/webhooks`), timing-safe HMAC-SHA256 signature verification over the raw incoming request body, event and action filtering (`pull_request.opened` and `pull_request.synchronize`), payload validation, server-side tenant association from stored GitHub App installations, deterministic event normalization, and asynchronous handoff to the PostgreSQL-backed job queue with delivery idempotency.
+
+Step 41 strictly focuses on webhook handling and queue handoff. Database persistence for pull requests, changed-file/diff extraction, graph traversal, and impact analysis are deferred to subsequent Phase 6 steps.
+
+### Webhook Processing Pipeline
+
+```
+GitHub Delivery (POST /api/v1/webhooks/github)
+                     ↓
+  1. Read Raw Body (max 1MB cap, no early JSON parsing)
+                     ↓
+  2. HMAC-SHA256 Verification (timingSafeEqual over raw bytes)
+       ├─ Missing/Invalid Signature → 401 Unauthorized
+       └─ Secret Unconfigured → 500 Internal Error
+                     ↓
+  3. Event Type Filter (X-GitHub-Event: "pull_request")
+       └─ Unrelated Event → 200 OK { status: "ignored" }
+                     ↓
+  4. Parse JSON & Filter Action ("opened" | "synchronize")
+       ├─ Malformed JSON → 400 Bad Request
+       └─ Unsupported Action → 200 OK { status: "ignored" }
+                     ↓
+  5. Validate Required Fields (repo ID, PR number, installation ID, base/head)
+       └─ Missing/Malformed → 400 Bad Request
+                     ↓
+  6. Server-Side Tenant Resolution (lookup github_installations)
+       └─ Unmapped Installation → 404 Not Found (no work enqueued)
+                     ↓
+  7. Deterministic Normalization (NormalizedPullRequestWebhookPayload)
+                     ↓
+  8. Enqueue Asynchronous Job (pull_request.webhook)
+       └─ Idempotency Key: pull_request.webhook:${deliveryId}
+                     ↓
+  9. Fast Acknowledgment (200 OK { status: "accepted", jobId })
+```
+
+### Key Architectural Invariants
+
+1. **Byte-Accurate Signature Verification**:
+   Signatures are verified strictly against the raw request body buffer before any JSON parsing. Comparison uses `crypto.timingSafeEqual` with buffer length validation to prevent timing attacks.
+2. **Server-Side Tenant Derivation**:
+   Webhooks are unauthenticated requests. Incoming payloads are never trusted for tenant identity. The tenant `organization_id` is derived strictly from the internal `github_installations` table using the verified `installation.id`. Unmapped installations return `404 Not Found` without enqueuing any downstream work.
+3. **Delivery Idempotency**:
+   GitHub's `X-GitHub-Delivery` GUID forms the idempotency key `pull_request.webhook:${deliveryId}`. The PostgreSQL `jobs` table unique constraint (`organization_id`, `idempotency_key`) prevents duplicate job creation across delivery retries.
+4. **Decoupled Asynchronous Handoff**:
+   No impact analysis, AST parsing, or graph traversal occurs synchronously in the webhook handler. Webhook responses acknowledge immediately (sub-100ms), well below GitHub's 10-second timeout.
+5. **No Secret Leakage**:
+   Webhook secrets and authorization credentials are never logged or exposed in responses or error payloads.
+6. **Zero Speculative Database Migrations**:
+   Step 41 reuses the existing `github_installations` and `jobs` schema with zero new database migrations.
+
+### Scope Boundary Against Steps 42–47
+
+Step 41 does NOT:
+- Create `PullRequest` database tables or migrations (Step 42);
+- Store changed files or git diffs (Step 42);
+- Implement the Impact Analysis Engine or BFS/DFS symbol traversal (Step 43);
+- Persist `ImpactAnalysis` records or evidence links (Step 44);
+- Implement impact analysis REST endpoints (Step 45);
+- Implement frontend change-mode overlay on GraphCanvas (Step 46);
+- Execute golden-fixture PR impact validation (Step 47).

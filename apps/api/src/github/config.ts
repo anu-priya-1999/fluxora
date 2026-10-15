@@ -4,6 +4,17 @@ export interface GithubAppConfig {
   appId: string;
   privateKeyPem: string;
   apiBaseUrl: string;
+  webhookSecret?: string;
+}
+
+/**
+ * Loads the GitHub webhook secret from environment variables.
+ * Checks GITHUB_WEBHOOK_SECRET, falling back to GITHUB_APP_WEBHOOK_SECRET.
+ */
+export function loadGithubWebhookSecret(
+  env: NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  return blankToUndefined(env.GITHUB_WEBHOOK_SECRET ?? env.GITHUB_APP_WEBHOOK_SECRET);
 }
 
 /**
@@ -44,10 +55,13 @@ export function loadGithubAppConfig(
       ? normalizePrivateKeyPem(inlineKey)
       : readPrivateKeyFile(keyFile ?? "");
 
+  const webhookSecret = loadGithubWebhookSecret(env);
+
   return {
     appId,
     privateKeyPem,
     apiBaseUrl: githubApiBaseUrl(env.GITHUB_API_BASE_URL),
+    ...(webhookSecret !== undefined ? { webhookSecret } : {}),
   };
 }
 

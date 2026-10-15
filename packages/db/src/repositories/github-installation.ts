@@ -102,6 +102,37 @@ export async function getGithubInstallationByOrganizationId(
   });
 }
 
+export async function getGithubInstallationByInstallationId(
+  pool: pg.Pool,
+  githubInstallationId: string,
+): Promise<GithubInstallation | null> {
+  if (!isCanonicalGithubId(githubInstallationId)) {
+    return null;
+  }
+
+  const result = await pool.query<GithubInstallationRow>(
+    `SELECT
+       id,
+       organization_id,
+       github_installation_id::text AS github_installation_id,
+       github_account_id::text AS github_account_id,
+       github_account_login,
+       github_account_type,
+       created_at,
+       updated_at
+     FROM github_installations
+     WHERE github_installation_id = $1::bigint`,
+    [githubInstallationId],
+  );
+
+  const row = result.rows[0];
+  if (row === undefined) {
+    return null;
+  }
+
+  return mapInstallationRow(row);
+}
+
 export async function saveGithubInstallation(
   pool: pg.Pool,
   input: SaveGithubInstallationInput,

@@ -144,3 +144,46 @@ test("JobWorker retries retryable failures and leaves permanent failures failed"
   await permanentWorker.runOnce();
   assert.deepEqual(retried, []);
 });
+
+test("createDefaultJobHandlers registers pull_request.webhook handler and completes without error", async () => {
+  const { createDefaultJobHandlers } = await import("./handlers.ts");
+  const { PULL_REQUEST_WEBHOOK_JOB_TYPE } = await import("@fluxora/shared-types");
+
+  const handlers = createDefaultJobHandlers({
+    ingestHandler: async () => {},
+  });
+
+  assert.ok(PULL_REQUEST_WEBHOOK_JOB_TYPE in handlers);
+  const handler = handlers[PULL_REQUEST_WEBHOOK_JOB_TYPE];
+  assert.ok(typeof handler === "function");
+
+  let completedJobId: string | null = null;
+  const store: WorkerJobStore = {
+    async claimNextJob() {
+      return {
+        ...runningJob(),
+        type: PULL_REQUEST_WEBHOOK_JOB_TYPE,
+      };
+    },
+    async completeJob(jobId) {
+      completedJobId = jobId;
+      return runningJob();
+    },
+    async failJob() {
+      throw new Error("should not fail");
+    },
+    async retryFailedJob() {
+      throw new Error("should not retry");
+    },
+  };
+
+  const worker = new JobWorker({
+    workerId: "w1",
+    handlers,
+    jobStore: store,
+  });
+
+  const processed = await worker.runOnce();
+  assert.equal(processed, true);
+  assert.equal(completedJobId, "55555555-5555-4555-8555-555555555555");
+});

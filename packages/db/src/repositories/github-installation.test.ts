@@ -65,3 +65,12 @@ test("installation write plan rejects a different GitHub account", () => {
     { action: "reject" },
   );
 });
+
+test("getGithubInstallationByInstallationId returns null for non-canonical github installation id", async () => {
+  const { getGithubInstallationByInstallationId } = await import("./github-installation.ts");
+  const fakePool = {} as unknown as import("pg").Pool;
+  assert.equal(await getGithubInstallationByInstallationId(fakePool, ""), null);
+  assert.equal(await getGithubInstallationByInstallationId(fakePool, "invalid"), null);
+  assert.equal(await getGithubInstallationByInstallationId(fakePool, "-1"), null);
+  assert.equal(await getGithubInstallationByInstallationId(fakePool, "0"), null);
+});

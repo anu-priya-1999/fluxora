@@ -23,6 +23,7 @@ export {
   GithubInstallationAccountMismatchError,
   GithubInstallationConflictError,
   GithubInstallationValidationError,
+  getGithubInstallationByInstallationId,
   getGithubInstallationByOrganizationId,
   planGithubInstallationWrite,
   saveGithubInstallation,
