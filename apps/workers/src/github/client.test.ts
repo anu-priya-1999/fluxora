@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import test from "node:test";
+import { test } from "vitest";
 
 import { createGithubIngestClient } from "./client.ts";
 import { IngestionError } from "../ingest/errors.ts";

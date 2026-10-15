@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 
 import type { CreateEvidenceInput } from "@fluxora/shared-types";
 import { loadRootEnvFile } from "../cli/env.ts";
@@ -51,13 +51,13 @@ async function ensureRlsTestRole(pool: ReturnType<typeof getPool>): Promise<void
   process.env.FLUXORA_DATABASE_ROLE = RLS_TEST_ROLE;
 }
 
-test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
+describe("Global Step 29: Evidence Writer & CI Evidence Lint", () => {
   const dummyOrgId = "11111111-1111-4111-8111-111111111111";
   const dummyRunId = "22222222-2222-4222-8222-222222222222";
   const dummyNodeId = "33333333-3333-4333-8333-333333333333";
   const dummyEdgeId = "44444444-4444-4444-8444-444444444444";
 
-  await t.test("1. Evidence Writer creates valid evidence input", () => {
+  it("1. Evidence Writer creates valid evidence input", () => {
     const ev = EvidenceWriter.createEvidenceInput({
       organizationId: dummyOrgId,
       analysisRunId: dummyRunId,
@@ -82,7 +82,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
     assert.equal(ev.lineEnd, 25);
   });
 
-  await t.test("2. Evidence identity is deterministic across calls", () => {
+  it("2. Evidence identity is deterministic across calls", () => {
     const id1 = EvidenceWriter.generateEvidenceId({
       analysisRunId: dummyRunId,
       subjectType: "graph_node",
@@ -102,7 +102,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
     assert.equal(id1, id2);
   });
 
-  await t.test("4. Evidence provenance is preserved exactly", () => {
+  it("4. Evidence provenance is preserved exactly", () => {
     const input = EvidenceWriter.createEvidenceInput({
       organizationId: dummyOrgId,
       analysisRunId: dummyRunId,
@@ -128,7 +128,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
     assert.deepEqual(input.metadata, { framework: "nextjs" });
   });
 
-  await t.test("10. Invalid evidence input is rejected safely", () => {
+  it("10. Invalid evidence input is rejected safely", () => {
     assert.throws(() => {
       EvidenceWriter.createEvidenceInput({
         organizationId: "invalid-uuid",
@@ -166,7 +166,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
     }, EvidenceValidationError);
   });
 
-  await t.test("11. Missing/invalid provenance is not fabricated", () => {
+  it("11. Missing/invalid provenance is not fabricated", () => {
     const input = EvidenceWriter.createEvidenceInput({
       organizationId: dummyOrgId,
       analysisRunId: dummyRunId,
@@ -183,7 +183,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
     assert.equal(input.columnEnd, null);
   });
 
-  await t.test("12. CI evidence-lint passes for valid graph-write paths", () => {
+  it("12. CI evidence-lint passes for valid graph-write paths", () => {
     const validCode = `
       import { EvidenceWriter } from "@fluxora/db";
 
@@ -208,7 +208,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
     assert.equal(repoCheck.violations.length, 0);
   });
 
-  await t.test("13. CI evidence-lint fails when a graph-write path bypasses Evidence Writer", () => {
+  it("13. CI evidence-lint fails when a graph-write path bypasses Evidence Writer", () => {
     const invalidCode = `
       export async function bypassWrite(pool, node) {
         const query = "INSERT INTO graph_nodes (analysis_run_id, canonical_id) VALUES ($1, $2)";
@@ -227,71 +227,80 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
   // -------------------------------------------------------------------------
   // Database & RLS Integration Tests (skipped if DATABASE_URL is not set)
   // -------------------------------------------------------------------------
-  await t.test("Database Integration & RLS Tests", { skip: !hasDatabase }, async (dbT) => {
-    const pool = getPool();
-    await runMigrations(pool);
-    await ensureRlsTestRole(pool);
-
+  describe.skipIf(!hasDatabase)("Database Integration & RLS Tests", () => {
+    let pool: ReturnType<typeof getPool>;
+    let orgA: Awaited<ReturnType<typeof createOrganization>>;
+    let orgB: Awaited<ReturnType<typeof createOrganization>>;
+    let runA: Awaited<ReturnType<typeof createAnalysisRun>>;
+    let runB: Awaited<ReturnType<typeof createAnalysisRun>>;
     const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
-    const orgA = await createOrganization(pool, { name: `step29-org-a-${suffix}` });
-    const orgB = await createOrganization(pool, { name: `step29-org-b-${suffix}` });
+    beforeAll(async () => {
+      pool = getPool();
+      await runMigrations(pool);
+      await ensureRlsTestRole(pool);
 
-    const repoA = await createRepository(pool, {
-      organizationId: orgA.id,
-      githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 5000}`,
-      name: "step29-app-a",
-      defaultBranch: "main",
+      orgA = await createOrganization(pool, { name: `step29-org-a-${suffix}` });
+      orgB = await createOrganization(pool, { name: `step29-org-b-${suffix}` });
+
+      const repoA = await createRepository(pool, {
+        organizationId: orgA.id,
+        githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 5000}`,
+        name: "step29-app-a",
+        defaultBranch: "main",
+      });
+
+      const snapshotA = await createRepositorySnapshot(pool, {
+        organizationId: orgA.id,
+        repositoryId: repoA.id,
+        commitSha: "a".repeat(40),
+        ref: "refs/heads/main",
+        storageUri: "s3://snapshots/a",
+        sha256: "a".repeat(64),
+        fileCount: 10,
+        sizeBytes: "1024",
+      });
+
+      runA = await createAnalysisRun(pool, {
+        organizationId: orgA.id,
+        snapshotId: snapshotA.id,
+        status: "running",
+      });
+
+      const repoB = await createRepository(pool, {
+        organizationId: orgB.id,
+        githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 6000}`,
+        name: "step29-app-b",
+        defaultBranch: "main",
+      });
+
+      const snapshotB = await createRepositorySnapshot(pool, {
+        organizationId: orgB.id,
+        repositoryId: repoB.id,
+        commitSha: "b".repeat(40),
+        ref: "refs/heads/main",
+        storageUri: "s3://snapshots/b",
+        sha256: "b".repeat(64),
+        fileCount: 5,
+        sizeBytes: "512",
+      });
+
+      runB = await createAnalysisRun(pool, {
+        organizationId: orgB.id,
+        snapshotId: snapshotB.id,
+        status: "running",
+      });
     });
 
-    const snapshotA = await createRepositorySnapshot(pool, {
-      organizationId: orgA.id,
-      repositoryId: repoA.id,
-      commitSha: "a".repeat(40),
-      ref: "refs/heads/main",
-      storageUri: "s3://snapshots/a",
-      sha256: "a".repeat(64),
-      fileCount: 10,
-      sizeBytes: "1024",
-    });
-
-    const runA = await createAnalysisRun(pool, {
-      organizationId: orgA.id,
-      snapshotId: snapshotA.id,
-      status: "running",
-    });
-
-    const repoB = await createRepository(pool, {
-      organizationId: orgB.id,
-      githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 6000}`,
-      name: "step29-app-b",
-      defaultBranch: "main",
-    });
-
-    const snapshotB = await createRepositorySnapshot(pool, {
-      organizationId: orgB.id,
-      repositoryId: repoB.id,
-      commitSha: "b".repeat(40),
-      ref: "refs/heads/main",
-      storageUri: "s3://snapshots/b",
-      sha256: "b".repeat(64),
-      fileCount: 5,
-      sizeBytes: "512",
-    });
-
-    const runB = await createAnalysisRun(pool, {
-      organizationId: orgB.id,
-      snapshotId: snapshotB.id,
-      status: "running",
-    });
-
-    dbT.after(async () => {
+    afterAll(async () => {
       delete process.env.FLUXORA_DATABASE_ROLE;
-      await pool.query(`DELETE FROM organizations WHERE name LIKE $1`, [`step29-org-%-${suffix}`]);
-      await closePool();
+      if (pool) {
+        await pool.query(`DELETE FROM organizations WHERE name LIKE $1`, [`step29-org-%-${suffix}`]);
+        await closePool();
+      }
     });
 
-    await dbT.test("3. Repeating the same evidence write is idempotent", async () => {
+    it("3. Repeating the same evidence write is idempotent", async () => {
       const input = EvidenceWriter.createEvidenceInput({
         organizationId: orgA.id,
         analysisRunId: runA.id,
@@ -312,7 +321,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
       assert.equal(matching.length, 1);
     });
 
-    await dbT.test("5. Batch evidence writing is deterministic and idempotent", async () => {
+    it("5. Batch evidence writing is deterministic and idempotent", async () => {
       const nodeAId = EvidenceWriter.generateDeterministicUuid(`${runA.id}:node-batch-a`);
       const nodeBId = EvidenceWriter.generateDeterministicUuid(`${runA.id}:node-batch-b`);
 
@@ -345,7 +354,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
       assert.equal(batchResult1[1].id, batchResult2[1].id);
     });
 
-    await dbT.test("6 & 7. Graph node and edge writes receive evidence via EvidenceWriter", async () => {
+    it("6 & 7. Graph node and edge writes receive evidence via EvidenceWriter", async () => {
       const node1Id = EvidenceWriter.generateDeterministicUuid(`${runA.id}:node-ev-1`);
       const node2Id = EvidenceWriter.generateDeterministicUuid(`${runA.id}:node-ev-2`);
       const edgeId = EvidenceWriter.generateDeterministicUuid(`${runA.id}:edge-ev-12`);
@@ -406,7 +415,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
       assert.equal(fetchedEdgeEv.subjectId, edgeId);
     });
 
-    await dbT.test("8. Evidence and graph records remain atomic in one transaction", async () => {
+    it("8. Evidence and graph records remain atomic in one transaction", async () => {
       const node1Id = EvidenceWriter.generateDeterministicUuid(`${runA.id}:atomic-node-1`);
       const node2Id = EvidenceWriter.generateDeterministicUuid(`${runA.id}:atomic-node-2`);
       const edgeId = EvidenceWriter.generateDeterministicUuid(`${runA.id}:atomic-edge-1`);
@@ -466,7 +475,7 @@ test("Global Step 29: Evidence Writer & CI Evidence Lint", async (t) => {
       assert.equal(invalidFound.length, 0);
     });
 
-    await dbT.test("9. Cross-tenant / RLS protections remain intact for Evidence Writer", async () => {
+    it("9. Cross-tenant / RLS protections remain intact for Evidence Writer", async () => {
       const inputB = EvidenceWriter.createEvidenceInput({
         organizationId: orgB.id,
         analysisRunId: runB.id,

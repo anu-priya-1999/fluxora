@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
-import test from "node:test";
+import { test } from "vitest";
 
 import type {
   Job,

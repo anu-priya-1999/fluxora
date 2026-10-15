@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 
 import { closePool, getPool } from "../pool.ts";
 import { loadRootEnvFile } from "../cli/env.ts";
@@ -74,27 +74,35 @@ const SNAPSHOT_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const CHECKSUM_A = "a".repeat(64);
 const CHECKSUM_B = "b".repeat(64);
 
-test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) => {
-  const pool = getPool();
-  await ensureRlsTestRole(pool);
+describe.skipIf(!hasDatabase)("repository snapshot commit data model", () => {
+  let pool: ReturnType<typeof getPool>;
+  let orgA: Awaited<ReturnType<typeof createOrganization>>;
+  let orgB: Awaited<ReturnType<typeof createOrganization>>;
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-  const orgA = await createOrganization(pool, {
-    name: `fluxora-step11-a-${suffix}`,
-  });
-  const orgB = await createOrganization(pool, {
-    name: `fluxora-step11-b-${suffix}`,
+
+  beforeAll(async () => {
+    pool = getPool();
+    await ensureRlsTestRole(pool);
+    orgA = await createOrganization(pool, {
+      name: `fluxora-step11-a-${suffix}`,
+    });
+    orgB = await createOrganization(pool, {
+      name: `fluxora-step11-b-${suffix}`,
+    });
   });
 
-  t.after(async () => {
+  afterAll(async () => {
     delete process.env.FLUXORA_DATABASE_ROLE;
-    await pool.query(
-      `DELETE FROM organizations WHERE name LIKE $1`,
-      [`fluxora-step11-%-${suffix}`],
-    );
-    await closePool();
+    if (pool) {
+      await pool.query(
+        `DELETE FROM organizations WHERE name LIKE $1`,
+        [`fluxora-step11-%-${suffix}`],
+      );
+      await closePool();
+    }
   });
 
-  await t.test("creates reads and updates a repository including connection_status", async () => {
+  it("creates reads and updates a repository including connection_status", async () => {
     const created = await createRepository(pool, {
       organizationId: orgA.id,
       githubRepoId: "1001",
@@ -141,7 +149,7 @@ test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) 
     );
   });
 
-  await t.test("creates snapshots as immutable and linked to the repository", async () => {
+  it("creates snapshots as immutable and linked to the repository", async () => {
     const [repository] = await listRepositories(pool, orgA.id);
     assert.ok(repository);
 
@@ -205,7 +213,7 @@ test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) 
     assert.equal(listed[0]?.id, snapshot.id);
   });
 
-  await t.test("creates and reads commits linked to the repository", async () => {
+  it("creates and reads commits linked to the repository", async () => {
     const [repository] = await listRepositories(pool, orgA.id);
     assert.ok(repository);
 
@@ -250,7 +258,7 @@ test("repository snapshot commit data model", { skip: !hasDatabase }, async (t) 
     assert.equal(listed[1]?.id, root.id);
   });
 
-  await t.test("denies cross-tenant repository snapshot and commit access", async () => {
+  it("denies cross-tenant repository snapshot and commit access", async () => {
     const [repository] = await listRepositories(pool, orgA.id);
     assert.ok(repository);
     const [snapshot] = await listRepositorySnapshots(pool, orgA.id, repository.id);

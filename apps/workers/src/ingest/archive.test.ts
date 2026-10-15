@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
-import test from "node:test";
+import { test } from "vitest";
 
 import { extractTarGz, resolveSafeArchivePath } from "./archive.ts";
 import { IngestionError } from "./errors.ts";

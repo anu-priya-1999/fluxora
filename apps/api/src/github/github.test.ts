@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { generateKeyPairSync, verify } from "node:crypto";
-import test from "node:test";
+import { test } from "vitest";
 
 import type { GithubInstallation } from "@fluxora/shared-types";
 

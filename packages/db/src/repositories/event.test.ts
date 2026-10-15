@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test, onTestFinished } from "vitest";
 
 import {
   createOrganization,
@@ -19,10 +19,10 @@ import {
   parseFluxoraEventEnvelope,
 } from "@fluxora/shared-types";
 
-test("event outbox: stores events with RLS, idempotency, and LISTEN/NOTIFY", async (t) => {
+test("event outbox: stores events with RLS, idempotency, and LISTEN/NOTIFY", async () => {
   const pool = getPool();
 
-  t.after(async () => {
+  onTestFinished(async () => {
     await closePool();
   });
 

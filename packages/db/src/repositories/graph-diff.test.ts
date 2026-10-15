@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import {
   GRAPH_UPDATED_EVENT_TYPE,
   graphUpdatedIdempotencyKey,
@@ -10,6 +10,7 @@ import {
   type GraphUpdatedPayload,
 } from "@fluxora/shared-types";
 import {
+  closePool,
   computeGraphDiff,
   createAnalysisRun,
   createOrganization,
@@ -29,8 +30,8 @@ const hasDatabase =
   process.env.DATABASE_URL.length > 0;
 
 
-test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
-  await t.test("1. empty diff: identical before and after states produce zero changes", () => {
+describe("Global Step 32: Graph Diff & Graph Updated Events", () => {
+  it("1. empty diff: identical before and after states produce zero changes", () => {
     const state = {
       nodes: [
         {
@@ -78,7 +79,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.totalNodesAfter, 1);
   });
 
-  await t.test("2. added node: nodes in current but not in previous are classified as added", () => {
+  it("2. added node: nodes in current but not in previous are classified as added", () => {
     const prev = { nodes: [], edges: [] };
     const curr = {
       nodes: [
@@ -105,7 +106,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.totalNodesAfter, 1);
   });
 
-  await t.test("3. removed node: nodes in previous but missing in current are classified as removed", () => {
+  it("3. removed node: nodes in previous but missing in current are classified as removed", () => {
     const prev = {
       nodes: [
         {
@@ -129,7 +130,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.node_delta, -1);
   });
 
-  await t.test("4. changed node: mutated name, confidence, or metadata detected with field provenance", () => {
+  it("4. changed node: mutated name, confidence, or metadata detected with field provenance", () => {
     const prev = {
       nodes: [
         {
@@ -166,7 +167,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.nodesUnchanged, 0);
   });
 
-  await t.test("5. added edge: new edges between nodes are classified as added", () => {
+  it("5. added edge: new edges between nodes are classified as added", () => {
     const prev = {
       nodes: [
         { canonicalId: "mod:A", nodeType: "module", name: "A" },
@@ -200,7 +201,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.edge_delta, 1);
   });
 
-  await t.test("6. removed edge: deleted edge relationships classified as removed", () => {
+  it("6. removed edge: deleted edge relationships classified as removed", () => {
     const prev = {
       nodes: [
         { canonicalId: "mod:A", nodeType: "module", name: "A" },
@@ -233,7 +234,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.edge_delta, -1);
   });
 
-  await t.test("7. changed edge: confidence or metadata changes classified with field list", () => {
+  it("7. changed edge: confidence or metadata changes classified with field list", () => {
     const prev = {
       nodes: [
         { canonicalId: "mod:A", nodeType: "module", name: "A" },
@@ -275,7 +276,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.summary.edgesUnchanged, 0);
   });
 
-  await t.test("8. combined node + edge changes: handles multi-entity mutations accurately", () => {
+  it("8. combined node + edge changes: handles multi-entity mutations accurately", () => {
     const prev = {
       nodes: [
         { canonicalId: "n1", nodeType: "module", name: "mod1" },
@@ -319,7 +320,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diff.removedEdges[0]?.edgeType, "RESOLVES_TO");
   });
 
-  await t.test("9. deterministic ordering: output order is independent of input object order", () => {
+  it("9. deterministic ordering: output order is independent of input object order", () => {
     const prev = { nodes: [], edges: [] };
     const currA = {
       nodes: [
@@ -353,7 +354,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(diffA.addedNodes[2]?.canonicalId, "z_node");
   });
 
-  await t.test("10. deterministic repeated diff: repeated execution produces identical results", () => {
+  it("10. deterministic repeated diff: repeated execution produces identical results", () => {
     const prev = {
       nodes: [{ canonicalId: "n1", nodeType: "module", name: "A" }],
       edges: [],
@@ -372,7 +373,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.deepEqual(run1, run2);
   });
 
-  await t.test("11. deterministic event payload: parseGraphUpdatedPayload parses valid payload safely", () => {
+  it("11. deterministic event payload: parseGraphUpdatedPayload parses valid payload safely", () => {
     const orgId = "11111111-1111-4111-8111-111111111111";
     const runId = "22222222-2222-4222-8222-222222222222";
     const prevRunId = "33333333-3333-4333-8333-333333333333";
@@ -412,7 +413,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
     assert.equal(parseGraphUpdatedPayload({ organizationId: "not-uuid" }), null);
   });
 
-  await t.test("17. event never exposes raw unrelated DB fields or secret credentials", () => {
+  it("17. event never exposes raw unrelated DB fields or secret credentials", () => {
     const diff = computeGraphDiff(
       { nodes: [], edges: [] },
       {
@@ -438,60 +439,72 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
   });
 
   // Database Integration & RLS Tests
-  if (!hasDatabase) {
-    t.test("Database Integration & RLS Tests (skipped: no DATABASE_URL)", { skip: true }, () => {});
-    return;
-  }
+  describe.skipIf(!hasDatabase)("Database Integration & RLS Tests", () => {
+    let pool: ReturnType<typeof getPool>;
+    let orgA: Awaited<ReturnType<typeof createOrganization>>;
+    let orgB: Awaited<ReturnType<typeof createOrganization>>;
+    let repoA: Awaited<ReturnType<typeof createRepository>>;
+    let snap1: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+    let snap2: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+    let run1: Awaited<ReturnType<typeof createAnalysisRun>>;
+    let run2: Awaited<ReturnType<typeof createAnalysisRun>>;
 
-  await t.test("Database Integration & RLS Tests", async (it) => {
-    const pool = getPool();
-    await runMigrations(pool);
+    beforeAll(async () => {
+      pool = getPool();
+      await runMigrations(pool);
 
-    const orgA = await createOrganization(pool, { name: `org-diff-a-${Date.now()}` });
-    const orgB = await createOrganization(pool, { name: `org-diff-b-${Date.now()}` });
+      orgA = await createOrganization(pool, { name: `org-diff-a-${Date.now()}` });
+      orgB = await createOrganization(pool, { name: `org-diff-b-${Date.now()}` });
 
-    const repoA = await createRepository(pool, {
-      organizationId: orgA.id,
-      githubRepoId: String(Math.floor(10000000 + Math.random() * 80000000)),
-      name: "diff-repo",
-      defaultBranch: "main",
+      repoA = await createRepository(pool, {
+        organizationId: orgA.id,
+        githubRepoId: String(Math.floor(10000000 + Math.random() * 80000000)),
+        name: "diff-repo",
+        defaultBranch: "main",
+      });
+
+      snap1 = await createRepositorySnapshot(pool, {
+        organizationId: orgA.id,
+        repositoryId: repoA.id,
+        commitSha: "1111111111111111111111111111111111111111",
+        ref: "refs/heads/main",
+        fileCount: 2,
+        sizeBytes: "1000",
+        storageUri: "s3://snapshots/1",
+        sha256: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+      });
+
+      snap2 = await createRepositorySnapshot(pool, {
+        organizationId: orgA.id,
+        repositoryId: repoA.id,
+        commitSha: "2222222222222222222222222222222222222222",
+        ref: "refs/heads/main",
+        fileCount: 3,
+        sizeBytes: "1500",
+        storageUri: "s3://snapshots/2",
+        sha256: "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+      });
+
+      run1 = await createAnalysisRun(pool, {
+        organizationId: orgA.id,
+        snapshotId: snap1.id,
+        status: "completed",
+      });
+
+      run2 = await createAnalysisRun(pool, {
+        organizationId: orgA.id,
+        snapshotId: snap2.id,
+        status: "running",
+      });
     });
 
-    const snap1 = await createRepositorySnapshot(pool, {
-      organizationId: orgA.id,
-      repositoryId: repoA.id,
-      commitSha: "1111111111111111111111111111111111111111",
-      ref: "refs/heads/main",
-      fileCount: 2,
-      sizeBytes: "1000",
-      storageUri: "s3://snapshots/1",
-      sha256: "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+    afterAll(async () => {
+      if (pool) {
+        await closePool();
+      }
     });
 
-    const snap2 = await createRepositorySnapshot(pool, {
-      organizationId: orgA.id,
-      repositoryId: repoA.id,
-      commitSha: "2222222222222222222222222222222222222222",
-      ref: "refs/heads/main",
-      fileCount: 3,
-      sizeBytes: "1500",
-      storageUri: "s3://snapshots/2",
-      sha256: "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
-    });
-
-    const run1 = await createAnalysisRun(pool, {
-      organizationId: orgA.id,
-      snapshotId: snap1.id,
-      status: "completed",
-    });
-
-    const run2 = await createAnalysisRun(pool, {
-      organizationId: orgA.id,
-      snapshotId: snap2.id,
-      status: "running",
-    });
-
-    await it.test("12 & 16. persistGraphBuild computes diff and emits graph.updated event atomically", async () => {
+    it("12 & 16. persistGraphBuild computes diff and emits graph.updated event atomically", async () => {
       const seed = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
       // Run 1: initial graph build
       const n1Id = EvidenceWriter.generateDeterministicUuid(`${seed}:node:1`);
@@ -604,7 +617,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
       assert.equal(build2.event.payload.summary.edges_removed, 1);
     });
 
-    await it.test("12. idempotent/repeated update behavior: duplicate persist preserves idempotency", async () => {
+    it("12. idempotent/repeated update behavior: duplicate persist preserves idempotency", async () => {
       // Re-run persist on run2
       const build2Again = await persistGraphBuild(pool, {
         organizationId: orgA.id,
@@ -624,7 +637,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
       assert.equal(matching.length, 1);
     });
 
-    await it.test("13. tenant isolation: cross-tenant diff request returns empty previous state", async () => {
+    it("13. tenant isolation: cross-tenant diff request returns empty previous state", async () => {
       // Org B tries to diff using run1 belonging to Org A
       const runB = await createAnalysisRun(pool, {
         organizationId: orgB.id,
@@ -658,7 +671,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
       assert.equal(crossDiff.summary.totalEdgesBefore, 0);
     });
 
-    await it.test("14. analysis-run isolation: diffing against specific run isolates data", async () => {
+    it("14. analysis-run isolation: diffing against specific run isolates data", async () => {
       const diff1to2 = await diffAnalysisRuns(pool, {
         organizationId: orgA.id,
         currentAnalysisRunId: run2.id,
@@ -669,7 +682,7 @@ test("Global Step 32: Graph Diff & Graph Updated Events", async (t) => {
       assert.equal(diff1to2.summary.totalNodesAfter, 3);
     });
 
-    await it.test("15. failed graph transaction does not emit a successful update event", async () => {
+    it("15. failed graph transaction does not emit a successful update event", async () => {
       const runFailed = await createAnalysisRun(pool, {
         organizationId: orgA.id,
         snapshotId: snap1.id,

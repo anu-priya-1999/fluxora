@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 
 import { loadRootEnvFile } from "../cli/env.ts";
 import { closePool, getPool } from "../pool.ts";
@@ -124,63 +124,74 @@ async function ensureRlsTestRole(pool: ReturnType<typeof getPool>): Promise<void
   process.env.FLUXORA_DATABASE_ROLE = RLS_TEST_ROLE;
 }
 
-test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RLS", { skip: !hasDatabase }, async (t) => {
-  const pool = getPool();
-  await runMigrations(pool);
-  await ensureRlsTestRole(pool);
-
+describe.skipIf(!hasDatabase)("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RLS", () => {
+  let pool: ReturnType<typeof getPool>;
+  let orgA: Awaited<ReturnType<typeof createOrganization>>;
+  let orgB: Awaited<ReturnType<typeof createOrganization>>;
+  let repoA: Awaited<ReturnType<typeof createRepository>>;
+  let snapshotA: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+  let repoB: Awaited<ReturnType<typeof createRepository>>;
+  let snapshotB: Awaited<ReturnType<typeof createRepositorySnapshot>>;
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
-  const orgA = await createOrganization(pool, {
-    name: `fluxora-step27-a-${suffix}`,
-  });
-  const orgB = await createOrganization(pool, {
-    name: `fluxora-step27-b-${suffix}`,
+  beforeAll(async () => {
+    pool = getPool();
+    await runMigrations(pool);
+    await ensureRlsTestRole(pool);
+
+    orgA = await createOrganization(pool, {
+      name: `fluxora-step27-a-${suffix}`,
+    });
+    orgB = await createOrganization(pool, {
+      name: `fluxora-step27-b-${suffix}`,
+    });
+
+    repoA = await createRepository(pool, {
+      organizationId: orgA.id,
+      githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 2000}`,
+      name: "fluxora-app-a",
+      defaultBranch: "main",
+    });
+
+    snapshotA = await createRepositorySnapshot(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      commitSha: "a".repeat(40),
+      ref: "refs/heads/main",
+      storageUri: "s3://snapshots/a",
+      sha256: "a".repeat(64),
+      fileCount: 10,
+      sizeBytes: "1024",
+    });
+
+    repoB = await createRepository(pool, {
+      organizationId: orgB.id,
+      githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 3000}`,
+      name: "fluxora-app-b",
+      defaultBranch: "main",
+    });
+
+    snapshotB = await createRepositorySnapshot(pool, {
+      organizationId: orgB.id,
+      repositoryId: repoB.id,
+      commitSha: "b".repeat(40),
+      ref: "refs/heads/main",
+      storageUri: "s3://snapshots/b",
+      sha256: "b".repeat(64),
+      fileCount: 15,
+      sizeBytes: "2048",
+    });
   });
 
-  const repoA = await createRepository(pool, {
-    organizationId: orgA.id,
-    githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 2000}`,
-    name: "fluxora-app-a",
-    defaultBranch: "main",
-  });
-
-  const snapshotA = await createRepositorySnapshot(pool, {
-    organizationId: orgA.id,
-    repositoryId: repoA.id,
-    commitSha: "a".repeat(40),
-    ref: "refs/heads/main",
-    storageUri: "s3://snapshots/a",
-    sha256: "a".repeat(64),
-    fileCount: 10,
-    sizeBytes: "1024",
-  });
-
-  const repoB = await createRepository(pool, {
-    organizationId: orgB.id,
-    githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 3000}`,
-    name: "fluxora-app-b",
-    defaultBranch: "main",
-  });
-
-  const snapshotB = await createRepositorySnapshot(pool, {
-    organizationId: orgB.id,
-    repositoryId: repoB.id,
-    commitSha: "b".repeat(40),
-    ref: "refs/heads/main",
-    storageUri: "s3://snapshots/b",
-    sha256: "b".repeat(64),
-    fileCount: 15,
-    sizeBytes: "2048",
-  });
-
-  t.after(async () => {
+  afterAll(async () => {
     delete process.env.FLUXORA_DATABASE_ROLE;
-    await pool.query(`DELETE FROM organizations WHERE name LIKE $1`, [`fluxora-step27-%-${suffix}`]);
-    await closePool();
+    if (pool) {
+      await pool.query(`DELETE FROM organizations WHERE name LIKE $1`, [`fluxora-step27-%-${suffix}`]);
+      await closePool();
+    }
   });
 
-  await t.test("1. Tables and indexes exist in database schema metadata", async () => {
+  it("1. Tables and indexes exist in database schema metadata", async () => {
     const tablesRes = await pool.query<{ table_name: string }>(
       `SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'`,
     );
@@ -202,7 +213,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     assert.ok(indexNames.has("evidence_subject_idx"));
   });
 
-  await t.test("2. AnalysisRun can be created, updated, and listed within tenant scope", async () => {
+  it("2. AnalysisRun can be created, updated, and listed within tenant scope", async () => {
     const run = await createAnalysisRun(pool, {
       organizationId: orgA.id,
       snapshotId: snapshotA.id,
@@ -220,7 +231,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     assert.equal(listed[0]?.id, run.id);
   });
 
-  await t.test("3. GraphNode can be inserted and read within correct tenant/scope", async () => {
+  it("3. GraphNode can be inserted and read within correct tenant/scope", async () => {
     const [runA] = await listAnalysisRuns(pool, orgA.id, snapshotA.id);
     assert.ok(runA);
 
@@ -255,7 +266,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     assert.equal(allNodes[0]?.id, node1.id);
   });
 
-  await t.test("4. GraphEdge can be inserted and read connecting nodes within analysis run", async () => {
+  it("4. GraphEdge can be inserted and read connecting nodes within analysis run", async () => {
     const [runA] = await listAnalysisRuns(pool, orgA.id, snapshotA.id);
     assert.ok(runA);
 
@@ -294,7 +305,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     assert.equal(allEdges[0]?.id, edge.id);
   });
 
-  await t.test("5. Evidence can be inserted and read linked to node or edge subject", async () => {
+  it("5. Evidence can be inserted and read linked to node or edge subject", async () => {
     const [runA] = await listAnalysisRuns(pool, orgA.id, snapshotA.id);
     assert.ok(runA);
     const [edge] = await listGraphEdges(pool, orgA.id, runA.id);
@@ -337,7 +348,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     assert.equal(runEv[0]?.id, ev.id);
   });
 
-  await t.test("6. Uniqueness constraints behave deterministically", async () => {
+  it("6. Uniqueness constraints behave deterministically", async () => {
     const [runA] = await listAnalysisRuns(pool, orgA.id, snapshotA.id);
     assert.ok(runA);
 
@@ -370,7 +381,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     );
   });
 
-  await t.test("7. Invalid inputs and references are rejected", async () => {
+  it("7. Invalid inputs and references are rejected", async () => {
     const [runA] = await listAnalysisRuns(pool, orgA.id, snapshotA.id);
     assert.ok(runA);
 
@@ -415,7 +426,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     );
   });
 
-  await t.test("8. Batch operations insert and update deterministically", async () => {
+  it("8. Batch operations insert and update deterministically", async () => {
     const [runA] = await listAnalysisRuns(pool, orgA.id, snapshotA.id);
     assert.ok(runA);
 
@@ -465,7 +476,7 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
     assert.equal(batchEv.length, 1);
   });
 
-  await t.test("9. Cross-tenant access is rejected and child records cannot bypass parent tenant boundaries", async () => {
+  it("9. Cross-tenant access is rejected and child records cannot bypass parent tenant boundaries", async () => {
     const runB = await createAnalysisRun(pool, {
       organizationId: orgB.id,
       snapshotId: snapshotB.id,
@@ -533,90 +544,114 @@ test("Step 27: Graph Storage — GraphNode, GraphEdge, Evidence persistence & RL
   });
 });
 
-test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabase }, async (t) => {
-  const pool = getPool();
-  await runMigrations(pool);
-  await ensureRlsTestRole(pool);
-
+describe.skipIf(!hasDatabase)("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", () => {
+  let pool: ReturnType<typeof getPool>;
+  let orgA: Awaited<ReturnType<typeof createOrganization>>;
+  let orgB: Awaited<ReturnType<typeof createOrganization>>;
+  let repoA: Awaited<ReturnType<typeof createRepository>>;
+  let snapshotA: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+  let runA1: Awaited<ReturnType<typeof createAnalysisRun>>;
+  let runA2: Awaited<ReturnType<typeof createAnalysisRun>>;
+  let repoB: Awaited<ReturnType<typeof createRepository>>;
+  let snapshotB: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+  let n1: Awaited<ReturnType<typeof createGraphNode>>;
+  let n2: Awaited<ReturnType<typeof createGraphNode>>;
+  let n3: Awaited<ReturnType<typeof createGraphNode>>;
+  let n4: Awaited<ReturnType<typeof createGraphNode>>;
+  let n5: Awaited<ReturnType<typeof createGraphNode>>;
+  let n6: Awaited<ReturnType<typeof createGraphNode>>;
+  let n7: Awaited<ReturnType<typeof createGraphNode>>;
+  let n8: Awaited<ReturnType<typeof createGraphNode>>;
+  let n9: Awaited<ReturnType<typeof createGraphNode>>;
+  let n10: Awaited<ReturnType<typeof createGraphNode>>;
+  let e1_2: Awaited<ReturnType<typeof createGraphEdge>>;
+  let ev1: Awaited<ReturnType<typeof createEvidence>>;
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
 
-  const orgA = await createOrganization(pool, { name: `fluxora-step30-a-${suffix}` });
-  const orgB = await createOrganization(pool, { name: `fluxora-step30-b-${suffix}` });
+  beforeAll(async () => {
+    pool = getPool();
+    await runMigrations(pool);
+    await ensureRlsTestRole(pool);
 
-  const repoA = await createRepository(pool, {
-    organizationId: orgA.id,
-    githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 4000}`,
-    name: "fluxora-app-step30-a",
-    defaultBranch: "main",
-  });
-  const snapshotA = await createRepositorySnapshot(pool, {
-    organizationId: orgA.id,
-    repositoryId: repoA.id,
-    commitSha: "c".repeat(40),
-    ref: "refs/heads/main",
-    storageUri: "s3://snapshots/step30-a",
-    sha256: "c".repeat(64),
-    fileCount: 10,
-    sizeBytes: "1024",
-  });
-  const runA1 = await createAnalysisRun(pool, { organizationId: orgA.id, snapshotId: snapshotA.id });
-  const runA2 = await createAnalysisRun(pool, { organizationId: orgA.id, snapshotId: snapshotA.id });
+    orgA = await createOrganization(pool, { name: `fluxora-step30-a-${suffix}` });
+    orgB = await createOrganization(pool, { name: `fluxora-step30-b-${suffix}` });
 
-  const repoB = await createRepository(pool, {
-    organizationId: orgB.id,
-    githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 5000}`,
-    name: "fluxora-app-step30-b",
-    defaultBranch: "main",
-  });
-  const snapshotB = await createRepositorySnapshot(pool, {
-    organizationId: orgB.id,
-    repositoryId: repoB.id,
-    commitSha: "d".repeat(40),
-    ref: "refs/heads/main",
-    storageUri: "s3://snapshots/step30-b",
-    sha256: "d".repeat(64),
-    fileCount: 5,
-    sizeBytes: "512",
-  });
-  await createAnalysisRun(pool, { organizationId: orgB.id, snapshotId: snapshotB.id });
+    repoA = await createRepository(pool, {
+      organizationId: orgA.id,
+      githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 4000}`,
+      name: "fluxora-app-step30-a",
+      defaultBranch: "main",
+    });
+    snapshotA = await createRepositorySnapshot(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      commitSha: "c".repeat(40),
+      ref: "refs/heads/main",
+      storageUri: "s3://snapshots/step30-a",
+      sha256: "c".repeat(64),
+      fileCount: 10,
+      sizeBytes: "1024",
+    });
+    runA1 = await createAnalysisRun(pool, { organizationId: orgA.id, snapshotId: snapshotA.id });
+    runA2 = await createAnalysisRun(pool, { organizationId: orgA.id, snapshotId: snapshotA.id });
 
-  t.after(async () => {
+    repoB = await createRepository(pool, {
+      organizationId: orgB.id,
+      githubRepoId: `${Math.floor(Math.random() * 1_000_000) + 5000}`,
+      name: "fluxora-app-step30-b",
+      defaultBranch: "main",
+    });
+    snapshotB = await createRepositorySnapshot(pool, {
+      organizationId: orgB.id,
+      repositoryId: repoB.id,
+      commitSha: "d".repeat(40),
+      ref: "refs/heads/main",
+      storageUri: "s3://snapshots/step30-b",
+      sha256: "d".repeat(64),
+      fileCount: 5,
+      sizeBytes: "512",
+    });
+    await createAnalysisRun(pool, { organizationId: orgB.id, snapshotId: snapshotB.id });
+
+    n1 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:1", nodeType: "module", name: "node1" });
+    n2 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:2", nodeType: "module", name: "node2" });
+    n3 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:3", nodeType: "module", name: "node3" });
+    n4 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:4", nodeType: "module", name: "node4" });
+    n5 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:5", nodeType: "module", name: "node5" });
+    n6 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:6", nodeType: "module", name: "node6" });
+    n7 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:7", nodeType: "module", name: "node7" });
+    n8 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:8", nodeType: "module", name: "node8" });
+    n9 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:9", nodeType: "module", name: "node9" });
+    n10 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:10", nodeType: "module", name: "node10" });
+
+    e1_2 = await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n1.id, targetNodeId: n2.id, edgeType: "CALLS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n2.id, targetNodeId: n3.id, edgeType: "CALLS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n3.id, targetNodeId: n4.id, edgeType: "CALLS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n2.id, targetNodeId: n5.id, edgeType: "IMPORTS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n3.id, targetNodeId: n5.id, edgeType: "IMPORTS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n5.id, targetNodeId: n6.id, edgeType: "CALLS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n6.id, targetNodeId: n7.id, edgeType: "CALLS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n7.id, targetNodeId: n5.id, edgeType: "CALLS" });
+    await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n8.id, targetNodeId: n9.id, edgeType: "CALLS" });
+    ev1 = await createEvidence(pool, {
+      organizationId: orgA.id,
+      analysisRunId: runA1.id,
+      subjectType: "graph_edge",
+      subjectId: e1_2.id,
+      filePath: "src/n1.ts",
+      relationshipDescription: "n1 calls n2",
+    });
+  });
+
+  afterAll(async () => {
     delete process.env.FLUXORA_DATABASE_ROLE;
-    await pool.query(`DELETE FROM organizations WHERE name LIKE $1`, [`fluxora-step30-%-${suffix}`]);
-    await closePool();
+    if (pool) {
+      await pool.query(`DELETE FROM organizations WHERE name LIKE $1`, [`fluxora-step30-%-${suffix}`]);
+      await closePool();
+    }
   });
 
-  const n1 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:1", nodeType: "module", name: "node1" });
-  const n2 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:2", nodeType: "module", name: "node2" });
-  const n3 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:3", nodeType: "module", name: "node3" });
-  const n4 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:4", nodeType: "module", name: "node4" });
-  const n5 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:5", nodeType: "module", name: "node5" });
-  const n6 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:6", nodeType: "module", name: "node6" });
-  const n7 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:7", nodeType: "module", name: "node7" });
-  const n8 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:8", nodeType: "module", name: "node8" });
-  const n9 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:9", nodeType: "module", name: "node9" });
-  const n10 = await createGraphNode(pool, { organizationId: orgA.id, analysisRunId: runA1.id, canonicalId: "mod:10", nodeType: "module", name: "node10" });
-
-  const e1_2 = await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n1.id, targetNodeId: n2.id, edgeType: "CALLS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n2.id, targetNodeId: n3.id, edgeType: "CALLS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n3.id, targetNodeId: n4.id, edgeType: "CALLS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n2.id, targetNodeId: n5.id, edgeType: "IMPORTS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n3.id, targetNodeId: n5.id, edgeType: "IMPORTS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n5.id, targetNodeId: n6.id, edgeType: "CALLS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n6.id, targetNodeId: n7.id, edgeType: "CALLS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n7.id, targetNodeId: n5.id, edgeType: "CALLS" });
-  await createGraphEdge(pool, { organizationId: orgA.id, analysisRunId: runA1.id, sourceNodeId: n8.id, targetNodeId: n9.id, edgeType: "CALLS" });
-
-  const ev1 = await createEvidence(pool, {
-    organizationId: orgA.id,
-    analysisRunId: runA1.id,
-    subjectType: "graph_edge",
-    subjectId: e1_2.id,
-    filePath: "src/n1.ts",
-    relationshipDescription: "n1 calls n2",
-  });
-
-  await t.test("1. Linear graph chain traversal & depth limits", async () => {
+  it("1. Linear graph chain traversal & depth limits", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -639,7 +674,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.equal(res.maxDepthReached, 2);
   });
 
-  await t.test("2. Traversal one hop beyond maxDepth is excluded", async () => {
+  it("2. Traversal one hop beyond maxDepth is excluded", async () => {
     const resDepth2 = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -658,7 +693,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.equal(resDepth3.nodes.find((n) => n.node.id === n4.id)?.depth, 3);
   });
 
-  await t.test("3. Cyclic graph traversal terminates without infinite loop", async () => {
+  it("3. Cyclic graph traversal terminates without infinite loop", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -674,7 +709,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.ok(nodeIds.includes(n7.id));
   });
 
-  await t.test("4. Disconnected components are not reached", async () => {
+  it("4. Disconnected components are not reached", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -686,7 +721,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.ok(!nodeIds.includes(n9.id));
   });
 
-  await t.test("5. Starting node with no outgoing relationships", async () => {
+  it("5. Starting node with no outgoing relationships", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -700,7 +735,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.equal(res.maxDepthReached, 0);
   });
 
-  await t.test("6. Depth-zero query returns only the start node", async () => {
+  it("6. Depth-zero query returns only the start node", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -714,7 +749,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.equal(res.edges.length, 0);
   });
 
-  await t.test("7. Repeated paths to same node deduplicate to minimum depth", async () => {
+  it("7. Repeated paths to same node deduplicate to minimum depth", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -727,7 +762,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.equal(n5Entry.depth, 2);
   });
 
-  await t.test("8. Invalid depths and hard max depth cap throw validation error", async () => {
+  it("8. Invalid depths and hard max depth cap throw validation error", async () => {
     await assert.rejects(
       async () => {
         await traverseGraph(pool, {
@@ -765,7 +800,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     );
   });
 
-  await t.test("9. Missing or invalid starting node returns null startNode", async () => {
+  it("9. Missing or invalid starting node returns null startNode", async () => {
     const nonExistentId = "00000000-0000-4000-8000-000000000000";
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
@@ -778,7 +813,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.deepEqual(res.edges, []);
   });
 
-  await t.test("10. Deterministic result ordering across repeated executions", async () => {
+  it("10. Deterministic result ordering across repeated executions", async () => {
     const run1 = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,
@@ -802,7 +837,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     );
   });
 
-  await t.test("11. Tenant isolation & analysis run isolation", async () => {
+  it("11. Tenant isolation & analysis run isolation", async () => {
     const resCrossTenant = await traverseGraph(pool, {
       organizationId: orgB.id,
       analysisRunId: runA1.id,
@@ -822,7 +857,7 @@ test("Step 30: Bounded-Depth Recursive-CTE Graph Traversal", { skip: !hasDatabas
     assert.deepEqual(resCrossRun.nodes, []);
   });
 
-  await t.test("12. Evidence preservation for traversed components", async () => {
+  it("12. Evidence preservation for traversed components", async () => {
     const res = await traverseGraph(pool, {
       organizationId: orgA.id,
       analysisRunId: runA1.id,

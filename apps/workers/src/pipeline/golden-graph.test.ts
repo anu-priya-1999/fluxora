@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 
 import {
   closePool,
@@ -72,113 +72,130 @@ async function ensureRlsTestRole(pool: ReturnType<typeof getPool>): Promise<void
   `);
 }
 
-test(
+describe.skipIf(!hasDatabase)(
   "Step 33: Golden Fixture Graph Verification — End-to-End Contract Validation",
-  { skip: !hasDatabase },
-  async (t) => {
-    const pool = getPool();
-    await runMigrations(pool);
-    await ensureRlsTestRole(pool);
+  () => {
+    let pool: ReturnType<typeof getPool>;
+    let orgA: Awaited<ReturnType<typeof createOrganization>>;
+    let repoA: Awaited<ReturnType<typeof createRepository>>;
+    let snapshotA: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+    let runA1: Awaited<ReturnType<typeof createAnalysisRun>>;
+    let orgB: Awaited<ReturnType<typeof createOrganization>>;
+    let repoB: Awaited<ReturnType<typeof createRepository>>;
+    let snapshotB: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+    let runB: Awaited<ReturnType<typeof createAnalysisRun>>;
+    let runA2: Awaited<ReturnType<typeof createAnalysisRun>>;
+    let persisted: Awaited<ReturnType<typeof buildAndPersistGraph>>;
+    let dbNodes: Awaited<ReturnType<typeof listGraphNodes>>;
+    let dbEdges: Awaited<ReturnType<typeof listGraphEdges>>;
+    let dbEvidence: Awaited<ReturnType<typeof listEvidenceForAnalysisRun>>;
+    let normalized: Awaited<ReturnType<typeof runPhase3Pipeline>>["normalized"];
 
-    t.after(async () => {
+    beforeAll(async () => {
+      pool = getPool();
+      await runMigrations(pool);
+      await ensureRlsTestRole(pool);
+
+      // 1. Load golden fixture source snapshot files
+      const manifest = loadGoldenFixtureManifest();
+      assert.equal(manifest.fixtureId, GOLDEN_FIXTURE_ID);
+      assert.equal(manifest.pinnedCommitSha, GOLDEN_FIXTURE_PINNED_SHA);
+
+      const fileMap = loadGoldenFixtureFileMap();
+      assert.ok(fileMap.size > 100, "Golden fixture snapshot must have >100 files");
+
+      // 2. Execute full Phase 3 extraction/normalization pipeline
+      const pipelineResult = await runPhase3Pipeline({ files: fileMap });
+      normalized = pipelineResult.normalized;
+      assert.ok(normalized.symbols.length > 0);
+      assert.ok(normalized.moduleEdges.length > 0);
+      assert.ok(normalized.routes.length > 0);
+
+      // Setup multi-tenant DB fixture isolation
+      const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+      const baseId = Math.floor(Math.random() * 800_000_000) + 100_000_000;
+
+      orgA = await createOrganization(pool, {
+        name: `Step 33 Org A - Primary (${suffix})`,
+      });
+      repoA = await createRepository(pool, {
+        organizationId: orgA.id,
+        githubRepoId: String(baseId),
+        name: "shadcn-taxonomy",
+        defaultBranch: "main",
+      });
+      snapshotA = await createRepositorySnapshot(pool, {
+        organizationId: orgA.id,
+        repositoryId: repoA.id,
+        commitSha: GOLDEN_FIXTURE_PINNED_SHA,
+        ref: "main",
+        storageUri: "s3://fluxora-fixtures/taxonomy.tar.gz",
+        sha256: "0".repeat(64),
+        fileCount: fileMap.size,
+        sizeBytes: "1500000",
+      });
+      runA1 = await createAnalysisRun(pool, {
+        organizationId: orgA.id,
+        snapshotId: snapshotA.id,
+      });
+
+      // Secondary organization for cross-tenant RLS negative verification
+      orgB = await createOrganization(pool, {
+        name: `Step 33 Org B - Adversary (${suffix})`,
+      });
+      repoB = await createRepository(pool, {
+        organizationId: orgB.id,
+        githubRepoId: String(baseId + 1),
+        name: "isolated-repo",
+        defaultBranch: "main",
+      });
+      snapshotB = await createRepositorySnapshot(pool, {
+        organizationId: orgB.id,
+        repositoryId: repoB.id,
+        commitSha: "b".repeat(40),
+        ref: "main",
+        storageUri: "s3://fluxora-fixtures/isolated.tar.gz",
+        sha256: "1".repeat(64),
+        fileCount: 1,
+        sizeBytes: "100",
+      });
+      runB = await createAnalysisRun(pool, {
+        organizationId: orgB.id,
+        snapshotId: snapshotB.id,
+      });
+
+      // Secondary run under Org A for analysis run isolation verification
+      runA2 = await createAnalysisRun(pool, {
+        organizationId: orgA.id,
+        snapshotId: snapshotA.id,
+      });
+
+      // 3. Project and persist golden fixture graph into PostgreSQL
+      persisted = await buildAndPersistGraph(pool, {
+        organizationId: orgA.id,
+        analysisRunId: runA1.id,
+        normalizedResult: normalized,
+        emitEvent: false, // Pure graph storage verification
+      });
+
+      assert.ok(persisted.nodes.length > 0, "Persisted nodes must be non-empty");
+      assert.ok(persisted.edges.length > 0, "Persisted edges must be non-empty");
+      assert.ok(persisted.evidence.length > 0, "Persisted evidence must be non-empty");
+
+      // 4. Read back persisted graph directly from PostgreSQL using repository read APIs
+      dbNodes = await listGraphNodes(pool, orgA.id, runA1.id);
+      dbEdges = await listGraphEdges(pool, orgA.id, runA1.id);
+      dbEvidence = await listEvidenceForAnalysisRun(pool, orgA.id, runA1.id);
+    });
+
+    afterAll(async () => {
       await closePool();
     });
-
-    // 1. Load golden fixture source snapshot files
-    const manifest = loadGoldenFixtureManifest();
-    assert.equal(manifest.fixtureId, GOLDEN_FIXTURE_ID);
-    assert.equal(manifest.pinnedCommitSha, GOLDEN_FIXTURE_PINNED_SHA);
-
-    const fileMap = loadGoldenFixtureFileMap();
-    assert.ok(fileMap.size > 100, "Golden fixture snapshot must have >100 files");
-
-    // 2. Execute full Phase 3 extraction/normalization pipeline
-    const pipelineResult = await runPhase3Pipeline({ files: fileMap });
-    const normalized = pipelineResult.normalized;
-    assert.ok(normalized.symbols.length > 0);
-    assert.ok(normalized.moduleEdges.length > 0);
-    assert.ok(normalized.routes.length > 0);
-
-    // Setup multi-tenant DB fixture isolation
-    const suffix = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-    const baseId = Math.floor(Math.random() * 800_000_000) + 100_000_000;
-
-    const orgA = await createOrganization(pool, {
-      name: `Step 33 Org A - Primary (${suffix})`,
-    });
-    const repoA = await createRepository(pool, {
-      organizationId: orgA.id,
-      githubRepoId: String(baseId),
-      name: "shadcn-taxonomy",
-      defaultBranch: "main",
-    });
-    const snapshotA = await createRepositorySnapshot(pool, {
-      organizationId: orgA.id,
-      repositoryId: repoA.id,
-      commitSha: GOLDEN_FIXTURE_PINNED_SHA,
-      ref: "main",
-      storageUri: "s3://fluxora-fixtures/taxonomy.tar.gz",
-      sha256: "0".repeat(64),
-      fileCount: fileMap.size,
-      sizeBytes: "1500000",
-    });
-    const runA1 = await createAnalysisRun(pool, {
-      organizationId: orgA.id,
-      snapshotId: snapshotA.id,
-    });
-
-    // Secondary organization for cross-tenant RLS negative verification
-    const orgB = await createOrganization(pool, {
-      name: `Step 33 Org B - Adversary (${suffix})`,
-    });
-    const repoB = await createRepository(pool, {
-      organizationId: orgB.id,
-      githubRepoId: String(baseId + 1),
-      name: "isolated-repo",
-      defaultBranch: "main",
-    });
-    const snapshotB = await createRepositorySnapshot(pool, {
-      organizationId: orgB.id,
-      repositoryId: repoB.id,
-      commitSha: "b".repeat(40),
-      ref: "main",
-      storageUri: "s3://fluxora-fixtures/isolated.tar.gz",
-      sha256: "1".repeat(64),
-      fileCount: 1,
-      sizeBytes: "100",
-    });
-    const runB = await createAnalysisRun(pool, {
-      organizationId: orgB.id,
-      snapshotId: snapshotB.id,
-    });
-
-    // Secondary run under Org A for analysis run isolation verification
-    const runA2 = await createAnalysisRun(pool, {
-      organizationId: orgA.id,
-      snapshotId: snapshotA.id,
-    });
-
-    // 3. Project and persist golden fixture graph into PostgreSQL
-    const persisted = await buildAndPersistGraph(pool, {
-      organizationId: orgA.id,
-      analysisRunId: runA1.id,
-      normalizedResult: normalized,
-      emitEvent: false, // Pure graph storage verification
-    });
-
-    assert.ok(persisted.nodes.length > 0, "Persisted nodes must be non-empty");
-    assert.ok(persisted.edges.length > 0, "Persisted edges must be non-empty");
-    assert.ok(persisted.evidence.length > 0, "Persisted evidence must be non-empty");
-
-    // 4. Read back persisted graph directly from PostgreSQL using repository read APIs
-    const dbNodes = await listGraphNodes(pool, orgA.id, runA1.id);
-    const dbEdges = await listGraphEdges(pool, orgA.id, runA1.id);
-    const dbEvidence = await listEvidenceForAnalysisRun(pool, orgA.id, runA1.id);
 
     // =========================================================================
     // Contract 1: GraphNodes Validation (Counts, Types, IDs, Canonicalization)
     // =========================================================================
-    await t.test(
+    it(
       "1. Canonical GraphNodes contract: counts, types, stable IDs, and no duplicates",
       async () => {
         assert.equal(dbNodes.length, persisted.nodes.length);
@@ -280,7 +297,7 @@ test(
     // =========================================================================
     // Contract 2: GraphEdges Validation (Counts, Types, Direction, Integrity)
     // =========================================================================
-    await t.test(
+    it(
       "2. Canonical GraphEdges contract: counts, types, directionality, and endpoint integrity",
       async () => {
         assert.equal(dbEdges.length, persisted.edges.length);
@@ -403,7 +420,7 @@ test(
     // =========================================================================
     // Contract 3: Evidence Provenance Contract (Step 29 Evidence Linking)
     // =========================================================================
-    await t.test(
+    it(
       "3. Evidence provenance contract: exact attachment, file paths, and coordinates",
       async () => {
         assert.equal(dbEvidence.length, persisted.evidence.length);
@@ -481,7 +498,7 @@ test(
     // =========================================================================
     // Contract 4: Determinism & Repeated Persistence Idempotency
     // =========================================================================
-    await t.test(
+    it(
       "4. Determinism & Idempotency: repeated execution produces identical graph and zero duplicates",
       async () => {
         // Run projection a second time in memory
@@ -535,7 +552,7 @@ test(
     // =========================================================================
     // Contract 5: Tenant & Analysis-Run Isolation (RLS Verification)
     // =========================================================================
-    await t.test(
+    it(
       "5. Tenant and Analysis-Run Isolation: complete boundary enforcement",
       async () => {
         const originalRole = process.env.FLUXORA_DATABASE_ROLE;
@@ -613,7 +630,7 @@ test(
     // =========================================================================
     // Contract 6: Meaningful Negative Assertions
     // =========================================================================
-    await t.test(
+    it(
       "6. Meaningful Negative Assertions: unexpected nodes, edges, routes, and evidence are absent",
       async () => {
         // Negative Node 1: Non-existent canonical symbol
@@ -675,7 +692,7 @@ test(
     // =========================================================================
     // Contract 7: Recursive-CTE Traversal Smoke Check over Golden Graph
     // =========================================================================
-    await t.test(
+    it(
       "7. Step 30 CTE Traversal over Golden Graph: module -> route / import chains",
       async () => {
         const postsMod = dbNodes.find(

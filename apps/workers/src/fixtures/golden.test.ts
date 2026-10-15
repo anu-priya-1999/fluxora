@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import test from "node:test";
+import { test } from "vitest";
 
 import {
   GOLDEN_FIXTURE_DIR,

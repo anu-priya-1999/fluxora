@@ -3958,6 +3958,14 @@ This is a runtime execution constraint, not an architectural constraint.
 
 \\---
 
+### Test Runner Migration (node:test to Vitest)
+
+Fluxora workspace test execution was migrated from Node.js built-in `node:test` (`node --experimental-strip-types --test`) to Vitest (`vitest run`).
+- Architecture Invariant: The migration is strictly behavioral and test-intent preserving. No production behaviors, database schemas, graph models, WebSocket contracts, or RLS policies were modified.
+- Configuration: Standardized root `vitest.config.ts` and per-package configurations with `environment: "node"`, `fileParallelism: false` (to prevent parallel fork worker exhaustion on Windows), and custom timeouts for heavy static analysis runs (`apps/workers`).
+- Command: Package test scripts execute `vitest run`, with root `pnpm test` invoking tests across the workspace.
+
+---
 
 
 

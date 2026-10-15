@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import { REPOSITORY_INDEXED_EVENT_TYPE } from "@fluxora/shared-types";
 import { handleRepositoryIndexedMessage } from "./repository-events.ts";

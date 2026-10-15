@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import test from "node:test";
+import { test, onTestFinished } from "vitest";
 import WebSocket from "ws";
 
 import type { FluxoraEventEnvelope, RepositoryIndexedPayload } from "@fluxora/shared-types";
@@ -198,7 +198,7 @@ test("WebSocketHub isolates event broadcasts strictly by organization", () => {
   assert.equal(hub.getClientCount(), 0);
 });
 
-test("WebSocket server: authenticated /api/v1/ws connection and live repository.indexed delivery", async (t) => {
+test("WebSocket server: authenticated /api/v1/ws connection and live repository.indexed delivery", async () => {
   const server = http.createServer((_req, res) => {
     res.writeHead(404);
     res.end();
@@ -220,7 +220,7 @@ test("WebSocket server: authenticated /api/v1/ws connection and live repository.
   const address = server.address() as { port: number };
   const port = address.port;
 
-  t.after(async () => {
+  onTestFinished(async () => {
     await wsServer.close();
     await new Promise<void>((resolve) => {
       server.close(() => resolve());

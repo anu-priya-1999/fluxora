@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 import {
   buildAndPersistGraph,
   buildGraphProjection,
@@ -59,11 +59,11 @@ function createEmptyNormalizedResult(
   };
 }
 
-test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t) => {
+describe("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", () => {
   const orgId = "00000000-0000-4000-8000-000000000001";
   const runId = "00000000-0000-4000-8000-000000000002";
 
-  await t.test("1. Normalized symbols become GraphNodes", () => {
+  it("1. Normalized symbols become GraphNodes", () => {
     const normalized = createEmptyNormalizedResult({
       symbols: [
         {
@@ -102,7 +102,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     assert.equal(symNode.analysisRunId, runId);
   });
 
-  await t.test(
+  it(
     "2. Normalized module relationships become directed GraphEdges",
     () => {
       const normalized = createEmptyNormalizedResult({
@@ -157,7 +157,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test("3. Canonical symbol IDs are preserved", () => {
+  it("3. Canonical symbol IDs are preserved", () => {
     const canonicalId =
       "sym:src/services/user.ts#class:UserService:200";
     const normalized = createEmptyNormalizedResult({
@@ -186,7 +186,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     assert.equal(node.canonicalId, canonicalId);
   });
 
-  await t.test(
+  it(
     "4. Multiple aliases to the same canonical symbol do not create duplicate GraphNodes",
     () => {
       const canonicalId = "sym:src/lib.ts#function:helper:50";
@@ -235,7 +235,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test("5. Same symbol name in different files remains distinct", () => {
+  it("5. Same symbol name in different files remains distinct", () => {
     const symA = "sym:src/a.ts#function:login:10";
     const symB = "sym:src/b.ts#function:login:10";
 
@@ -278,7 +278,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     assert.notEqual(nodeA.id, nodeB.id);
   });
 
-  await t.test(
+  it(
     "6. Route relationships are represented correctly when present",
     () => {
       const handlerSymId = "sym:app/api/posts/route.ts#function:GET:15";
@@ -343,7 +343,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test(
+  it(
     "7. Event relationships are represented correctly when present",
     () => {
       const eventId =
@@ -384,7 +384,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test(
+  it(
     "8. Database-reference relationships are represented correctly when present",
     () => {
       const dbId = "db:src/db.ts#prisma:read:findMany:80";
@@ -422,7 +422,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test("9. Evidence preserves source provenance", () => {
+  it("9. Evidence preserves source provenance", () => {
     const symCanonicalId = "sym:src/auth.ts#function:login:100";
     const normalized = createEmptyNormalizedResult({
       symbols: [
@@ -459,7 +459,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     );
   });
 
-  await t.test(
+  it(
     "10. Deterministic input produces deterministic graph output",
     () => {
       const normalized = createEmptyNormalizedResult({
@@ -527,7 +527,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test(
+  it(
     "12. Invalid/missing edge endpoints are rejected safely",
     () => {
       const normalized = createEmptyNormalizedResult({
@@ -570,7 +570,7 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
     },
   );
 
-  await t.test(
+  it(
     "13. Unresolved relationships are not fabricated into false nodes",
     () => {
       const normalized = createEmptyNormalizedResult({
@@ -604,99 +604,113 @@ test("Step 28: Graph Builder — Unit & Projection Tests (In-Memory)", async (t)
 });
 
 // Database Integration Tests (Atomic Transactions, Idempotency, RLS)
-test(
+describe.skipIf(!hasDatabase)(
   "Step 28: Graph Builder — Database Persistence & RLS Integration",
-  { skip: !hasDatabase },
-  async (t) => {
-    const pool = getPool();
-    await runMigrations(pool);
+  () => {
+    let pool: ReturnType<typeof getPool>;
+    let orgA: Awaited<ReturnType<typeof createOrganization>>;
+    let repoA: Awaited<ReturnType<typeof createRepository>>;
+    let snapA: Awaited<ReturnType<typeof createRepositorySnapshot>>;
+    let runA: Awaited<ReturnType<typeof createAnalysisRun>>;
+    let orgB: Awaited<ReturnType<typeof createOrganization>>;
+    let repoB: Awaited<ReturnType<typeof createRepository>>;
+    let snapB: Awaited<ReturnType<typeof createRepositorySnapshot>>;
 
-    async function ensureRlsTestRole(): Promise<void> {
-      await pool.query(`
-        DO $$
-        BEGIN
-          CREATE ROLE fluxora_rls_test
-            NOSUPERUSER
-            NOCREATEDB
-            NOCREATEROLE
-            NOINHERIT
-            NOLOGIN
-            NOBYPASSRLS;
-        EXCEPTION
-          WHEN duplicate_object THEN NULL;
-        END
-        $$;
-      `);
+    beforeAll(async () => {
+      pool = getPool();
+      await runMigrations(pool);
 
-      await pool.query(`GRANT fluxora_rls_test TO CURRENT_USER`);
-      await pool.query(`GRANT USAGE ON SCHEMA public TO fluxora_rls_test`);
-      await pool.query(
-        `GRANT EXECUTE ON FUNCTION fluxora_current_org_id() TO fluxora_rls_test`,
-      );
-      await pool.query(
-        `GRANT EXECUTE ON FUNCTION fluxora_repository_in_current_tenant(uuid) TO fluxora_rls_test`,
-      );
-      await pool.query(
-        `GRANT EXECUTE ON FUNCTION fluxora_snapshot_in_current_tenant(uuid) TO fluxora_rls_test`,
-      );
-      await pool.query(
-        `GRANT EXECUTE ON FUNCTION fluxora_analysis_run_in_current_tenant(uuid) TO fluxora_rls_test`,
-      );
-      await pool.query(`GRANT SELECT ON TABLE organizations TO fluxora_rls_test`);
-      await pool.query(`
-        GRANT SELECT, INSERT, UPDATE, DELETE
-        ON TABLE repositories, repository_snapshots, commits, analysis_runs, graph_nodes, graph_edges, evidence
-        TO fluxora_rls_test
-      `);
-    }
+      async function ensureRlsTestRole(): Promise<void> {
+        await pool.query(`
+          DO $$
+          BEGIN
+            CREATE ROLE fluxora_rls_test
+              NOSUPERUSER
+              NOCREATEDB
+              NOCREATEROLE
+              NOINHERIT
+              NOLOGIN
+              NOBYPASSRLS;
+          EXCEPTION
+            WHEN duplicate_object THEN NULL;
+          END
+          $$;
+        `);
 
-    await ensureRlsTestRole();
+        await pool.query(`GRANT fluxora_rls_test TO CURRENT_USER`);
+        await pool.query(`GRANT USAGE ON SCHEMA public TO fluxora_rls_test`);
+        await pool.query(
+          `GRANT EXECUTE ON FUNCTION fluxora_current_org_id() TO fluxora_rls_test`,
+        );
+        await pool.query(
+          `GRANT EXECUTE ON FUNCTION fluxora_repository_in_current_tenant(uuid) TO fluxora_rls_test`,
+        );
+        await pool.query(
+          `GRANT EXECUTE ON FUNCTION fluxora_snapshot_in_current_tenant(uuid) TO fluxora_rls_test`,
+        );
+        await pool.query(
+          `GRANT EXECUTE ON FUNCTION fluxora_analysis_run_in_current_tenant(uuid) TO fluxora_rls_test`,
+        );
+        await pool.query(`GRANT SELECT ON TABLE organizations TO fluxora_rls_test`);
+        await pool.query(`
+          GRANT SELECT, INSERT, UPDATE, DELETE
+          ON TABLE repositories, repository_snapshots, commits, analysis_runs, graph_nodes, graph_edges, evidence
+          TO fluxora_rls_test
+        `);
+      }
 
-    const orgA = await createOrganization(pool, { name: "Org A (Builder Test)" });
-    const repoA = await createRepository(pool, {
-      organizationId: orgA.id,
-      githubRepoId: "9001",
-      name: "repo-a",
-      defaultBranch: "main",
-    });
-    const snapA = await createRepositorySnapshot(pool, {
-      organizationId: orgA.id,
-      repositoryId: repoA.id,
-      commitSha: "a".repeat(40),
-      ref: "main",
-      storageUri: "s3://bucket/a.tar.gz",
-      sha256: "0".repeat(64),
-      fileCount: 1,
-      sizeBytes: "100",
-    });
-    const runA = await createAnalysisRun(pool, {
-      organizationId: orgA.id,
-      snapshotId: snapA.id,
+      await ensureRlsTestRole();
+
+      orgA = await createOrganization(pool, { name: "Org A (Builder Test)" });
+      repoA = await createRepository(pool, {
+        organizationId: orgA.id,
+        githubRepoId: "9001",
+        name: "repo-a",
+        defaultBranch: "main",
+      });
+      snapA = await createRepositorySnapshot(pool, {
+        organizationId: orgA.id,
+        repositoryId: repoA.id,
+        commitSha: "a".repeat(40),
+        ref: "main",
+        storageUri: "s3://bucket/a.tar.gz",
+        sha256: "0".repeat(64),
+        fileCount: 1,
+        sizeBytes: "100",
+      });
+      runA = await createAnalysisRun(pool, {
+        organizationId: orgA.id,
+        snapshotId: snapA.id,
+      });
+
+      orgB = await createOrganization(pool, { name: "Org B (Builder Test)" });
+      repoB = await createRepository(pool, {
+        organizationId: orgB.id,
+        githubRepoId: "9002",
+        name: "repo-b",
+        defaultBranch: "main",
+      });
+      snapB = await createRepositorySnapshot(pool, {
+        organizationId: orgB.id,
+        repositoryId: repoB.id,
+        commitSha: "b".repeat(40),
+        ref: "main",
+        storageUri: "s3://bucket/b.tar.gz",
+        sha256: "1".repeat(64),
+        fileCount: 1,
+        sizeBytes: "100",
+      });
+      await createAnalysisRun(pool, {
+        organizationId: orgB.id,
+        snapshotId: snapB.id,
+      });
     });
 
-    const orgB = await createOrganization(pool, { name: "Org B (Builder Test)" });
-    const repoB = await createRepository(pool, {
-      organizationId: orgB.id,
-      githubRepoId: "9002",
-      name: "repo-b",
-      defaultBranch: "main",
-    });
-    const snapB = await createRepositorySnapshot(pool, {
-      organizationId: orgB.id,
-      repositoryId: repoB.id,
-      commitSha: "b".repeat(40),
-      ref: "main",
-      storageUri: "s3://bucket/b.tar.gz",
-      sha256: "1".repeat(64),
-      fileCount: 1,
-      sizeBytes: "100",
-    });
-    await createAnalysisRun(pool, {
-      organizationId: orgB.id,
-      snapshotId: snapB.id,
+    afterAll(async () => {
+      await closePool();
     });
 
-    await t.test(
+    it(
       "11. Running the same graph build twice is idempotent",
       async () => {
         const normalized = createEmptyNormalizedResult({
@@ -744,7 +758,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "14. Graph records retain correct organization/scope",
       async () => {
         const dbNodes = await listGraphNodes(pool, orgA.id, runA.id);
@@ -759,7 +773,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "15. Cross-tenant/cross-scope writes are rejected according to existing RLS behavior",
       async () => {
         const normalized = createEmptyNormalizedResult({
@@ -793,7 +807,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "16. Transaction failure does not leave an invalid partial graph when existing architecture expects atomicity",
       async () => {
         const runFail = await createAnalysisRun(pool, {
@@ -845,10 +859,6 @@ test(
         );
       },
     );
-
-    t.after(async () => {
-      await closePool();
-    });
   },
 );
 

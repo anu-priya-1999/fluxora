@@ -1,4 +1,4 @@
-import test from "node:test";
+import { test } from "vitest";
 import assert from "node:assert/strict";
 import type { GraphNodeType, GraphQueryResponseNode } from "@fluxora/shared-types";
 import { getNodeVisualConfig } from "./node-styles.ts";

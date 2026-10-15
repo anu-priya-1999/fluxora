@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import http from "node:http";
-import test from "node:test";
+import { describe, it, beforeAll, afterAll } from "vitest";
 
 import type {
   EvidenceRecord,
@@ -387,12 +387,12 @@ async function request(
   });
 }
 
-test(
-  "Step 31 API: POST /api/v1/graph/query verification suite",
-  async (t) => {
-    const { deps, traversalCalls } = createMockDeps();
+describe("Step 31 API: POST /api/v1/graph/query verification suite", () => {
+  const { deps, traversalCalls } = createMockDeps();
+  let server: http.Server;
 
-    const server = createApiServer({
+  beforeAll(async () => {
+    server = createApiServer({
       wsOptions: { autoStartListener: false },
       graphQueryDeps: deps,
     });
@@ -400,14 +400,16 @@ test(
     await new Promise<void>((resolve) => {
       server.listen(0, "127.0.0.1", () => resolve());
     });
+  });
 
-    t.after(async () => {
-      await new Promise<void>((resolve) => {
-        server.close(() => resolve());
-      });
+  afterAll(async () => {
+    server.closeAllConnections?.();
+    await new Promise<void>((resolve) => {
+      server.close(() => resolve());
     });
+  });
 
-    await t.test(
+    it(
       "1. Valid downstream graph query returns 200 with formatted graph",
       async () => {
         const res = await request(server, {
@@ -455,7 +457,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "2. Valid upstream query maps correctly to incoming traversal",
       async () => {
         const res = await request(server, {
@@ -481,7 +483,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "3. Valid both-direction query works",
       async () => {
         const res = await request(server, {
@@ -507,7 +509,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "4. max_depth is honored and passed to traversal",
       async () => {
         const res = await request(server, {
@@ -536,7 +538,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "5. hard traversal depth cap (20) is enforced and rejects > 20",
       async () => {
         const res = await request(server, {
@@ -565,7 +567,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "6. edge_types filter is passed to traversal",
       async () => {
         const res = await request(server, {
@@ -591,7 +593,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "7. min_confidence filter is honored deterministically",
       async () => {
         const res = await request(server, {
@@ -625,7 +627,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "8. malformed request is rejected with the standard error shape",
       async () => {
         const res = await request(server, {
@@ -649,7 +651,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "9. invalid direction is rejected",
       async () => {
         const res = await request(server, {
@@ -676,7 +678,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "10. invalid confidence is rejected",
       async () => {
         const res = await request(server, {
@@ -703,7 +705,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "11. unauthenticated request is rejected with 401",
       async () => {
         const res = await request(server, {
@@ -726,7 +728,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "12. cross-tenant client organization_id injection is rejected",
       async () => {
         const res = await request(server, {
@@ -757,7 +759,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "13. inaccessible or cross-tenant start node returns 404 without leaking cross-tenant data",
       async () => {
         const res = await request(server, {
@@ -787,7 +789,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "14. evidence is returned correctly and linked to edges",
       async () => {
         const res = await request(server, {
@@ -825,7 +827,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "15. unsupported media type is rejected with 415",
       async () => {
         const address = server.address() as {
@@ -887,7 +889,7 @@ test(
       },
     );
 
-    await t.test(
+    it(
       "16. deterministic response ordering remains stable across repeated identical queries",
       async () => {
         const res1 = await request(server, {
