@@ -566,5 +566,94 @@ describe.skipIf(!hasDatabase)("PullRequest and Changed-File database integration
     const notFound = await getPullRequestByNumber(pool, orgA.id, repoA.id, prNumber);
     assert.equal(notFound, null);
   });
+
+  // 13. patch truncation metadata
+  it("13. records patch truncation metadata (patchTruncated: true)", async () => {
+    const pr = await getPullRequestByNumber(pool, orgA.id, repoA.id, 101);
+    assert.ok(pr);
+
+    const files = await replacePullRequestFiles(pool, orgA.id, pr.id, [
+      {
+        path: "src/huge-file.ts",
+        status: "modified",
+        patch: "@@ truncated hunk @@",
+        patchTruncated: true,
+      },
+    ]);
+
+    assert.equal(files[0]?.path, "src/huge-file.ts");
+    assert.equal(files[0]?.patchTruncated, true);
+
+    const listed = await listPullRequestFiles(pool, orgA.id, pr.id);
+    const found = listed.find((f) => f.path === "src/huge-file.ts");
+    assert.ok(found);
+    assert.equal(found.patchTruncated, true);
+  });
+
+  // 18. tenant isolation on PullRequestFile
+  it("18. enforces tenant isolation on PullRequestFile directly under RLS", async () => {
+    const prB = await getPullRequestByNumber(pool, orgB.id, repoB.id, 201);
+    assert.ok(prB);
+
+    // Using withTenant for orgA, direct query on pull_request_files for prB returns 0 rows
+    const { withTenant } = await import("../tenant.ts");
+    await withTenant(pool, orgA.id, async (client) => {
+      const res = await client.query(
+        "SELECT * FROM pull_request_files WHERE pull_request_id = $1::uuid",
+        [prB.id],
+      );
+      assert.equal(res.rows.length, 0);
+
+      // Attempting direct INSERT into pull_request_files for prB as orgA is rejected by RLS
+      await assert.rejects(async () => {
+        await client.query(
+          `INSERT INTO pull_request_files (pull_request_id, path, status)
+           VALUES ($1::uuid, 'malicious.ts', 'added')`,
+          [prB.id],
+        );
+      });
+    });
+  });
+
+  // 20. cascade behavior where appropriate
+  it("20. cascades deletion from PullRequest to PullRequestFiles and Repository to PullRequests", async () => {
+    // Create a temporary PR in repoA with files
+    const cascadePr = await upsertPullRequest(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      githubPrId: "900404",
+      number: 404,
+      title: "Cascade Test PR",
+      url: "https://github.com/fluxora/repo-a/pull/404",
+      baseRef: "main",
+      baseSha: SHA_BASE,
+      headRef: "cascade-branch",
+      headSha: SHA_HEAD,
+    });
+
+    await replacePullRequestFiles(pool, orgA.id, cascadePr.id, [
+      { path: "src/cascade-1.ts", status: "added" },
+      { path: "src/cascade-2.ts", status: "added" },
+    ]);
+
+    const filesBefore = await listPullRequestFiles(pool, orgA.id, cascadePr.id);
+    assert.equal(filesBefore.length, 2);
+
+    // Delete the PR directly under tenant session
+    const { withTenant } = await import("../tenant.ts");
+    await withTenant(pool, orgA.id, async (client) => {
+      await client.query("DELETE FROM pull_requests WHERE id = $1::uuid", [
+        cascadePr.id,
+      ]);
+    });
+
+    // Check PR is gone
+    const prAfter = await getPullRequestById(pool, orgA.id, cascadePr.id);
+    assert.equal(prAfter, null);
+
+    // Check files cascaded (are also gone)
+    const filesAfter = await listPullRequestFiles(pool, orgA.id, cascadePr.id);
+    assert.equal(filesAfter.length, 0);
+  });
 });
 

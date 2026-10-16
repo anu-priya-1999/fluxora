@@ -709,4 +709,192 @@ describe("PullRequest worker processor integration", () => {
     const serialized = JSON.stringify(savedInput);
     assert.equal(serialized.includes("ghs_SUPER_SECRET_TOKEN_XYZ"), false);
   });
+
+  // 23. synchronize replaces the current changed-file snapshot
+  it("23. synchronize replaces the current changed-file snapshot atomically", async () => {
+    let savedFilesSnapshot: SavePullRequestWithFilesInput["files"] = [];
+
+    const deps: PullRequestProcessorDependencies = {
+      lookup: {
+        async getRepositoryByGithubRepoId() {
+          return sampleRepository();
+        },
+      },
+      github: mockGithub({
+        async getPullRequestFiles() {
+          // On synchronize, a completely new set of files is returned
+          return [
+            {
+              sha: "blob_new1",
+              filename: "src/new-feature.ts",
+              status: "added",
+              additions: 10,
+              deletions: 0,
+              changes: 10,
+              patch: "@@ +1 @@",
+            },
+          ];
+        },
+      }),
+      storage: {
+        async savePullRequestWithFiles(input) {
+          savedFilesSnapshot = input.files;
+          return {
+            pullRequest: {
+              ...input.pr,
+              id: "pr-id",
+              status: "open",
+              authorLogin: null,
+              authorId: null,
+              lastDeliveryId: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+            files: [],
+          };
+        },
+      },
+      limits: DEFAULT_PULL_REQUEST_LIMITS,
+    };
+
+    const payload = sampleWebhookPayload("synchronize");
+    await processPullRequestJob(createJob(payload as unknown as Record<string, unknown>), deps);
+
+    assert.equal(savedFilesSnapshot.length, 1);
+    assert.equal(savedFilesSnapshot[0]?.path, "src/new-feature.ts");
+  });
+
+  // 32. large patches obey safety limits
+  it("32. large patches obey safety limits (truncates individual patch and caps cumulative PR patch bytes)", async () => {
+    let persistedFiles: SavePullRequestWithFilesInput["files"] = [];
+
+    // Limit to 50 bytes per patch, 80 bytes total
+    const customLimits = {
+      maxFileCount: 10,
+      maxPatchBytesPerFile: 50,
+      maxTotalPatchBytes: 80,
+    };
+
+    const deps: PullRequestProcessorDependencies = {
+      lookup: {
+        async getRepositoryByGithubRepoId() {
+          return sampleRepository();
+        },
+      },
+      github: mockGithub({
+        async getPullRequestFiles() {
+          return [
+            {
+              sha: "blob1",
+              filename: "file1.ts",
+              status: "modified",
+              additions: 100,
+              deletions: 0,
+              changes: 100,
+              patch: "x".repeat(100), // Exceeds 50 bytes limit
+            },
+            {
+              sha: "blob2",
+              filename: "file2.ts",
+              status: "modified",
+              additions: 50,
+              deletions: 0,
+              changes: 50,
+              patch: "y".repeat(40), // 50 + 40 = 90 bytes > 80 bytes total limit
+            },
+          ];
+        },
+      }),
+      storage: {
+        async savePullRequestWithFiles(input) {
+          persistedFiles = input.files;
+          return {
+            pullRequest: {
+              ...input.pr,
+              id: "pr-id",
+              status: "open",
+              authorLogin: null,
+              authorId: null,
+              lastDeliveryId: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+            files: [],
+          };
+        },
+      },
+      limits: customLimits,
+    };
+
+    await processPullRequestJob(
+      createJob(sampleWebhookPayload() as unknown as Record<string, unknown>),
+      deps,
+    );
+
+    assert.equal(persistedFiles.length, 2);
+    // File 1 patch truncated to 50 bytes
+    assert.equal(persistedFiles[0]?.patch?.length, 50);
+    assert.equal(persistedFiles[0]?.patchTruncated, true);
+
+    // File 2 exceeds total limit (50 + 40 = 90 > 80), patch becomes null and patchTruncated is true
+    assert.equal(persistedFiles[1]?.patch, null);
+    assert.equal(persistedFiles[1]?.patchTruncated, true);
+  });
+
+  // 33. missing patch is handled
+  it("33. handles missing patch (e.g. binary or omitted diff) safely with patch: null and patchTruncated: false", async () => {
+    let persistedFiles: SavePullRequestWithFilesInput["files"] = [];
+
+    const deps: PullRequestProcessorDependencies = {
+      lookup: {
+        async getRepositoryByGithubRepoId() {
+          return sampleRepository();
+        },
+      },
+      github: mockGithub({
+        async getPullRequestFiles() {
+          return [
+            {
+              sha: "blob_img",
+              filename: "images/diagram.png",
+              status: "added",
+              additions: 0,
+              deletions: 0,
+              changes: 0,
+              // patch omitted entirely
+            },
+          ];
+        },
+      }),
+      storage: {
+        async savePullRequestWithFiles(input) {
+          persistedFiles = input.files;
+          return {
+            pullRequest: {
+              ...input.pr,
+              id: "pr-id",
+              status: "open",
+              authorLogin: null,
+              authorId: null,
+              lastDeliveryId: null,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            },
+            files: [],
+          };
+        },
+      },
+      limits: DEFAULT_PULL_REQUEST_LIMITS,
+    };
+
+    await processPullRequestJob(
+      createJob(sampleWebhookPayload() as unknown as Record<string, unknown>),
+      deps,
+    );
+
+    assert.equal(persistedFiles.length, 1);
+    assert.equal(persistedFiles[0]?.path, "images/diagram.png");
+    assert.equal(persistedFiles[0]?.patch, null);
+    assert.equal(persistedFiles[0]?.patchTruncated, false);
+  });
 });

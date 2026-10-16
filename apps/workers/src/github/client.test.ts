@@ -246,3 +246,65 @@ test("getPullRequestFiles fetches files across pages and parses patches", async 
   assert.equal(files[0]?.status, "added");
   assert.equal(files[0]?.patch, "@@ +1 @@");
 });
+
+test("getPullRequestFiles enforces maxFiles limit and throws repository_too_large", async () => {
+  const client = createGithubIngestClient({
+    config,
+    fetchImpl: async () =>
+      new Response(
+        JSON.stringify([
+          { filename: "file1.ts", status: "added", additions: 1, deletions: 0 },
+          { filename: "file2.ts", status: "added", additions: 1, deletions: 0 },
+          { filename: "file3.ts", status: "added", additions: 1, deletions: 0 },
+        ]),
+        { status: 200 },
+      ),
+  });
+
+  await assert.rejects(
+    () =>
+      client.getPullRequestFiles("ghs_token", "octocat/demo", 42, {
+        maxFiles: 2,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "repository_too_large");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+});
+
+test("getPullRequest classifies 404 not found as invalid_ref permanent error", async () => {
+  const client = createGithubIngestClient({
+    config,
+    fetchImpl: async () => new Response("{}", { status: 404 }),
+  });
+
+  await assert.rejects(
+    () => client.getPullRequest("ghs_token", "octocat/demo", 999),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "invalid_ref");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+});
+
+test("getPullRequest classifies 401 unauthorized as github_auth permanent error", async () => {
+  const client = createGithubIngestClient({
+    config,
+    fetchImpl: async () => new Response("{}", { status: 401 }),
+  });
+
+  await assert.rejects(
+    () => client.getPullRequest("ghs_bad_token", "octocat/demo", 42),
+    (error: unknown) => {
+      assert.ok(error instanceof IngestionError);
+      assert.equal(error.code, "github_auth");
+      assert.equal(error.retryable, false);
+      return true;
+    },
+  );
+});
