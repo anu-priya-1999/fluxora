@@ -160,3 +160,89 @@ test("archive download follows GitHub redirects without forwarding the installat
   assert.ok(stream instanceof Readable);
   assert.deepEqual(seenAuth, ["Bearer ghs_secret", null]);
 });
+
+test("getPullRequest retrieves PR metadata and maps fields accurately", async () => {
+  const client = createGithubIngestClient({
+    config,
+    fetchImpl: async (url, init) => {
+      assert.equal(
+        String(url),
+        "https://api.github.com/repos/octocat/demo/pulls/42",
+      );
+      assert.equal(
+        new Headers(init?.headers).get("authorization"),
+        "Bearer ghs_test_token",
+      );
+      return new Response(
+        JSON.stringify({
+          id: 12345678,
+          number: 42,
+          title: "Feature branch update",
+          html_url: "https://github.com/octocat/demo/pull/42",
+          state: "open",
+          merged: false,
+          base: {
+            ref: "main",
+            sha: "1111111111111111111111111111111111111111",
+          },
+          head: {
+            ref: "feat",
+            sha: "2222222222222222222222222222222222222222",
+          },
+          user: {
+            id: 999,
+            login: "mona",
+          },
+        }),
+        { status: 200 },
+      );
+    },
+  });
+
+  const pr = await client.getPullRequest("ghs_test_token", "octocat/demo", 42);
+  assert.equal(pr.githubPrId, "12345678");
+  assert.equal(pr.number, 42);
+  assert.equal(pr.title, "Feature branch update");
+  assert.equal(pr.state, "open");
+  assert.equal(pr.merged, false);
+  assert.equal(pr.baseRef, "main");
+  assert.equal(pr.baseSha, "1111111111111111111111111111111111111111");
+  assert.equal(pr.headRef, "feat");
+  assert.equal(pr.headSha, "2222222222222222222222222222222222222222");
+  assert.equal(pr.authorLogin, "mona");
+  assert.equal(pr.authorId, "999");
+});
+
+test("getPullRequestFiles fetches files across pages and parses patches", async () => {
+  const seenPages: string[] = [];
+  const client = createGithubIngestClient({
+    config,
+    fetchImpl: async (url) => {
+      const urlStr = String(url);
+      seenPages.push(urlStr);
+      if (urlStr.includes("page=1")) {
+        return new Response(
+          JSON.stringify([
+            {
+              sha: "aaaa",
+              filename: "src/file1.ts",
+              status: "added",
+              additions: 10,
+              deletions: 0,
+              changes: 10,
+              patch: "@@ +1 @@",
+            },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify([]), { status: 200 });
+    },
+  });
+
+  const files = await client.getPullRequestFiles("ghs_token", "octocat/demo", 42);
+  assert.equal(files.length, 1);
+  assert.equal(files[0]?.filename, "src/file1.ts");
+  assert.equal(files[0]?.status, "added");
+  assert.equal(files[0]?.patch, "@@ +1 @@");
+});

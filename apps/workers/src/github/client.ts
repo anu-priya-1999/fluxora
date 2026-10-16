@@ -22,6 +22,32 @@ export interface GithubRepoInfo {
   defaultBranch: string;
 }
 
+export interface GithubPullRequestInfo {
+  githubPrId: string;
+  number: number;
+  title: string;
+  htmlUrl: string;
+  state: "open" | "closed";
+  merged: boolean;
+  baseRef: string;
+  baseSha: string;
+  headRef: string;
+  headSha: string;
+  authorLogin: string | null;
+  authorId: string | null;
+}
+
+export interface GithubPullRequestFileInfo {
+  sha: string;
+  filename: string;
+  status: "added" | "removed" | "modified" | "renamed" | "copied" | "changed" | "unchanged";
+  additions: number;
+  deletions: number;
+  changes: number;
+  patch?: string;
+  previousFilename?: string;
+}
+
 export interface GithubIngestClient {
   mintInstallationToken(installationId: string): Promise<string>;
   getRepository(token: string, githubRepoId: string): Promise<GithubRepoInfo>;
@@ -39,11 +65,28 @@ export interface GithubIngestClient {
   ): Promise<Readable>;
 }
 
+export interface GithubPullRequestClient {
+  mintInstallationToken(installationId: string): Promise<string>;
+  getPullRequest(
+    token: string,
+    fullName: string,
+    pullNumber: number,
+  ): Promise<GithubPullRequestInfo>;
+  getPullRequestFiles(
+    token: string,
+    fullName: string,
+    pullNumber: number,
+    options?: { maxFiles?: number },
+  ): Promise<GithubPullRequestFileInfo[]>;
+}
+
+export type GithubClient = GithubIngestClient & GithubPullRequestClient;
+
 export function createGithubIngestClient(input: {
   config: GithubAppConfig;
   fetchImpl?: typeof fetch;
   now?: Date;
-}): GithubIngestClient {
+}): GithubClient {
   const fetchImpl = input.fetchImpl ?? fetch;
   const apiBaseUrl = input.config.apiBaseUrl.replace(/\/$/, "");
 
@@ -241,7 +284,195 @@ export function createGithubIngestClient(input: {
         boundCompressedBytes(archiveResponse.body, limits.maxArchiveBytes, signal),
       );
     },
+
+    async getPullRequest(
+      token: string,
+      fullName: string,
+      pullNumber: number,
+    ): Promise<GithubPullRequestInfo> {
+      const response = await githubFetch(
+        fetchImpl,
+        `${apiBaseUrl}/repos/${fullName}/pulls/${pullNumber}`,
+        {
+          method: "GET",
+          authorization: `Bearer ${token}`,
+          apiBaseUrl,
+          notFoundCode: "invalid_ref",
+        },
+      );
+
+      const body = await readJson(response);
+      const rawId = body["id"];
+      const id =
+        typeof rawId === "number" || typeof rawId === "string"
+          ? String(rawId).trim()
+          : "";
+      const num = body["number"];
+      if (!id || typeof num !== "number") {
+        throw retryableIngestionError(
+          "github_unavailable",
+          "GitHub pull request response was malformed",
+        );
+      }
+
+      const base = isRecord(body["base"]) ? body["base"] : {};
+      const head = isRecord(body["head"]) ? body["head"] : {};
+      const baseRef = typeof base["ref"] === "string" ? base["ref"] : "";
+      const baseSha = typeof base["sha"] === "string" ? base["sha"] : "";
+      const headRef = typeof head["ref"] === "string" ? head["ref"] : "";
+      const headSha = typeof head["sha"] === "string" ? head["sha"] : "";
+
+      if (!baseRef || !baseSha || !headRef || !headSha) {
+        throw retryableIngestionError(
+          "github_unavailable",
+          "GitHub pull request base or head details were malformed",
+        );
+      }
+
+      const user = isRecord(body["user"]) ? body["user"] : null;
+      const authorLogin =
+        user !== null && typeof user["login"] === "string" ? user["login"] : null;
+      const authorId =
+        user !== null && (typeof user["id"] === "number" || typeof user["id"] === "string")
+          ? String(user["id"])
+          : null;
+
+      return {
+        githubPrId: id,
+        number: num,
+        title: typeof body["title"] === "string" ? body["title"] : "",
+        htmlUrl:
+          typeof body["html_url"] === "string"
+            ? body["html_url"]
+            : `https://github.com/${fullName}/pull/${pullNumber}`,
+        state: body["state"] === "closed" ? "closed" : "open",
+        merged: body["merged"] === true,
+        baseRef,
+        baseSha,
+        headRef,
+        headSha,
+        authorLogin,
+        authorId,
+      };
+    },
+
+    async getPullRequestFiles(
+      token: string,
+      fullName: string,
+      pullNumber: number,
+      options?: { maxFiles?: number },
+    ): Promise<GithubPullRequestFileInfo[]> {
+      const maxFiles = options?.maxFiles ?? 1000;
+      const allFiles: GithubPullRequestFileInfo[] = [];
+      let page = 1;
+      const perPage = 100;
+
+      while (true) {
+        const response = await githubFetch(
+          fetchImpl,
+          `${apiBaseUrl}/repos/${fullName}/pulls/${pullNumber}/files?per_page=${perPage}&page=${page}`,
+          {
+            method: "GET",
+            authorization: `Bearer ${token}`,
+            apiBaseUrl,
+            notFoundCode: "invalid_ref",
+          },
+        );
+
+        const text = await response.text();
+        let items: unknown;
+        try {
+          items = JSON.parse(text);
+        } catch {
+          throw retryableIngestionError(
+            "github_unavailable",
+            "GitHub JSON response was malformed",
+          );
+        }
+
+        if (!Array.isArray(items)) {
+          throw retryableIngestionError(
+            "github_unavailable",
+            "GitHub pull request files response was not an array",
+          );
+        }
+
+        if (items.length === 0) {
+          break;
+        }
+
+        for (const item of items) {
+          if (!isRecord(item)) {
+            continue;
+          }
+
+          const filename = typeof item["filename"] === "string" ? item["filename"] : "";
+          if (!filename) {
+            continue;
+          }
+
+          const rawStatus = typeof item["status"] === "string" ? item["status"] : "modified";
+          const status = isFileStatus(rawStatus) ? rawStatus : "modified";
+          const sha = typeof item["sha"] === "string" ? item["sha"] : "";
+          const additions = typeof item["additions"] === "number" ? item["additions"] : 0;
+          const deletions = typeof item["deletions"] === "number" ? item["deletions"] : 0;
+          const changes =
+            typeof item["changes"] === "number"
+              ? item["changes"]
+              : additions + deletions;
+          const patch = typeof item["patch"] === "string" ? item["patch"] : undefined;
+          const previousFilename =
+            typeof item["previous_filename"] === "string"
+              ? item["previous_filename"]
+              : undefined;
+
+          allFiles.push({
+            sha,
+            filename,
+            status,
+            additions,
+            deletions,
+            changes,
+            ...(patch !== undefined ? { patch } : {}),
+            ...(previousFilename !== undefined ? { previousFilename } : {}),
+          });
+
+          if (allFiles.length > maxFiles) {
+            throw permanentIngestionError(
+              "repository_too_large",
+              "pull request changed files exceed the configured limit",
+              {
+                details: {
+                  fileCount: allFiles.length,
+                  maxFileCount: maxFiles,
+                },
+              },
+            );
+          }
+        }
+
+        if (items.length < perPage) {
+          break;
+        }
+
+        page += 1;
+      }
+
+      return allFiles;
+    },
   };
+}
+
+function isFileStatus(value: string): value is GithubPullRequestFileInfo["status"] {
+  return (
+    value === "added" ||
+    value === "removed" ||
+    value === "modified" ||
+    value === "renamed" ||
+    value === "copied" ||
+    value === "changed" ||
+    value === "unchanged"
+  );
 }
 
 async function* boundCompressedBytes(

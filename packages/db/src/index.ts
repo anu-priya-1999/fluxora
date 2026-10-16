@@ -69,4 +69,5 @@ export const packageName = "@fluxora/db" as const;
 export * from "./repositories/job.ts";
 export * from "./repositories/graph.ts";
 export * from "./repositories/graph-diff.ts";
+export * from "./repositories/pull-request.ts";
 

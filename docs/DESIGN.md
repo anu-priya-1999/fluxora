@@ -11047,3 +11047,119 @@ Step 41 does NOT:
 - Implement impact analysis REST endpoints (Step 45);
 - Implement frontend change-mode overlay on GraphCanvas (Step 46);
 - Execute golden-fixture PR impact validation (Step 47).
+
+---
+
+## Global Step 42 — PullRequest + Changed-File/Diff Storage
+
+### Overview & Objective
+
+Global Step 42 implements the durable, multi-tenant persistence layer for pull requests, changed files, and unified git diff/patch data, and extends the background worker harness to process Step 41's normalized `pull_request.webhook` jobs into this storage model.
+
+This step establishes the persisted source of truth that the downstream Impact Analysis Engine (Step 43) will query to calculate symbol diffs and change-impact propagation.
+
+### Data Model & Database Migration
+
+Migration `0017_pull_requests_and_diff_storage.sql` establishes two normalized tables under PostgreSQL Row-Level Security:
+
+1. **`pull_requests`**:
+   - Primary Key: `id` (UUID).
+   - Tenant Scope: `organization_id` (UUID, Foreign Key to `organizations(id)`).
+   - Repository Association: `repository_id` (UUID, Foreign Key to `repositories(id)`).
+   - Identity & Revisions: `github_pr_id`, `number`, `title`, `url`, `base_ref`, `base_sha` (40-char SHA), `head_ref`, `head_sha` (40-char SHA), `status` (`'open' | 'closed' | 'merged'`).
+   - Audit & Tracking: `author_login`, `author_id`, `last_delivery_id`, `created_at`, `updated_at`.
+   - Unique Constraint: `CONSTRAINT uq_pull_requests_repo_number UNIQUE (repository_id, number)`.
+
+2. **`pull_request_files`**:
+   - Primary Key: `id` (UUID).
+   - PR Association: `pull_request_id` (UUID, Foreign Key to `pull_requests(id)` on delete cascade).
+   - File Path & Rename: `path` (relative file path), `previous_path` (populated when renamed).
+   - Modification Status: `status` (`'added' | 'modified' | 'removed' | 'renamed'`).
+   - Metrics: `additions`, `deletions`, `changes` (non-negative integers).
+   - Unified Diff Storage: `patch` (TEXT), `patch_truncated` (BOOLEAN).
+   - Blob References: `base_sha`, `head_sha` (optional 40-char commit/blob SHAs).
+   - Unique Constraint: `CONSTRAINT uq_pull_request_files_pr_path UNIQUE (pull_request_id, path)`.
+
+### Multi-Tenant Row-Level Security (RLS)
+
+- Strict tenant isolation is enforced at the database level with `FORCE ROW LEVEL SECURITY`.
+- `pull_requests` evaluates `organization_id = fluxora_current_org_id()`.
+- `pull_request_files` evaluates tenant isolation via the parent relationship using `fluxora_pull_request_in_current_tenant(pull_request_id)`:
+  ```sql
+  CREATE OR REPLACE FUNCTION fluxora_pull_request_in_current_tenant(target_pull_request_id uuid)
+  RETURNS boolean
+  LANGUAGE sql
+  STABLE
+  SECURITY DEFINER
+  SET search_path = public
+  AS $$
+    SELECT EXISTS (
+      SELECT 1
+      FROM pull_requests
+      WHERE id = target_pull_request_id
+        AND organization_id = fluxora_current_org_id()
+    );
+  $$;
+  ```
+- Cross-tenant access is physically impossible even under direct SQL queries using application roles.
+
+### Worker Processing Architecture
+
+```
+[pull_request.webhook] Job Triggered
+             │
+             ▼
+1. Validate Normalized Payload (action, installationId, repoId, prNumber)
+             │
+             ▼
+2. Verify Tenant Isolation (job.organizationId === payload.organizationId)
+             │
+             ▼
+3. Resolve Repository (lookup by organizationId + githubRepoId)
+   └─ Not found / unmapped ──> IngestionError("tenant_mismatch", retryable: false)
+             │
+             ▼
+4. Mint GitHub App Installation Token (installationId)
+             │
+             ▼
+5. Fetch GitHub PR Metadata (GET /repos/:owner/:repo/pulls/:number)
+             │
+             ▼
+6. Fetch Changed Files (GET /repos/:owner/:repo/pulls/:number/files, paginated)
+   └─ Apply limits: max 1,000 files, 512 KB per patch, 10 MB total
+             │
+             ▼
+7. Atomically Save in PostgreSQL Transaction (`savePullRequestWithFiles`)
+   ├─ Upsert `pull_requests` ON CONFLICT (repository_id, number) DO UPDATE
+   ├─ Delete existing `pull_request_files` for this PR
+   └─ Insert current `pull_request_files` records
+             │
+             ▼
+8. Complete Job & Record OpenTelemetry Spans
+```
+
+### Core Invariants Preserved
+
+1. **Deterministic Core vs. Probabilistic Edge**:
+   Pull request metadata and diff representations are 100% deterministic, pulled directly from GitHub APIs, and stored with strict constraints. No LLMs or generative models are involved.
+2. **Atomic Consistency (`savePullRequestWithFiles`)**:
+   Updating pull request metadata and replacing changed files occurs within a single PostgreSQL transaction (`withTenant`). A failure in any file insertion or constraint rolls back the entire operation.
+3. **Network I/O Outside Database Transactions**:
+   All GitHub API requests, token minting, and pagination occur *prior* to opening the database transaction, preventing connection pool starvation.
+4. **Delivery Idempotency**:
+   Repeated delivery of the same webhook payload updates the existing PR and replaces its files deterministically, resulting in identical database state without duplicates or errors.
+5. **Zero Secret Leakage**:
+   GitHub App installation access tokens are minted in memory and never logged, exposed, or persisted to PostgreSQL.
+6. **Defensive Resource Caps**:
+   Files per PR (max 1,000), patch size (max 512 KB), and total patch bytes (max 10 MB) are strictly bounded to protect worker memory and database storage.
+
+### Scope Boundary Against Steps 43–47
+
+Step 42 does NOT:
+- Implement the Impact Analysis Engine (Step 43);
+- Resolve changed files to AST symbols or traverse the dependency graph (Step 43);
+- Calculate blast radius or affected endpoints/events (Step 43);
+- Create `impact_analyses` tables or generate evidence records (Step 44);
+- Implement impact analysis REST APIs (Step 45);
+- Implement frontend change-mode overlay on GraphCanvas (Step 46);
+- Execute golden-fixture PR impact validation (Step 47).

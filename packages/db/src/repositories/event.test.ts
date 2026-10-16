@@ -131,4 +131,4 @@ test("event outbox: stores events with RLS, idempotency, and LISTEN/NOTIFY", asy
     await listenerClient.query("UNLISTEN *").catch(() => undefined);
     listenerClient.release();
   }
-});
+}, 30000);

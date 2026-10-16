@@ -9,20 +9,17 @@ import {
   createProductionIngestDependencies,
   createRepositoryIngestHandler,
 } from "./ingest/handler.ts";
+import {
+  createProductionPullRequestDependencies,
+  createPullRequestWebhookHandler,
+} from "./pull-request/handler.ts";
 
 export type JobHandler = (job: Job) => Promise<void>;
 
 export type JobHandlerRegistry = Readonly<Record<string, JobHandler>>;
 
-export const pullRequestWebhookJobHandler: JobHandler = async (
-  job: Job,
-): Promise<void> => {
-  // Global Step 41: Minimal handoff/acceptance boundary.
-  // Step 42+ will implement PR persistence, diff fetching, and impact analysis.
-  if (job.type !== PULL_REQUEST_WEBHOOK_JOB_TYPE) {
-    throw new Error(`Unexpected job type: ${job.type}`);
-  }
-};
+export const pullRequestWebhookJobHandler: JobHandler =
+  createPullRequestWebhookHandler(createProductionPullRequestDependencies());
 
 export function createDefaultJobHandlers(options?: {
   ingestHandler?: JobHandler;
@@ -34,6 +31,7 @@ export function createDefaultJobHandlers(options?: {
       options?.ingestHandler ??
       createRepositoryIngestHandler(createProductionIngestDependencies()),
     [PULL_REQUEST_WEBHOOK_JOB_TYPE]:
-      options?.pullRequestWebhookHandler ?? pullRequestWebhookJobHandler,
+      options?.pullRequestWebhookHandler ??
+      createPullRequestWebhookHandler(createProductionPullRequestDependencies()),
   };
 }
