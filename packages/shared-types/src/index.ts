@@ -39,3 +39,4 @@ export * from "./normalized.ts";
 export * from "./graph.ts";
 export * from "./builder.ts";
 export * from "./pull-request.ts";
+export * from "./impact.ts";

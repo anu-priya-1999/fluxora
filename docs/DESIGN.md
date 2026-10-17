@@ -11163,3 +11163,79 @@ Step 42 does NOT:
 - Implement impact analysis REST APIs (Step 45);
 - Implement frontend change-mode overlay on GraphCanvas (Step 46);
 - Execute golden-fixture PR impact validation (Step 47).
+
+---
+
+## Global Step 43 — Impact Analysis Engine
+
+### Overview & Objective
+
+Global Step 43 implements the **deterministic Impact Analysis Engine** for Fluxora. Taking a stored pull request's changed files, unified diffs (from Step 42), and the repository's current graph snapshot, the engine computes the pull request's blast radius across downstream architectural dependencies.
+
+This fulfills **Global Step 43** of **Phase 6: PR Impact Analysis** as defined by `docs/architecture/17-implementation-roadmap.md` and `docs/architecture/05-component-responsibilities.md §5.9`.
+
+### Architecture & Pipeline
+
+```
+PullRequest Changed Files (path, status, patch)
+                       │
+                       ▼
+    1. Diff Hunk Parsing (`parsePatchModifiedLines`)
+       └─ Extract affected line ranges from unified diff headers
+                       │
+                       ▼
+    2. Changed-Symbol Resolution (`resolveFilesToSeeds`)
+       ├─ Intersect line numbers with AST symbol ranges [lineStart..lineEnd]
+       ├─ Fallback to file-level symbols if patch is unaligned/missing
+       └─ Track non-code/unmatched files in `unresolvedFiles`
+                       │
+                       ▼
+    3. Multi-Seed BFS Traversal (`computeImpactAnalysis` / `traverseGraph`)
+       ├─ Seeds initialized at depth = 0, confidence = 1.0
+       ├─ Downstream traversal across graph_edges (source -> target)
+       ├─ Visited set prevents infinite loops on cyclic dependencies
+       ├─ Deduplication to shallowest path when reached by multiple seeds
+       └─ Bounded depth: default 5 hops, hard cap 20 hops
+                       │
+                       ▼
+    4. Taxonomy Classification & Metrics
+       ├─ Direct Impacts (depth = 1) vs Downstream Impacts (depth >= 2)
+       ├─ Affected APIs (api_route)
+       ├─ Affected Events (event_producer, event_consumer, event)
+       ├─ Affected Services (service)
+       └─ Workflow Impact Summary (aggregate counts, affected services, max depth)
+                       │
+                       ▼
+    5. Confidence Decay & Truncation
+       ├─ Geometric confidence decay: C = 1.0 * (0.9 ^ depth)
+       └─ Explicit truncation flag if maxDepth reached with outgoing edges
+                       │
+                       ▼
+    6. Deterministic Output Normalization
+       └─ Sort results by depth ASC, confidence DESC, nodeId ASC
+```
+
+### Core Invariants Preserved
+
+1. **Deterministic Core vs. Probabilistic Edge**:
+   Dependency graph traversal, blast-radius calculation, and change-impact propagation are 100% deterministic and statically computed. No LLMs or generative models are involved.
+2. **Multi-Seed Shallowest Path Deduplication**:
+   When multiple changed symbols or alternate graph paths reach the same downstream node, the engine retains the shallowest path (shortest hop distance) to preserve maximal confidence and avoid duplicate findings.
+3. **Monotonic Confidence Decay**:
+   Confidence strictly decays with depth ($C = 1.0 \times 0.9^d$). Deeper hops never increase confidence over a shallower path.
+4. **Explicit Truncation Reporting**:
+   If graph exploration reaches the configured `maxDepth` ceiling (default 5, hard maximum 20) and untraversed downstream edges exist, the result explicitly reports `truncated: true`. Traversal is never unbounded and truncation is never silently ignored.
+5. **Multi-Tenant Row-Level Security (RLS)**:
+   All database queries are executed within `withTenant(pool, organizationId, ...)` and evaluated against PostgreSQL `FORCE ROW LEVEL SECURITY`. Pull requests not belonging to the authenticated tenant are rejected with `PullRequestNotFoundError`.
+6. **Pure In-Memory Calculation (Step 43 Boundary)**:
+   Step 43 produces an evidence-ready, in-memory `ImpactAnalysisResult`. It does not create database tables, insert rows into `impact_analyses`, or generate `evidence` records (which are strictly owned by Step 44).
+
+### Scope Boundary Against Steps 44–47
+
+Step 43 does NOT:
+- Create `impact_analyses` database tables or execute migrations (Step 44);
+- Persist `ImpactAnalysis` records or insert evidence rows via `EvidenceWriter` (Step 44);
+- Implement impact analysis REST endpoints in `apps/api` (Step 45);
+- Implement the frontend change-mode overlay on GraphCanvas (Step 46);
+- Execute golden-fixture PR impact validation (Step 47);
+- Add AI narrative explanations (Step 48+).
