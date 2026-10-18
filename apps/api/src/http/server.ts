@@ -45,6 +45,17 @@ import {
   type GithubWebhookHandlerDependencies,
 } from "./github-webhooks.ts";
 import {
+  handleAnalyzePullRequestImpact,
+  handleGetImpactAnalysis,
+  type ImpactAnalysisHandlerDependencies,
+} from "./impact-analysis.ts";
+import {
+  isImpactAnalysisGetPath,
+  isPullRequestAnalyzeImpactPath,
+  matchImpactAnalysisGetPath,
+  matchPullRequestAnalyzeImpactPath,
+} from "./impact-analysis-request.ts";
+import {
   setupWebSocketServer,
   type FluxoraWsServerOptions,
 } from "../ws/server.ts";
@@ -53,6 +64,7 @@ export interface CreateApiServerOptions {
   wsOptions?: FluxoraWsServerOptions;
   graphQueryDeps?: GraphQueryHandlerDependencies;
   githubWebhookDeps?: GithubWebhookHandlerDependencies;
+  impactAnalysisDeps?: ImpactAnalysisHandlerDependencies;
 }
 
 export function createApiServer(
@@ -70,6 +82,10 @@ export function createApiServer(
     optionsOrWs && "githubWebhookDeps" in optionsOrWs
       ? optionsOrWs.githubWebhookDeps
       : undefined;
+  const impactAnalysisDeps =
+    optionsOrWs && "impactAnalysisDeps" in optionsOrWs
+      ? optionsOrWs.impactAnalysisDeps
+      : undefined;
 
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
@@ -82,6 +98,7 @@ export function createApiServer(
       allowedWebOrigins,
       graphQueryDeps,
       githubWebhookDeps,
+      impactAnalysisDeps,
     ).catch(
       (error: unknown) => {
         if (res.headersSent) {
@@ -112,6 +129,7 @@ async function handleRequest(
   allowedWebOrigins: readonly string[],
   graphQueryDeps?: GraphQueryHandlerDependencies,
   githubWebhookDeps?: GithubWebhookHandlerDependencies,
+  impactAnalysisDeps?: ImpactAnalysisHandlerDependencies,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -190,6 +208,64 @@ async function handleRequest(
     if (method === "POST") {
       await handleGithubWebhook(req, res, sendJson, githubWebhookDeps);
       return;
+    }
+  }
+
+  if (isPullRequestAnalyzeImpactPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "POST") {
+      const match = matchPullRequestAnalyzeImpactPath(path);
+      if (match !== null) {
+        await handleAnalyzePullRequestImpact(
+          req,
+          res,
+          match.pullRequestId,
+          sendJson,
+          impactAnalysisDeps,
+        );
+        return;
+      }
+    }
+  }
+
+  if (isImpactAnalysisGetPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "GET") {
+      const match = matchImpactAnalysisGetPath(path);
+      if (match !== null) {
+        await handleGetImpactAnalysis(
+          req,
+          res,
+          match.impactAnalysisId,
+          sendJson,
+          impactAnalysisDeps,
+        );
+        return;
+      }
     }
   }
 
@@ -330,7 +406,9 @@ function isKnownPath(path: string): boolean {
     isGraphQueryPath(path) ||
     isGithubInstallationPath(path) ||
     isRepositoryConnectPath(path) ||
-    isGithubWebhookPath(path)
+    isGithubWebhookPath(path) ||
+    isPullRequestAnalyzeImpactPath(path) ||
+    isImpactAnalysisGetPath(path)
   );
 }
 

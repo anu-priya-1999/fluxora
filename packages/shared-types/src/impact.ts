@@ -185,3 +185,70 @@ export interface PersistImpactAnalysisResult {
   readonly impactAnalysis: ImpactAnalysis;
   readonly evidenceRecords: readonly EvidenceRecord[];
 }
+
+/**
+ * Stable API response representation of an individual impact finding (Step 45).
+ */
+export interface ImpactAnalysisFindingResponse {
+  readonly node_id: string;
+  readonly name: string;
+  readonly type: string;
+  readonly canonical_id?: string | undefined;
+  readonly file_path?: string | null | undefined;
+  readonly depth: number;
+  readonly hop_distance: number;
+  readonly confidence: number;
+  readonly path: readonly string[];
+  readonly evidence_ids: readonly string[];
+  readonly evidence_id: string | null;
+}
+
+/**
+ * Stable API response representation of an unresolved file (Step 45).
+ */
+export interface ImpactAnalysisUnresolvedFileResponse {
+  readonly path: string;
+  readonly reason: string;
+}
+
+/**
+ * Stable API response representation of execution metrics (Step 45).
+ */
+export interface ImpactAnalysisExecutionMetricsResponse {
+  readonly total_seed_nodes: number;
+  readonly total_affected_nodes: number;
+  readonly total_edges_traversed: number;
+  readonly duration_ms: number;
+}
+
+/**
+ * Stable API representation of a persisted ImpactAnalysis record (Step 45).
+ */
+export interface ImpactAnalysisResponse {
+  readonly id: string;
+  readonly pull_request_id: string;
+  readonly analysis_run_id: string;
+  readonly status: ImpactAnalysisStatus;
+  readonly direct_impact: readonly ImpactAnalysisFindingResponse[];
+  readonly downstream_impact: readonly ImpactAnalysisFindingResponse[];
+  readonly affected_apis: readonly ImpactAnalysisFindingResponse[];
+  readonly affected_events: readonly ImpactAnalysisFindingResponse[];
+  readonly affected_services: readonly ImpactAnalysisFindingResponse[];
+  readonly workflow_impact_summary: readonly string[];
+  readonly unresolved_files: readonly ImpactAnalysisUnresolvedFileResponse[];
+  readonly truncated: boolean;
+  readonly truncation_reason: string | null;
+  readonly max_depth_reached: number;
+  readonly execution_metrics: ImpactAnalysisExecutionMetricsResponse;
+  readonly created_at: string;
+}
+
+/**
+ * Response payload for an accepted asynchronous impact analysis job (HTTP 202).
+ */
+export interface PullRequestAnalyzeImpactQueuedResponse {
+  readonly status: "queued";
+  readonly job_id: string;
+  readonly pull_request_id: string;
+  readonly idempotency_key: string;
+}

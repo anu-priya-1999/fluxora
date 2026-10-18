@@ -1,3 +1,9 @@
+import type {
+  GraphEdgeType,
+  GraphNodeType,
+  TraversalDirection,
+} from "./graph.ts";
+
 export type JobStatus =
   | "pending"
   | "running"
@@ -228,5 +234,108 @@ export function parsePullRequestWebhookPayload(
       headSha: pr["headSha"],
     },
     ...(senderObj !== undefined ? { sender: senderObj } : {}),
+  };
+}
+
+/** PostgreSQL job type handled for pull request impact analysis (Step 45). */
+export const PULL_REQUEST_IMPACT_ANALYSIS_JOB_TYPE =
+  "pull_request.impact_analysis" as const;
+
+export interface PullRequestImpactAnalysisJobPayload {
+  readonly pullRequestId: string;
+  readonly analysisRunId?: string | undefined;
+  readonly impactAnalysisId?: string | undefined;
+  readonly maxDepth?: number | undefined;
+  readonly direction?: TraversalDirection | undefined;
+  readonly edgeTypes?: readonly GraphEdgeType[] | undefined;
+  readonly nodeTypes?: readonly GraphNodeType[] | undefined;
+  readonly decayFactor?: number | undefined;
+  readonly includeEvidence?: boolean | undefined;
+}
+
+/** Stable idempotency key for PR impact analysis job enqueueing. */
+export function pullRequestImpactAnalysisIdempotencyKey(
+  pullRequestId: string,
+  analysisRunId: string,
+  key: string,
+): string {
+  return `${PULL_REQUEST_IMPACT_ANALYSIS_JOB_TYPE}:${pullRequestId}:${analysisRunId}:${key}`;
+}
+
+export function parsePullRequestImpactAnalysisJobPayload(
+  payload: JobPayload,
+): PullRequestImpactAnalysisJobPayload | null {
+  const pullRequestId = payload["pullRequestId"];
+  if (typeof pullRequestId !== "string" || !UUID_PATTERN.test(pullRequestId)) {
+    return null;
+  }
+
+  const analysisRunId = payload["analysisRunId"];
+  if (
+    analysisRunId !== undefined &&
+    (typeof analysisRunId !== "string" || !UUID_PATTERN.test(analysisRunId))
+  ) {
+    return null;
+  }
+
+  const impactAnalysisId = payload["impactAnalysisId"];
+  if (
+    impactAnalysisId !== undefined &&
+    (typeof impactAnalysisId !== "string" || !UUID_PATTERN.test(impactAnalysisId))
+  ) {
+    return null;
+  }
+
+  const maxDepth = payload["maxDepth"];
+  if (
+    maxDepth !== undefined &&
+    (typeof maxDepth !== "number" || !Number.isInteger(maxDepth) || maxDepth < 0)
+  ) {
+    return null;
+  }
+
+  const direction = payload["direction"];
+  if (
+    direction !== undefined &&
+    direction !== "outgoing" &&
+    direction !== "incoming" &&
+    direction !== "both"
+  ) {
+    return null;
+  }
+
+  const edgeTypes = payload["edgeTypes"];
+  if (edgeTypes !== undefined && !Array.isArray(edgeTypes)) {
+    return null;
+  }
+
+  const nodeTypes = payload["nodeTypes"];
+  if (nodeTypes !== undefined && !Array.isArray(nodeTypes)) {
+    return null;
+  }
+
+  const decayFactor = payload["decayFactor"];
+  if (
+    decayFactor !== undefined &&
+    (typeof decayFactor !== "number" || decayFactor < 0 || decayFactor > 1)
+  ) {
+    return null;
+  }
+
+  const includeEvidence = payload["includeEvidence"];
+  if (includeEvidence !== undefined && typeof includeEvidence !== "boolean") {
+    return null;
+  }
+
+  return {
+    pullRequestId,
+    ...(typeof analysisRunId === "string" ? { analysisRunId } : {}),
+    ...(typeof impactAnalysisId === "string" ? { impactAnalysisId } : {}),
+    ...(typeof maxDepth === "number" ? { maxDepth } : {}),
+    ...(typeof direction === "string" ? { direction } : {}),
+    ...(Array.isArray(edgeTypes) ? { edgeTypes: edgeTypes as GraphEdgeType[] } : {}),
+    ...(Array.isArray(nodeTypes) ? { nodeTypes: nodeTypes as GraphNodeType[] } : {}),
+    ...(typeof decayFactor === "number" ? { decayFactor } : {}),
+    ...(typeof includeEvidence === "boolean" ? { includeEvidence } : {}),
   };
 }

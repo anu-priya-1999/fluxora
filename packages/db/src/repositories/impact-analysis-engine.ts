@@ -837,6 +837,113 @@ export async function resolveChangedFilesToSeeds(
   return resolveFilesToSeeds(changedFiles, candidateNodes, evidenceMap);
 }
 
+export interface ResolvedPullRequestAnalysisRun {
+  readonly pullRequest: {
+    readonly id: string;
+    readonly organizationId: string;
+    readonly repositoryId: string;
+    readonly number: number;
+  };
+  readonly analysisRunId: string;
+}
+
+/**
+ * Validates PR tenant existence and resolves the effective analysis run ID
+ * (explicitly supplied or latest completed run for the repository).
+ */
+export async function resolveAnalysisRunForPullRequest(
+  pool: pg.Pool,
+  organizationId: string,
+  pullRequestId: string,
+  requestedAnalysisRunId?: string,
+): Promise<ResolvedPullRequestAnalysisRun> {
+  return withTenant(pool, organizationId, async (client) => {
+    return resolveAnalysisRunForPullRequestTx(
+      client,
+      organizationId,
+      pullRequestId,
+      requestedAnalysisRunId,
+    );
+  });
+}
+
+export async function resolveAnalysisRunForPullRequestTx(
+  client: pg.PoolClient,
+  organizationId: string,
+  pullRequestId: string,
+  requestedAnalysisRunId?: string,
+): Promise<ResolvedPullRequestAnalysisRun> {
+  const prRes = await client.query<{
+    id: string;
+    organization_id: string;
+    repository_id: string;
+    number: number;
+  }>(
+    `SELECT id, organization_id, repository_id, number
+     FROM pull_requests
+     WHERE id = $1::uuid AND organization_id = $2::uuid`,
+    [pullRequestId, organizationId],
+  );
+
+  const pr = prRes.rows[0];
+  if (!pr) {
+    throw new PullRequestNotFoundError(
+      `Pull request ${pullRequestId} not found or inaccessible for organization ${organizationId}.`,
+    );
+  }
+
+  let effectiveAnalysisRunId: string;
+  if (requestedAnalysisRunId) {
+    const runRes = await client.query<{ id: string; status: string }>(
+      `SELECT ar.id, ar.status
+       FROM analysis_runs ar
+       JOIN repository_snapshots rs ON rs.id = ar.snapshot_id
+       JOIN repositories repo ON repo.id = rs.repository_id
+       WHERE ar.id = $1::uuid
+         AND repo.id = $2::uuid
+         AND repo.organization_id = $3::uuid`,
+      [requestedAnalysisRunId, pr.repository_id, organizationId],
+    );
+    const runRow = runRes.rows[0];
+    if (!runRow) {
+      throw new AnalysisSnapshotUnavailableError(
+        `Analysis run ${requestedAnalysisRunId} does not exist or does not belong to repository ${pr.repository_id}.`,
+      );
+    }
+    effectiveAnalysisRunId = runRow.id;
+  } else {
+    const latestRunRes = await client.query<{ id: string }>(
+      `SELECT ar.id
+       FROM analysis_runs ar
+       JOIN repository_snapshots rs ON rs.id = ar.snapshot_id
+       JOIN repositories repo ON repo.id = rs.repository_id
+       WHERE repo.id = $1::uuid
+         AND repo.organization_id = $2::uuid
+         AND ar.status = 'completed'
+       ORDER BY ar.created_at DESC, ar.id DESC
+       LIMIT 1`,
+      [pr.repository_id, organizationId],
+    );
+    const latestRun = latestRunRes.rows[0];
+    if (!latestRun) {
+      throw new AnalysisSnapshotUnavailableError(
+        `No completed analysis run found for repository ${pr.repository_id}.`,
+      );
+    }
+    effectiveAnalysisRunId = latestRun.id;
+  }
+
+  return {
+    pullRequest: {
+      id: pr.id,
+      organizationId: pr.organization_id,
+      repositoryId: pr.repository_id,
+      number: pr.number,
+    },
+    analysisRunId: effectiveAnalysisRunId,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Database-Backed End-to-End Impact Analysis Engine
 // ---------------------------------------------------------------------------
@@ -912,68 +1019,13 @@ export async function analyzePullRequestImpact(
 
   // 2. Tenant Scoping & Resolution
   return withTenant(pool, organizationId, async (client) => {
-    // 2.1 Verify pull request exists within tenant
-    const prRes = await client.query<{
-      id: string;
-      organization_id: string;
-      repository_id: string;
-      number: number;
-    }>(
-      `SELECT id, organization_id, repository_id, number
-       FROM pull_requests
-       WHERE id = $1::uuid AND organization_id = $2::uuid`,
-      [pullRequestId, organizationId],
-    );
-
-    const pr = prRes.rows[0];
-    if (!pr) {
-      throw new PullRequestNotFoundError(
-        `Pull request ${pullRequestId} not found or inaccessible for organization ${organizationId}.`,
+    const { pullRequest: pr, analysisRunId: effectiveAnalysisRunId } =
+      await resolveAnalysisRunForPullRequestTx(
+        client,
+        organizationId,
+        pullRequestId,
+        requestedAnalysisRunId,
       );
-    }
-
-    // 2.2 Resolve Analysis Run ID (current repository graph snapshot)
-    let effectiveAnalysisRunId: string;
-    if (requestedAnalysisRunId) {
-      const runRes = await client.query<{ id: string; status: string }>(
-        `SELECT ar.id, ar.status
-         FROM analysis_runs ar
-         JOIN repository_snapshots rs ON rs.id = ar.snapshot_id
-         JOIN repositories repo ON repo.id = rs.repository_id
-         WHERE ar.id = $1::uuid
-           AND repo.id = $2::uuid
-           AND repo.organization_id = $3::uuid`,
-        [requestedAnalysisRunId, pr.repository_id, organizationId],
-      );
-      const runRow = runRes.rows[0];
-      if (!runRow) {
-        throw new AnalysisSnapshotUnavailableError(
-          `Analysis run ${requestedAnalysisRunId} does not exist or does not belong to repository ${pr.repository_id}.`,
-        );
-      }
-      effectiveAnalysisRunId = runRow.id;
-    } else {
-      // Find latest completed analysis run for this repository
-      const latestRunRes = await client.query<{ id: string }>(
-        `SELECT ar.id
-         FROM analysis_runs ar
-         JOIN repository_snapshots rs ON rs.id = ar.snapshot_id
-         JOIN repositories repo ON repo.id = rs.repository_id
-         WHERE repo.id = $1::uuid
-           AND repo.organization_id = $2::uuid
-           AND ar.status = 'completed'
-         ORDER BY ar.created_at DESC, ar.id DESC
-         LIMIT 1`,
-        [pr.repository_id, organizationId],
-      );
-      const latestRun = latestRunRes.rows[0];
-      if (!latestRun) {
-        throw new AnalysisSnapshotUnavailableError(
-          `No completed analysis run found for repository ${pr.repository_id}.`,
-        );
-      }
-      effectiveAnalysisRunId = latestRun.id;
-    }
 
     // 2.3 Fetch changed files for the pull request
     const files = await listPullRequestFiles(pool, organizationId, pullRequestId);
@@ -981,7 +1033,7 @@ export async function analyzePullRequestImpact(
       return {
         pullRequestId,
         analysisRunId: effectiveAnalysisRunId,
-        repositoryId: pr.repository_id,
+        repositoryId: pr.repositoryId,
         organizationId,
         seedNodes: [],
         directImpacts: [],
@@ -1015,7 +1067,7 @@ export async function analyzePullRequestImpact(
       return {
         pullRequestId,
         analysisRunId: effectiveAnalysisRunId,
-        repositoryId: pr.repository_id,
+        repositoryId: pr.repositoryId,
         organizationId,
         seedNodes,
         directImpacts: [],
@@ -1186,7 +1238,7 @@ export async function analyzePullRequestImpact(
     return {
       pullRequestId,
       analysisRunId: effectiveAnalysisRunId,
-      repositoryId: pr.repository_id,
+      repositoryId: pr.repositoryId,
       organizationId,
       seedNodes,
       directImpacts,

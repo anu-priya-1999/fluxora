@@ -11340,3 +11340,91 @@ Step 44 does NOT:
 - Implement the change-mode visual overlay on GraphCanvas in `apps/web` (Step 46 owns this);
 - Run golden-fixture PR impact validation (Step 47 owns this);
 - Add AI/LLM narrative explanations (Step 48+).
+
+---
+
+## Global Step 45 — PR Impact Analysis API
+
+### Overview & Objective
+
+Global Step 45 exposes the deterministic change-impact analysis engine (Step 43) and its durable persistence store (Step 44) through authenticated, tenant-scoped, and asynchronous HTTP REST endpoints in `apps/api` and coordinates background processing through the PostgreSQL job queue and worker harness in `apps/workers`.
+
+This fulfills **Global Step 45** of **Phase 6: PR Impact Analysis** as defined by `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/05-component-responsibilities.md §5.8, §5.9, §5.14, §5.16`, `docs/architecture/06-database-schema.md §6.3`, and `docs/architecture/07-api-architecture.md`.
+
+### Architecture & Conceptual Flow
+
+```
+1. Client POST Request
+   POST /api/v1/pull-requests/:id/analyze-impact
+   Authorization: Bearer <JWT>
+   Idempotency-Key: <client-key>
+   { "analysis_run_id": "...", "max_depth": 3, "direction": "outgoing" }
+                    │
+                    ▼
+2. HTTP API Server (`apps/api`)
+   ├─ Authenticate Bearer JWT & resolve authenticated user session
+   ├─ Derive organizationId from session (reject if body contains organization_id)
+   ├─ Validate pullRequestId format (UUID regex)
+   ├─ Resolve PR & AnalysisRun inside tenant scope (`resolveAnalysisRunForPullRequest`)
+   │  └─ Returns 404 pull_request_not_found if PR belongs to another tenant
+   ├─ Compute deterministic impactAnalysisId & idempotencyKey
+   ├─ Enqueue job into PostgreSQL `jobs` table (type: "pull_request.impact_analysis")
+   │  └─ Deduplication via unique idempotencyKey
+   └─ Return HTTP 202 Accepted:
+      {
+        "status": "queued",
+        "job_id": "...",
+        "pull_request_id": "...",
+        "idempotency_key": "..."
+      }
+                    │
+                    ▼
+3. Distributed Worker Harness (`apps/workers`)
+   ├─ Dequeue job payload (`parsePullRequestImpactAnalysisJobPayload`)
+   ├─ Validate tenant-scoped pull request & analysis run
+   ├─ Execute `persistPullRequestImpactAnalysis`:
+   │  ├─ Step 43 Deterministic Impact Analysis Engine (`analyzePullRequestImpact`)
+   │  ├─ Step 44 Evidence Generation (`EvidenceWriter.createImpactFindingEvidence`)
+   │  └─ Step 44 Atomic Persistence (`INSERT INTO impact_analyses ... ON CONFLICT DO UPDATE`)
+   └─ Mark job completed
+                    │
+                    ▼
+4. Client GET Request
+   GET /api/v1/impact-analyses/:id
+   Authorization: Bearer <JWT>
+                    │
+                    ▼
+5. Read-Only Retrieval (`apps/api`)
+   ├─ Authenticate Bearer JWT & derive organizationId
+   ├─ Retrieve persisted record via `getImpactAnalysisById(pool, organizationId, id)`
+   │  └─ Evaluated against PostgreSQL Row-Level Security (RLS)
+   ├─ If cross-tenant or missing, return 404 impact_analysis_not_found
+   ├─ Pure formatting via `formatImpactAnalysisResponse` (NO recomputation)
+   └─ Return HTTP 200 OK with full finding taxonomy and evidence IDs
+```
+
+### Endpoints & Contract Specifications
+
+1. **`POST /api/v1/pull-requests/:id/analyze-impact`**:
+   - **Authentication**: Requires `Authorization: Bearer <JWT>` with linked GitHub identity.
+   - **Tenancy**: `organization_id` derived exclusively from auth session. Body payloads containing `organization_id` are rejected with `400 invalid_request`.
+   - **Input Validation**: `pullRequestId` and optional `analysis_run_id` validated as UUIDs. Traversal options (`max_depth`, `direction`, `decay_factor`, `edge_types`, `node_types`) validated against domain constraints.
+   - **Asynchronous Execution**: Graph traversal is non-blocking. Schedules job `pull_request.impact_analysis` and responds with `HTTP 202 Accepted`.
+   - **Idempotency**: Honors optional `Idempotency-Key` header; deduplicates via `pull_request.impact_analysis:${prId}:${runId}:${clientKey}`.
+
+2. **`GET /api/v1/impact-analyses/:id`**:
+   - **Authentication**: Requires valid Bearer JWT.
+   - **Tenancy**: Scoped to authenticated user's organization; foreign or non-existent IDs return `404 impact_analysis_not_found`.
+   - **Read-Only**: Strictly reads from persisted `impact_analyses` table via `getImpactAnalysisById`. Performs zero graph traversal or diff recalculation.
+   - **Response**: Returns `HTTP 200 OK` with `direct_impact`, `downstream_impact`, `affected_apis`, `affected_events`, `affected_services`, `workflow_impact_summary`, `unresolved_files`, `truncated`, `truncation_reason`, `max_depth_reached`, `execution_metrics`, and linked `evidence_ids`.
+
+3. **Standard Error Shape**:
+   - All error responses conform to `{ "error": { "code": string, "message": string, "details"?: unknown } }`.
+   - Standard HTTP codes: `400` (invalid request/UUID), `401` (missing/invalid token), `403` (missing GitHub link), `404` (PR/run/analysis not found or cross-tenant), `405` (method not allowed), `500` (internal server error).
+
+### Scope Boundary Against Steps 46–47
+
+Step 45 does NOT:
+- Implement frontend UI components, routes, or the GraphCanvas change-mode overlay in `apps/web` (Step 46 owns this);
+- Run golden-fixture PR impact validation (Step 47 owns this);
+- Add AI/LLM narrative explanations or scenario simulation (Step 48+).
