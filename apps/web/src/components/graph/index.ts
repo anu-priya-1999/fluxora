@@ -7,3 +7,5 @@ export * from "./NodeInspectorPanel.tsx";
 export * from "./graph-lod.ts";
 export * from "./explorer-status-data.ts";
 export * from "./ExplorerStatus.tsx";
+export * from "./change-mode-data.ts";
+export * from "./ChangeModeBar.tsx";

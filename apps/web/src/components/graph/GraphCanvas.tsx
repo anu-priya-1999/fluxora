@@ -22,6 +22,10 @@ import {
   getLodLevelFromZoom,
   type LodLevel,
 } from "./graph-lod.ts";
+import {
+  computeImpactSliceMetrics,
+  type NormalizedChangeModeState,
+} from "./change-mode-data.ts";
 
 const DEFAULT_NODE_TYPES: NodeTypes = {
   fluxoraNode: NodeRenderer,
@@ -96,6 +100,10 @@ export interface GraphCanvasProps {
    * Optional callback when LOD tier changes due to viewport zoom.
    */
   readonly onLodChange?: (lod: LodLevel) => void;
+  /**
+   * Optional Change-Mode state to overlay on the graph (Step 46).
+   */
+  readonly changeMode?: NormalizedChangeModeState | null | undefined;
 }
 
 /**
@@ -129,6 +137,7 @@ export function GraphCanvas({
   enableLod = true,
   initialLod = "module",
   onLodChange,
+  changeMode,
 }: GraphCanvasProps): React.JSX.Element {
   const [currentLod, setCurrentLod] = React.useState<LodLevel>(initialLod);
 
@@ -162,28 +171,65 @@ export function GraphCanvas({
     });
   }, [inputNodes, inputEdges, enableLod, currentLod, selectedNodeId]);
 
-  // Map input nodes and edges deterministically to React Flow format
+  // Compute impact slice metrics (how many impacted nodes are visible in the current slice)
+  const impactSliceMetrics = useMemo(() => {
+    if (!changeMode || !changeMode.enabled || changeMode.status !== "ready") {
+      return null;
+    }
+    return computeImpactSliceMetrics(changeMode, visibleNodes);
+  }, [changeMode, visibleNodes]);
+
+  // Map input nodes and edges deterministically to React Flow format with Change-Mode overlay
   const { nodes, edges } = useMemo(() => {
     const mapped = mapDomainGraphToFlow(visibleNodes, visibleEdges);
+    const isChangeModeActive = Boolean(changeMode?.enabled && changeMode?.status === "ready");
 
-    if (selectedNodeId) {
-      const updatedNodes = mapped.nodes.map((n) => {
-        if (n.id === selectedNodeId) {
-          return {
-            ...n,
-            data: {
-              ...n.data,
-              isSelected: true,
-            },
-          };
-        }
-        return n;
-      });
-      return { nodes: updatedNodes, edges: mapped.edges };
-    }
+    const updatedNodes = mapped.nodes.map((n) => {
+      const isSelected = n.id === selectedNodeId;
 
-    return mapped;
-  }, [visibleNodes, visibleEdges, selectedNodeId]);
+      if (!isChangeModeActive || !changeMode) {
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            isSelected,
+            changeModeActive: false,
+          },
+        };
+      }
+
+      // Change mode is active: determine impact role and metadata
+      const isDirect = changeMode.directNodeIds.has(n.id);
+      const isDownstream = !isDirect && changeMode.downstreamNodeIds.has(n.id);
+      const impactRole: "direct" | "downstream" | "unaffected" = isDirect
+        ? "direct"
+        : isDownstream
+          ? "downstream"
+          : "unaffected";
+      const impactHopDistance = changeMode.hopDistanceByNodeId.get(n.id);
+      const impactConfidence = changeMode.confidenceByNodeId.get(n.id);
+      const isAffectedApi = changeMode.affectedApiNodeIds.has(n.id);
+      const isAffectedEvent = changeMode.affectedEventNodeIds.has(n.id);
+      const impactEvidenceIds = changeMode.evidenceIdsByNodeId.get(n.id);
+
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          isSelected,
+          changeModeActive: true,
+          impactRole,
+          impactHopDistance,
+          impactConfidence,
+          isAffectedApi,
+          isAffectedEvent,
+          impactEvidenceIds,
+        },
+      };
+    });
+
+    return { nodes: updatedNodes, edges: mapped.edges };
+  }, [visibleNodes, visibleEdges, selectedNodeId, changeMode]);
 
   const handleNodeClick = useMemo(() => {
     if (!onNodeClick) return undefined;
@@ -268,6 +314,19 @@ export function GraphCanvas({
             <span>
               LOD: <strong>{currentLod}</strong> ({nodes.length}/{inputNodes.length} nodes)
             </span>
+            {impactSliceMetrics && impactSliceMetrics.totalImpactedNodes > 0 && (
+              <span
+                data-testid="impact-slice-indicator"
+                style={{
+                  color:
+                    impactSliceMetrics.hiddenImpactedNodes > 0 ? "#b45309" : "#15803d",
+                  fontWeight: 600,
+                  marginLeft: "4px",
+                }}
+              >
+                • {impactSliceMetrics.visibleImpactedNodes}/{impactSliceMetrics.totalImpactedNodes} impacted visible
+              </span>
+            )}
           </div>
         )}
         {showBackground && (

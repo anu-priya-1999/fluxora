@@ -22,6 +22,13 @@ import {
   type ExplorerConnectionStatus,
 } from "../../../../components/graph/ExplorerStatus";
 import {
+  ChangeModeBar,
+  DEFAULT_CHANGE_MODE_STATE,
+  fetchImpactAnalysis,
+  normalizeImpactAnalysisResponse,
+  type NormalizedChangeModeState,
+} from "../../../../components/graph";
+import {
   createExplorerWebSocketClient,
   type ExplorerWsStatus,
   type WebSocketFactory,
@@ -41,6 +48,24 @@ export interface ArchitectureExplorerClientProps {
   readonly webSocketFactory?: WebSocketFactory | undefined;
 }
 
+function updateUrlParams(impactId: string | null): void {
+  if (typeof window === "undefined" || !window.history || !window.location) {
+    return;
+  }
+  try {
+    const url = new URL(window.location.href);
+    if (impactId) {
+      url.searchParams.set("impact_id", impactId);
+    } else {
+      url.searchParams.delete("impact_id");
+      url.searchParams.delete("impact_analysis_id");
+    }
+    window.history.replaceState(null, "", url.toString());
+  } catch {
+    // Non-blocking in non-DOM test environments
+  }
+}
+
 export function ArchitectureExplorerClient({
   apiUrl,
   context,
@@ -55,6 +80,20 @@ export function ArchitectureExplorerClient({
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ExplorerConnectionStatus>("disconnected");
 
+  // Step 46: Change-Mode State
+  const [changeModeState, setChangeModeState] = useState<NormalizedChangeModeState>(() => {
+    if (context.initialImpactAnalysisId) {
+      return {
+        ...DEFAULT_CHANGE_MODE_STATE,
+        enabled: true,
+        impactAnalysisId: context.initialImpactAnalysisId,
+        status: "loading",
+      };
+    }
+    return DEFAULT_CHANGE_MODE_STATE;
+  });
+  const [impactAnalysisFetchTrigger, setImpactAnalysisFetchTrigger] = useState(0);
+
   const selectedNode = useMemo(() => {
     if (state.status !== "ready" || !selectedNodeId) {
       return null;
@@ -66,6 +105,111 @@ export function ArchitectureExplorerClient({
   const handleRetry = useCallback(() => {
     setLiveUpdateTrigger((prev) => prev + 1);
   }, []);
+
+  // Step 46: Change-Mode handlers
+  const handleToggleChangeMode = useCallback((enabled: boolean) => {
+    setChangeModeState((prev) => {
+      const next = { ...prev, enabled };
+      updateUrlParams(next.enabled ? next.impactAnalysisId : null);
+      return next;
+    });
+  }, []);
+
+  const handleLoadAnalysis = useCallback((impactAnalysisId: string) => {
+    setChangeModeState((prev) => {
+      const next = {
+        ...prev,
+        enabled: true,
+        impactAnalysisId,
+        status: "loading" as const,
+        errorMessage: null,
+      };
+      updateUrlParams(impactAnalysisId);
+      return next;
+    });
+    setImpactAnalysisFetchTrigger((prev) => prev + 1);
+  }, []);
+
+  const handleClearAnalysis = useCallback(() => {
+    setChangeModeState({
+      ...DEFAULT_CHANGE_MODE_STATE,
+      enabled: true,
+    });
+    updateUrlParams(null);
+  }, []);
+
+  const handleRetryImpact = useCallback(() => {
+    setImpactAnalysisFetchTrigger((prev) => prev + 1);
+  }, []);
+
+  // Step 46: Fetch Impact Analysis when enabled and an ID is present
+  useEffect(() => {
+    if (!isLoaded || !changeModeState.enabled || !changeModeState.impactAnalysisId) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    async function loadImpact() {
+      setChangeModeState((prev) => ({
+        ...prev,
+        status: "loading",
+        errorMessage: null,
+      }));
+
+      const result = await fetchImpactAnalysis({
+        apiUrl,
+        impactAnalysisId: changeModeState.impactAnalysisId!,
+        getToken,
+      });
+
+      if (isCancelled) return;
+
+      if (!result.ok) {
+        setChangeModeState((prev) => ({
+          ...prev,
+          status: "error",
+          errorMessage: result.message,
+        }));
+        return;
+      }
+
+      const normalized = normalizeImpactAnalysisResponse(result.data, {
+        enabled: true,
+      });
+      setChangeModeState(normalized);
+    }
+
+    void loadImpact();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    apiUrl,
+    changeModeState.enabled,
+    changeModeState.impactAnalysisId,
+    isLoaded,
+    getToken,
+    impactAnalysisFetchTrigger,
+  ]);
+
+  // Step 46: Auto-poll if impact analysis is pending or running on the server
+  useEffect(() => {
+    if (
+      !changeModeState.enabled ||
+      (changeModeState.executionStatus !== "pending" &&
+        changeModeState.executionStatus !== "running")
+    ) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setImpactAnalysisFetchTrigger((prev) => prev + 1);
+    }, 4000);
+
+    return () => clearTimeout(timer);
+  }, [changeModeState.enabled, changeModeState.executionStatus, changeModeState.status]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -281,6 +425,14 @@ export function ArchitectureExplorerClient({
           onDismiss: () => setRefreshError(null),
         })
       : null,
+    // Step 46: Change Mode Bar
+    React.createElement(ChangeModeBar, {
+      state: changeModeState,
+      onToggle: handleToggleChangeMode,
+      onLoadAnalysis: handleLoadAnalysis,
+      onRetry: handleRetryImpact,
+      onClear: handleClearAnalysis,
+    }),
     // Filters
     React.createElement(GraphFilters, {
       filters,
@@ -306,6 +458,7 @@ export function ArchitectureExplorerClient({
           showControls: true,
           showMiniMap: false,
           showBackground: true,
+          changeMode: changeModeState,
         }),
       ),
       React.createElement(
@@ -318,6 +471,7 @@ export function ArchitectureExplorerClient({
           node: selectedNode,
           evidence: state.graph.evidence,
           onClose: () => setSelectedNodeId(null),
+          changeMode: changeModeState,
         }),
       ),
     ),

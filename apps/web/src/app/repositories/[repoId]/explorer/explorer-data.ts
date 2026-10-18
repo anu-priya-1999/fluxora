@@ -6,6 +6,7 @@ export interface ResolvedAnalysisContext {
   readonly repositoryName?: string;
   readonly analysisRunId: string;
   readonly defaultStartNodeId: string;
+  readonly initialImpactAnalysisId?: string | undefined;
 }
 
 export type ResolveAnalysisContextResult =
@@ -202,6 +203,8 @@ export interface ResolveAnalysisContextInput {
     readonly start_node_id?: string | string[] | undefined;
     readonly run_id?: string | string[] | undefined;
     readonly node_id?: string | string[] | undefined;
+    readonly impact_id?: string | string[] | undefined;
+    readonly impact_analysis_id?: string | string[] | undefined;
   } | undefined;
 }
 
@@ -245,12 +248,24 @@ export function resolveRepositoryAnalysisContext(
     };
   }
 
+  const rawImpactId =
+    firstParam(input.searchParams?.impact_id) ??
+    firstParam(input.searchParams?.impact_analysis_id);
+
+  const initialImpactAnalysisId =
+    rawImpactId && UUID_REGEX.test(rawImpactId.trim())
+      ? rawImpactId.trim()
+      : undefined;
+
   return {
     ok: true,
     context: {
       repositoryId: repoId,
       analysisRunId: rawRunId.trim(),
       defaultStartNodeId: rawStartNodeId.trim(),
+      ...(initialImpactAnalysisId !== undefined
+        ? { initialImpactAnalysisId }
+        : {}),
     },
   };
 }

@@ -4,6 +4,7 @@ import type {
   GraphQueryResponseNode,
 } from "@fluxora/shared-types";
 import { getNodeVisualConfig } from "./node-styles.ts";
+import type { NormalizedChangeModeState } from "./change-mode-data.ts";
 
 export interface EvidenceTrailProps {
   /**
@@ -37,6 +38,10 @@ export interface NodeInspectorPanelProps {
    * Optional container CSS classes.
    */
   readonly className?: string;
+  /**
+   * Optional active Change-Mode state (Step 46).
+   */
+  readonly changeMode?: NormalizedChangeModeState | null | undefined;
 }
 
 /**
@@ -320,6 +325,7 @@ export function NodeInspectorPanel({
   evidence,
   onClose,
   className,
+  changeMode,
 }: NodeInspectorPanelProps): React.JSX.Element {
   // Empty State: No node is currently selected
   if (!node) {
@@ -357,6 +363,26 @@ export function NodeInspectorPanel({
     node.metadata && typeof node.metadata === "object"
       ? Object.entries(node.metadata)
       : [];
+
+  const isChangeModeReady = Boolean(
+    changeMode && changeMode.enabled && changeMode.status === "ready",
+  );
+  const isDirect = Boolean(isChangeModeReady && changeMode?.directNodeIds.has(node.id));
+  const isDownstream = Boolean(
+    isChangeModeReady && !isDirect && changeMode?.downstreamNodeIds.has(node.id),
+  );
+  const isImpacted = isDirect || isDownstream;
+  const impactHop = isChangeModeReady
+    ? changeMode?.hopDistanceByNodeId.get(node.id) ?? (isDirect ? 0 : 1)
+    : undefined;
+  const impactConf = isChangeModeReady
+    ? changeMode?.confidenceByNodeId.get(node.id)
+    : undefined;
+  const isApi = Boolean(isChangeModeReady && changeMode?.affectedApiNodeIds.has(node.id));
+  const isEvent = Boolean(isChangeModeReady && changeMode?.affectedEventNodeIds.has(node.id));
+  const impactEvidenceIds = isChangeModeReady
+    ? changeMode?.evidenceIdsByNodeId.get(node.id) ?? []
+    : [];
 
   return React.createElement(
     "div",
@@ -411,6 +437,175 @@ export function NodeInspectorPanel({
         node.name,
       ),
     ),
+
+    // Step 46: PR Impact Analysis Section (rendered when change mode is ready)
+    isChangeModeReady
+      ? React.createElement(
+          "section",
+          {
+            key: "change-mode-impact",
+            "data-testid": "inspector-impact-section",
+            className:
+              "p-4 flex flex-col gap-2.5 text-xs bg-slate-50/70 border-b border-slate-100",
+          },
+          React.createElement(
+            "div",
+            { className: "flex items-center justify-between gap-2" },
+            React.createElement(
+              "h3",
+              { className: "text-xs font-semibold text-slate-700 uppercase tracking-wider" },
+              "PR Impact Analysis",
+            ),
+            isImpacted
+              ? React.createElement(
+                  "span",
+                  {
+                    "data-testid": "inspector-impact-role-badge",
+                    className: `text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
+                      isDirect
+                        ? "bg-red-100 text-red-700 border border-red-200"
+                        : "bg-amber-100 text-amber-800 border border-amber-200"
+                    }`,
+                  },
+                  isDirect ? "Direct Change" : `Downstream (hop ${impactHop ?? 1})`,
+                )
+              : React.createElement(
+                  "span",
+                  {
+                    "data-testid": "inspector-impact-unaffected-badge",
+                    className:
+                      "text-[10px] font-medium text-slate-500 bg-slate-200/60 px-2 py-0.5 rounded",
+                  },
+                  "Unaffected",
+                ),
+          ),
+          isImpacted
+            ? React.createElement(
+                "div",
+                {
+                  className:
+                    "flex flex-col gap-2 bg-white rounded-md p-2.5 border border-slate-200/60",
+                },
+                React.createElement(
+                  "div",
+                  { className: "grid grid-cols-2 gap-2" },
+                  React.createElement(
+                    "div",
+                    { className: "flex flex-col gap-0.5" },
+                    React.createElement(
+                      "span",
+                      { className: "text-slate-500 text-[11px]" },
+                      "Hop Distance",
+                    ),
+                    React.createElement(
+                      "span",
+                      {
+                        "data-testid": "inspector-impact-hop",
+                        className: "font-semibold text-slate-800",
+                      },
+                      String(impactHop ?? 0),
+                    ),
+                  ),
+                  React.createElement(
+                    "div",
+                    { className: "flex flex-col gap-0.5" },
+                    React.createElement(
+                      "span",
+                      { className: "text-slate-500 text-[11px]" },
+                      "Impact Confidence",
+                    ),
+                    React.createElement(
+                      "span",
+                      {
+                        "data-testid": "inspector-impact-confidence",
+                        className: `font-semibold ${
+                          impactConf !== undefined && impactConf < 0.7
+                            ? "text-amber-600"
+                            : "text-slate-800"
+                        }`,
+                      },
+                      impactConf !== undefined
+                        ? `${Math.round(impactConf * 100)}%`
+                        : "—",
+                    ),
+                  ),
+                ),
+                isApi || isEvent
+                  ? React.createElement(
+                      "div",
+                      {
+                        className:
+                          "flex flex-wrap gap-1.5 pt-1.5 border-t border-slate-100",
+                      },
+                      isApi
+                        ? React.createElement(
+                            "span",
+                            {
+                              key: "api-tag",
+                              "data-testid": "inspector-affected-api-badge",
+                              className:
+                                "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200",
+                            },
+                            "Affected API Route",
+                          )
+                        : null,
+                      isEvent
+                        ? React.createElement(
+                            "span",
+                            {
+                              key: "event-tag",
+                              "data-testid": "inspector-affected-event-badge",
+                              className:
+                                "text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200",
+                            },
+                            "Affected Event",
+                          )
+                        : null,
+                    )
+                  : null,
+                impactEvidenceIds.length > 0
+                  ? React.createElement(
+                      "div",
+                      {
+                        className: "flex flex-col gap-1 pt-1.5 border-t border-slate-100",
+                      },
+                      React.createElement(
+                        "span",
+                        { className: "text-slate-500 text-[11px]" },
+                        "Impact Finding Evidence",
+                      ),
+                      React.createElement(
+                        "div",
+                        {
+                          "data-testid": "inspector-impact-evidence-list",
+                          className: "flex flex-wrap gap-1",
+                        },
+                        ...impactEvidenceIds.map((evId) =>
+                          React.createElement(
+                            "span",
+                            {
+                              key: evId,
+                              "data-testid": `inspector-evidence-id-${evId}`,
+                              className:
+                                "font-mono text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200",
+                            },
+                            evId,
+                          ),
+                        ),
+                      ),
+                    )
+                  : null,
+              )
+            : React.createElement(
+                "p",
+                {
+                  "data-testid": "inspector-impact-unaffected-msg",
+                  className: "text-slate-500 text-xs italic",
+                },
+                "This node is outside the blast radius of the analyzed pull request.",
+              ),
+        )
+      : null,
 
     // 2. Identity & Architecture Properties
     React.createElement(

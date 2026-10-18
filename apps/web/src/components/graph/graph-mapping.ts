@@ -52,9 +52,16 @@ export interface FluxoraNodeData {
   readonly name: string;
   readonly path: string | null;
   readonly confidence: number;
-  readonly depth?: number;
+  readonly depth?: number | undefined;
   readonly metadata: Record<string, unknown>;
-  readonly isSelected?: boolean;
+  readonly isSelected?: boolean | undefined;
+  readonly changeModeActive?: boolean | undefined;
+  readonly impactRole?: "direct" | "downstream" | "unaffected" | undefined;
+  readonly impactHopDistance?: number | undefined;
+  readonly impactConfidence?: number | undefined;
+  readonly isAffectedApi?: boolean | undefined;
+  readonly isAffectedEvent?: boolean | undefined;
+  readonly impactEvidenceIds?: readonly string[] | undefined;
   [key: string]: unknown;
 }
 

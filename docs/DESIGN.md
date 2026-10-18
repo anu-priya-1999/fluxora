@@ -11428,3 +11428,88 @@ Step 45 does NOT:
 - Implement frontend UI components, routes, or the GraphCanvas change-mode overlay in `apps/web` (Step 46 owns this);
 - Run golden-fixture PR impact validation (Step 47 owns this);
 - Add AI/LLM narrative explanations or scenario simulation (Step 48+).
+---
+
+## Global Step 46 — Change-Mode Overlay in Architecture Explorer
+
+### Overview & Objective
+
+Global Step 46 implements the frontend Change-Mode overlay within the flagship Architecture Explorer in `apps/web`. It enables software engineers and reviewers to inspect the deterministic blast radius of a pull request visually superimposed on top of the system's canonical dependency graph.
+
+This fulfills **Global Step 46** of **Phase 6: PR Impact Analysis** as defined by `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/05-component-responsibilities.md §5.9, §5.15`, `docs/architecture/07-api-architecture.md`, and `docs/architecture/10-frontend-architecture.md`.
+
+### Architecture & Conceptual Flow
+
+```
+PR Impact Analysis (PostgreSQL `impact_analyses`, Step 44)
+      │
+      ▼
+GET /api/v1/impact-analyses/:id (Step 45 REST API, Bearer JWT Auth)
+      │
+      ▼
+Frontend Normalization (`normalizeImpactAnalysisResponse`)
+      │  ├─ Set<string> directNodeIds
+      │  ├─ Set<string> downstreamNodeIds
+      │  ├─ Set<string> affectedApiNodeIds
+      │  ├─ Set<string> affectedEventNodeIds
+      │  ├─ Map<string, number> hopDistanceByNodeId
+      │  ├─ Map<string, number> confidenceByNodeId
+      │  └─ Map<string, readonly string[]> evidenceIdsByNodeId
+      ▼
+ChangeModeState (`NormalizedChangeModeState`)
+      │
+      ▼
+GraphCanvas / NodeRenderer Overlay
+      │  ├─ Direct change: Crimson border (#dc2626) + glowing ring + "Direct Change" badge
+      │  ├─ Downstream: Chromatic amber (#d97706 -> #fbbf24) + "Downstream (hop N)" badge
+      │  ├─ Contract badges: "API" (emerald) and "Event" (purple)
+      │  ├─ Uncertainty: Dashed border + "(low)" badge for confidence < 0.70
+      │  └─ Unaffected nodes: De-emphasized (opacity: 0.45, grayscale: 30%)
+      ▼
+Selection + NodeInspectorPanel + Evidence Trail
+      ├─ Selection priority: Primary blue (#2563eb) strictly overrides change-mode styles
+      ├─ "PR Impact Analysis" card rendered in NodeInspectorPanel
+      └─ Clickable links to durable AST / diff provenance evidence IDs
+```
+
+### Data & State Ownership
+
+1. **Server Authoritative Data**:
+   - The impact analysis findings are computed strictly server-side by the Step 43 deterministic engine and persisted in PostgreSQL under Step 44.
+   - The browser never executes graph traversal, symbol extraction, AST parsing, or diff calculations.
+   - The frontend communicates exclusively with `GET /api/v1/impact-analyses/:id` via Bearer JWT. It never connects to PostgreSQL, Redis, MinIO, or GitHub directly.
+
+2. **Frontend State Ownership (`NormalizedChangeModeState`)**:
+   - The normalized change-mode state is managed in the client component `ExplorerClient`.
+   - Node lookups are optimized to $O(1)$ complexity via `Set<string>` and `Map<string, number>`.
+   - Multi-seed shallowest path deduplication resolves conflicting findings deterministically (direct takes priority over downstream, lowest hop distance wins, highest confidence wins, evidence IDs deduplicated and sorted lexicographically).
+   - URL synchronization (`?impact_id=<uuid>`) enables link-sharing without state divergence.
+
+### Visual Priority & Presentation Hierarchy
+
+1. **Selection Priority**: Selection state (`isSelected`) has highest visual priority. When a user selects any node—whether direct, downstream, or unaffected—the primary blue border (`#2563eb`) and focus ring take precedence.
+2. **Direct Changes**: Crimson border (`#dc2626`) with 3px glowing ring and red badge (`Direct Change`).
+3. **Downstream Impacts**: Graduated chromatic amber borders (`#d97706` for hop 1, `#f59e0b` for hop 2, `#fbbf24` for hop 3+) and amber badge (`Downstream (hop N)`).
+4. **Architectural Contracts**: Emerald badge (`API`) for HTTP/RPC endpoints; purple badge (`Event`) for async message producers/consumers.
+5. **Confidence & Uncertainty**: Findings with confidence $< 0.70$ render with dashed borders (`2px dashed <color>`) and `(low)` tag.
+6. **Unaffected Nodes**: Softened with `opacity: 0.45` and `filter: grayscale(30%)` while preserving full interactivity.
+
+### Filter and Level-of-Detail (LOD) Interaction
+
+- **GraphFilters**: Filtering by node type, edge type, confidence threshold, or depth remains fully operational and does not alter or erase the normalized impact state.
+- **Level-of-Detail (LOD)**: Zoom-driven clustering (System, Module, Detail tiers) continues to aggregate nodes smoothly. LOD is never globally disabled.
+- **Slice Metrics**: If impacted nodes are excluded by current filters or LOD tiers, the canvas LOD badge dynamically displays an active slice counter (e.g. `• 3/5 impacted visible`), preventing false assumptions of safety.
+
+### Error, Pending, and Truncated States
+
+- **PENDING / RUNNING**: When a server analysis is in progress, the UI displays a status badge and polls every 4 seconds until completion.
+- **ERROR**: Network or server errors display a prominent warning banner with an actionable "Retry" button, preserving the underlying architecture graph without interruption.
+- **TRUNCATED**: If blast-radius traversal exceeded the configured `maxDepth` ceiling, `ChangeModeBar` renders an amber warning banner detailing `truncation_reason` and `max_depth_reached`.
+- **UNRESOLVED FILES**: Non-code files that could not be mapped to graph nodes are surfaced in an expandable drawer with clear path-by-path rationales.
+
+### Scope Boundary Against Steps 47–48
+
+Step 46 does NOT:
+- Implement Golden-Fixture PR Impact Validation (Step 47 owns this);
+- Modify backend impact-analysis engine, persistence, DB schema, worker logic, webhook handling, or API contracts;
+- Add AI/LLM narrative explanations or scenario simulation (Step 48+).

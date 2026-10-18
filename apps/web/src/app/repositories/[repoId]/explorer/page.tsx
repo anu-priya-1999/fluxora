@@ -16,6 +16,8 @@ interface ExplorerPageProps {
     start_node_id?: string | string[];
     run_id?: string | string[];
     node_id?: string | string[];
+    impact_id?: string | string[];
+    impact_analysis_id?: string | string[];
   }>;
 }
 

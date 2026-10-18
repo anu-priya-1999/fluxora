@@ -95,3 +95,102 @@ export function getNodeVisualConfig(nodeType: GraphNodeType | string): NodeVisua
     label: nodeType.charAt(0).toUpperCase() + nodeType.slice(1),
   };
 }
+
+/**
+ * Returns distinct chromatic border colors based on hop distance.
+ * Shallower hops receive warmer, more saturated colors; deeper hops fade.
+ */
+export function getChangeModeHopColor(hop: number): string {
+  if (hop <= 0) return "#dc2626"; // Red 600 (direct)
+  if (hop === 1) return "#d97706"; // Amber 600
+  if (hop === 2) return "#f59e0b"; // Amber 500
+  return "#fbbf24"; // Amber 400
+}
+
+export interface NodeStyleComputationInput {
+  readonly nodeType: GraphNodeType | string;
+  readonly isSelected: boolean;
+  readonly changeModeActive?: boolean | undefined;
+  readonly impactRole?: "direct" | "downstream" | "unaffected" | undefined;
+  readonly impactHopDistance?: number | undefined;
+  readonly impactConfidence?: number | undefined;
+}
+
+export interface ComputedNodeStyles {
+  readonly border: string;
+  readonly backgroundColor: string;
+  readonly boxShadow: string;
+  readonly opacity: number;
+  readonly filter?: string | undefined;
+}
+
+/**
+ * Computes node visual styling based on base type, selection state, and change-mode overlay.
+ *
+ * Guarantees:
+ * - Selected node styling takes absolute priority over change-mode overlay (Constraint 4.6 & 15.N).
+ * - Direct changes get the strongest visual emphasis (#dc2626 border + ring).
+ * - Downstream changes receive progressively weaker emphasis with hop distance.
+ * - Low-confidence findings (< 0.70) are rendered with dashed borders.
+ * - Unaffected nodes are de-emphasized (reduced opacity) but never deleted.
+ */
+export function computeNodeVisualStyles(input: NodeStyleComputationInput): ComputedNodeStyles {
+  const config = getNodeVisualConfig(input.nodeType);
+
+  // 1. Selection priority: selection always wins over change-mode styling
+  if (input.isSelected) {
+    return {
+      border: "2px solid #2563eb",
+      backgroundColor: config.backgroundColor,
+      boxShadow: "0 0 0 3px rgba(37, 99, 235, 0.3), 0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+      opacity: 1.0,
+    };
+  }
+
+  // 2. Change-Mode styling (when active)
+  if (input.changeModeActive) {
+    if (input.impactRole === "direct") {
+      return {
+        border: "2px solid #dc2626", // Red 600: strongest visual emphasis
+        backgroundColor: "#fef2f2", // Red 50
+        boxShadow: "0 0 0 3px rgba(220, 38, 38, 0.25), 0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+        opacity: 1.0,
+      };
+    }
+
+    if (input.impactRole === "downstream") {
+      const hop = input.impactHopDistance ?? 1;
+      const hopColor = getChangeModeHopColor(hop);
+      const isLowConfidence =
+        input.impactConfidence !== undefined && input.impactConfidence < 0.7;
+
+      const borderStyle = isLowConfidence ? "2px dashed" : "2px solid";
+      const ringOpacity = hop === 1 ? "0.25" : hop === 2 ? "0.15" : "0.08";
+
+      return {
+        border: `${borderStyle} ${hopColor}`,
+        backgroundColor: hop === 1 ? "#fffbeb" : "#fffdf5",
+        boxShadow: `0 0 0 2px rgba(217, 119, 6, ${ringOpacity}), 0 1px 3px rgba(0, 0, 0, 0.08)`,
+        opacity: 1.0,
+      };
+    }
+
+    if (input.impactRole === "unaffected") {
+      return {
+        border: `2px solid ${config.borderColor}`,
+        backgroundColor: config.backgroundColor,
+        boxShadow: "none",
+        opacity: 0.45,
+        filter: "grayscale(30%)",
+      };
+    }
+  }
+
+  // 3. Default base graph styling
+  return {
+    border: `2px solid ${config.borderColor}`,
+    backgroundColor: config.backgroundColor,
+    boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)",
+    opacity: 1.0,
+  };
+}
