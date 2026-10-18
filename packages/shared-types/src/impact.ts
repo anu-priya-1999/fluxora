@@ -101,3 +101,87 @@ export interface ComputeImpactAnalysisInput {
   readonly edgeTypes?: readonly GraphEdgeType[] | undefined;
   readonly nodeTypes?: readonly GraphNodeType[] | undefined;
 }
+
+/**
+ * Valid execution states for persisted impact analyses.
+ */
+export const ImpactAnalysisStatuses = [
+  "pending",
+  "running",
+  "completed",
+  "failed",
+] as const;
+
+export type ImpactAnalysisStatus = (typeof ImpactAnalysisStatuses)[number];
+
+/**
+ * Persisted ImpactAnalysis database record (Step 44).
+ */
+export interface ImpactAnalysis {
+  readonly id: string;
+  readonly pullRequestId: string;
+  readonly analysisRunId: string;
+  readonly status: ImpactAnalysisStatus;
+  readonly directImpact: readonly ImpactFinding[];
+  readonly downstreamImpact: readonly ImpactFinding[];
+  readonly affectedApis: readonly ImpactFinding[];
+  readonly affectedEvents: readonly ImpactFinding[];
+  readonly affectedServices: readonly ImpactFinding[];
+  readonly workflowImpactSummary: readonly string[];
+  readonly unresolvedFiles: readonly UnresolvedChangedFile[];
+  readonly truncated: boolean;
+  readonly truncationReason?: string | null | undefined;
+  readonly maxDepthReached: number;
+  readonly executionMetrics: ImpactAnalysisExecutionMetrics;
+  readonly metadata: Record<string, unknown>;
+  readonly createdAt: Date;
+}
+
+/**
+ * Input parameters for saving an impact analysis record and its finding evidence.
+ */
+export interface SaveImpactAnalysisInput {
+  id?: string | undefined;
+  organizationId: string;
+  pullRequestId?: string | undefined;
+  analysisRunId?: string | undefined;
+  status?: ImpactAnalysisStatus | undefined;
+  directImpact?: readonly ImpactFinding[] | undefined;
+  downstreamImpact?: readonly ImpactFinding[] | undefined;
+  affectedApis?: readonly ImpactFinding[] | undefined;
+  affectedEvents?: readonly ImpactFinding[] | undefined;
+  affectedServices?: readonly ImpactFinding[] | undefined;
+  workflowImpactSummary?: readonly string[] | undefined;
+  unresolvedFiles?: readonly UnresolvedChangedFile[] | undefined;
+  truncated?: boolean | undefined;
+  truncationReason?: string | null | undefined;
+  maxDepthReached?: number | undefined;
+  executionMetrics?: ImpactAnalysisExecutionMetrics | undefined;
+  metadata?: Record<string, unknown> | undefined;
+  result?: ImpactAnalysisResult | undefined;
+}
+
+/**
+ * Return value of saving an impact analysis, including created evidence records.
+ */
+export interface SaveImpactAnalysisResult {
+  readonly impactAnalysis: ImpactAnalysis;
+  readonly evidenceRecords: readonly EvidenceRecord[];
+}
+
+/**
+ * Options for executing impact analysis and persisting the result with evidence.
+ */
+export interface PersistPullRequestImpactAnalysisOptions
+  extends AnalyzePullRequestImpactOptions {
+  id?: string | undefined;
+  metadata?: Record<string, unknown> | undefined;
+}
+
+/**
+ * Result of executing and persisting PR impact analysis.
+ */
+export interface PersistImpactAnalysisResult {
+  readonly impactAnalysis: ImpactAnalysis;
+  readonly evidenceRecords: readonly EvidenceRecord[];
+}

@@ -11239,3 +11239,104 @@ Step 43 does NOT:
 - Implement the frontend change-mode overlay on GraphCanvas (Step 46);
 - Execute golden-fixture PR impact validation (Step 47);
 - Add AI narrative explanations (Step 48+).
+
+---
+
+## Global Step 44 — ImpactAnalysis Persistence + Evidence
+
+### Overview & Objective
+
+Global Step 44 implements durable, multi-tenant persistence for the deterministic change-impact results computed by the Step 43 Impact Analysis Engine, and integrates `EvidenceWriter` to generate first-class `impact_finding` evidence records.
+
+This fulfills **Global Step 44** of **Phase 6: PR Impact Analysis** as defined by `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/05-component-responsibilities.md §5.8 and §5.9`, and `docs/architecture/06-database-schema.md §6.3`.
+
+### Architecture & Conceptual Flow
+
+```
+PullRequest (PR metadata + changed files + diffs from Step 42)
+                    │
+                    ▼
+Step 43 Impact Analysis Engine (`analyzePullRequestImpact` / `computeImpactAnalysis`)
+                    │
+                    ▼
+Deterministic ImpactAnalysisResult (direct/downstream findings, taxonomy, decay, truncation)
+                    │
+                    ▼
+Step 44 Persistence Orchestration (`persistPullRequestImpactAnalysis` / `saveImpactAnalysis`)
+   ├─ 1. Multi-Tenant Validation & Scoping (RLS verification via `withTenant`)
+   ├─ 2. Evidence Derivation (`EvidenceWriter.createImpactFindingEvidence`)
+   │     ├─ subject_type: 'impact_finding'
+   │     ├─ subject_id: finding.node.id
+   │     ├─ Deterministic evidence ID derivation via SHA-256
+   │     └─ Metadata: impactAnalysisId, pullRequestId, depth, propagation path, supporting evidence
+   ├─ 3. Finding Evidence Linkage (evidenceIds populated on each ImpactFinding)
+   ├─ 4. Atomic PostgreSQL Transaction
+   │     ├─ INSERT INTO impact_analyses ... ON CONFLICT (id) DO UPDATE ...
+   │     └─ EvidenceWriter.writeEvidenceBatchTx(client, evidenceRecords)
+   │
+   ▼
+Committed ImpactAnalysis row + durable impact_finding Evidence records
+```
+
+### Data Model & Database Migration
+
+Migration `0018_impact_analyses_storage.sql` adds the `impact_analyses` table with strict Row-Level Security:
+
+1. **Table Schema (`impact_analyses`)**:
+   - `id`: `uuid PRIMARY KEY DEFAULT gen_random_uuid()`
+   - `pull_request_id`: `uuid NOT NULL REFERENCES pull_requests (id) ON DELETE CASCADE`
+   - `analysis_run_id`: `uuid NOT NULL REFERENCES analysis_runs (id) ON DELETE CASCADE`
+   - `status`: `text NOT NULL DEFAULT 'completed' CHECK (status IN ('pending', 'running', 'completed', 'failed'))`
+   - `direct_impact`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `downstream_impact`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `affected_apis`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `affected_events`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `affected_services`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `workflow_impact_summary`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `unresolved_files`: `jsonb NOT NULL DEFAULT '[]'::jsonb`
+   - `truncated`: `boolean NOT NULL DEFAULT false`
+   - `truncation_reason`: `text`
+   - `max_depth_reached`: `integer NOT NULL DEFAULT 0 CHECK (max_depth_reached >= 0)`
+   - `execution_metrics`: `jsonb NOT NULL DEFAULT '{}'::jsonb`
+   - `metadata`: `jsonb NOT NULL DEFAULT '{}'::jsonb`
+   - `created_at`: `timestamptz NOT NULL DEFAULT now()`
+
+2. **Indexes**:
+   - `impact_analyses_pull_request_id_idx` on `(pull_request_id)`
+   - `impact_analyses_analysis_run_id_idx` on `(analysis_run_id)`
+   - `impact_analyses_pull_request_created_at_idx` on `(pull_request_id, created_at DESC)`
+   - `evidence_impact_analysis_id_idx` partial index on `evidence ((metadata->>'impactAnalysisId')) WHERE subject_type = 'impact_finding'`
+
+3. **Row-Level Security & Tenant Isolation**:
+   - Helper function: `fluxora_impact_analysis_in_current_tenant(p_impact_analysis_id uuid)`
+   - Table security: `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY`
+   - SELECT policy: `fluxora_pull_request_in_current_tenant(pull_request_id)`
+   - INSERT & UPDATE policies: `fluxora_pull_request_in_current_tenant(pull_request_id) AND fluxora_analysis_run_in_current_tenant(analysis_run_id)`
+   - Cross-tenant queries return `null` / `[]` and cross-tenant mutations are blocked by PostgreSQL engine policies.
+
+### EvidenceWriter Integration
+
+`EvidenceWriter.createImpactFindingEvidence` extends the Evidence Writer layer:
+- Links every affected graph node finding to an explicit `impact_finding` evidence row.
+- Preserves exact source location coordinates (`lineStart`, `lineEnd`, `columnStart`, `columnEnd`) from node metadata/AST provenance.
+- Records propagation depth, path array, and supporting graph edge evidence IDs in evidence metadata.
+- Updates finding objects so `evidenceIds` includes the newly created evidence ID.
+- Re-running persistence produces identical deterministic evidence UUIDs and uses idempotent `ON CONFLICT (id) DO UPDATE`.
+
+### Repository Surface (`packages/db`)
+
+- `saveImpactAnalysis(pool, input)`: Atomically persists analysis and evidence within `withTenant`.
+- `saveImpactAnalysisTx(client, input)`: Transactional save logic supporting caller-managed transactions.
+- `persistPullRequestImpactAnalysis(pool, options)`: End-to-end execution of Step 43 engine + Step 44 persistence.
+- `getImpactAnalysisById(pool, orgId, id)`: Tenant-scoped retrieval by analysis ID.
+- `getLatestImpactAnalysisForPullRequest(pool, orgId, prId)`: Returns the newest analysis for a PR.
+- `listImpactAnalysesForPullRequest(pool, orgId, prId)`: Returns chronological history of analyses for a PR.
+- `listImpactFindingEvidence(pool, orgId, impactAnalysisId)`: Retrieves all evidence records generated for an impact analysis.
+
+### Scope Boundary Against Steps 45–47
+
+Step 44 does NOT:
+- Implement REST API endpoints (`POST /pull-requests/:id/analyze-impact`, `GET /impact-analyses/:id`) in `apps/api` (Step 45 owns this);
+- Implement the change-mode visual overlay on GraphCanvas in `apps/web` (Step 46 owns this);
+- Run golden-fixture PR impact validation (Step 47 owns this);
+- Add AI/LLM narrative explanations (Step 48+).

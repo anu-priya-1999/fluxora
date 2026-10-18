@@ -142,6 +142,7 @@ function checkFunctionForEvidenceCompliance(
     funcText.includes("writeEvidenceBatchTx") ||
     funcText.includes("createNodeEvidence") ||
     funcText.includes("createEdgeEvidence") ||
+    funcText.includes("createImpactFindingEvidence") ||
     funcText.includes("createEvidenceInput");
 
   if (!usesEvidenceWriter) {

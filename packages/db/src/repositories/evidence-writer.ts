@@ -5,6 +5,7 @@ import type {
   CreateGraphNodeInput,
   EvidenceRecord,
   EvidenceSubjectType,
+  ImpactFinding,
   SourceLocation,
 } from "@fluxora/shared-types";
 import type pg from "pg";
@@ -187,6 +188,74 @@ export class EvidenceWriter {
       relationshipDescription: description,
       confidence: edge.confidence ?? 1.0,
       metadata: { canonicalId: edge.canonicalId ?? null, edgeType: edge.edgeType },
+    });
+  }
+
+  /**
+   * Constructs Evidence for an ImpactFinding record (Step 44).
+   */
+  static createImpactFindingEvidence(params: {
+    organizationId: string;
+    analysisRunId: string;
+    impactAnalysisId: string;
+    pullRequestId: string;
+    finding: ImpactFinding;
+    filePath?: string;
+    relationshipDescription?: string;
+    location?: SourceLocation;
+    symbolId?: string | null;
+  }): CreateEvidenceInput {
+    const node = params.finding.node;
+    const filePath =
+      params.filePath && params.filePath.trim().length > 0
+        ? params.filePath.trim()
+        : node.path && node.path.trim().length > 0
+          ? node.path.trim()
+          : "unknown";
+
+    const description =
+      params.relationshipDescription &&
+      params.relationshipDescription.trim().length > 0
+        ? params.relationshipDescription.trim()
+        : `Impact finding: ${node.name} (${node.nodeType}) affected at depth ${params.finding.depth} via path [${params.finding.path.join(" -> ")}]`;
+
+    const metadata: Record<string, unknown> = {
+      impactAnalysisId: params.impactAnalysisId,
+      pullRequestId: params.pullRequestId,
+      nodeId: node.id,
+      nodeType: node.nodeType,
+      canonicalId: node.canonicalId,
+      depth: params.finding.depth,
+      path: params.finding.path,
+      supportingEvidenceIds: params.finding.evidenceIds ?? [],
+    };
+
+    return EvidenceWriter.createEvidenceInput({
+      organizationId: params.organizationId,
+      analysisRunId: params.analysisRunId,
+      subjectType: "impact_finding",
+      subjectId: node.id,
+      filePath,
+      symbolId: params.symbolId ?? node.canonicalId ?? null,
+      lineStart:
+        params.location?.start.line ??
+        (typeof node.metadata?.lineStart === "number"
+          ? node.metadata.lineStart
+          : typeof node.metadata?.line_start === "number"
+            ? node.metadata.line_start
+            : null),
+      lineEnd:
+        params.location?.end.line ??
+        (typeof node.metadata?.lineEnd === "number"
+          ? node.metadata.lineEnd
+          : typeof node.metadata?.line_end === "number"
+            ? node.metadata.line_end
+            : null),
+      columnStart: params.location?.start.column ?? null,
+      columnEnd: params.location?.end.column ?? null,
+      relationshipDescription: description,
+      confidence: params.finding.confidence ?? 1.0,
+      metadata,
     });
   }
 
