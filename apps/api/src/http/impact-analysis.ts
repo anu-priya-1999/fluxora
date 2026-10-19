@@ -9,6 +9,7 @@ import {
   getImpactAnalysisById,
   getPool,
   getUserById,
+  listImpactFindingEvidence,
   provisionGithubUser,
   PullRequestNotFoundError,
   resolveAnalysisRunForPullRequest,
@@ -48,6 +49,7 @@ export interface ImpactAnalysisHandlerDependencies {
   resolveAnalysisRun?: typeof resolveAnalysisRunForPullRequest;
   enqueueJob?: (input: EnqueueJobInput) => Promise<Job>;
   getImpactAnalysisById?: typeof getImpactAnalysisById;
+  listImpactFindingEvidence?: typeof listImpactFindingEvidence;
   pool?: pg.Pool;
 }
 
@@ -419,7 +421,20 @@ export async function handleGetImpactAnalysis(
       return;
     }
 
-    sendJson(res, 200, formatImpactAnalysisResponse(analysis));
+    const listEvidence =
+      deps?.listImpactFindingEvidence ?? listImpactFindingEvidence;
+    let evidenceRecords: import("@fluxora/shared-types").EvidenceRecord[] = [];
+    try {
+      evidenceRecords = await listEvidence(
+        pool,
+        user.organizationId,
+        impactAnalysisId,
+      );
+    } catch {
+      evidenceRecords = [];
+    }
+
+    sendJson(res, 200, formatImpactAnalysisResponse(analysis, evidenceRecords));
   } catch (error) {
     logUnexpectedImpactError(error);
     sendJson(res, 500, {

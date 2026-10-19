@@ -1,10 +1,13 @@
 import React from "react";
 import type {
+  GraphQueryResponseEdge,
   GraphQueryResponseEvidence,
   GraphQueryResponseNode,
 } from "@fluxora/shared-types";
 import { getNodeVisualConfig } from "./node-styles.ts";
 import type { NormalizedChangeModeState } from "./change-mode-data.ts";
+import { buildSourcePermalink } from "./evidence-citation-data.ts";
+import { EvidenceCitation } from "./EvidenceCitation.tsx";
 
 export interface EvidenceTrailProps {
   /**
@@ -16,6 +19,23 @@ export interface EvidenceTrailProps {
    */
   readonly selectedNodeId?: string | null | undefined;
   /**
+   * Optional repository name (owner/repo) for constructing source permalinks.
+   */
+  readonly repositoryName?: string | null | undefined;
+  /**
+   * Optional commit SHA for constructing source permalinks.
+   */
+  readonly commitSha?: string | null | undefined;
+  /**
+   * Optional branch/ref for constructing source permalinks.
+   */
+  readonly gitRef?: string | null | undefined;
+  readonly ref?: string | null | undefined;
+  /**
+   * Optional analysis run ID.
+   */
+  readonly analysisRunId?: string | null | undefined;
+  /**
    * Optional custom container CSS classes.
    */
   readonly className?: string;
@@ -23,13 +43,34 @@ export interface EvidenceTrailProps {
 
 export interface NodeInspectorPanelProps {
   /**
-   * Currently selected graph node. When null or undefined, renders an empty state.
+   * Currently selected graph node. When null or undefined, checks edge or renders empty state.
    */
   readonly node?: GraphQueryResponseNode | null | undefined;
+  /**
+   * Currently selected graph edge. When node is null and edge is provided, renders edge inspection.
+   */
+  readonly edge?: GraphQueryResponseEdge | null | undefined;
   /**
    * Graph evidence records from the existing GraphQueryResponse.
    */
   readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
+  /**
+   * Optional repository name (owner/repo) for constructing source permalinks.
+   */
+  readonly repositoryName?: string | null | undefined;
+  /**
+   * Optional commit SHA for constructing source permalinks.
+   */
+  readonly commitSha?: string | null | undefined;
+  /**
+   * Optional branch/ref for constructing source permalinks.
+   */
+  readonly gitRef?: string | null | undefined;
+  readonly ref?: string | null | undefined;
+  /**
+   * Optional analysis run ID.
+   */
+  readonly analysisRunId?: string | null | undefined;
   /**
    * Optional callback when the user clears or closes the selection.
    */
@@ -181,8 +222,14 @@ export function resolveSelectedNode(
 export function EvidenceTrail({
   evidence,
   selectedNodeId,
+  repositoryName,
+  commitSha,
+  gitRef,
+  ref: inputRef,
+  analysisRunId,
   className,
 }: EvidenceTrailProps): React.JSX.Element {
+  const effectiveRef = gitRef ?? inputRef;
   const nodeEvidence = filterAndSortNodeEvidence(evidence, selectedNodeId);
 
   if (nodeEvidence.length === 0) {
@@ -200,6 +247,14 @@ export function EvidenceTrail({
   const items = nodeEvidence.map((ev) => {
     const coords = formatCoordinates(ev);
     const confidencePct = `${Math.round((ev.confidence ?? 1.0) * 100)}%`;
+    const permalink = buildSourcePermalink({
+      repositoryName,
+      commitSha,
+      gitRef: effectiveRef,
+      filePath: ev.file_path,
+      lineStart: ev.line_start,
+      lineEnd: ev.line_end,
+    });
 
     const children: React.ReactNode[] = [
       // Header: Relationship description & Confidence score
@@ -286,6 +341,55 @@ export function EvidenceTrail({
             ),
           )
         : null,
+
+      // Step 49: Source citation navigation action & provenance link
+      React.createElement(
+        "div",
+        {
+          key: "citation-action",
+          className: "mt-1 pt-1.5 border-t border-slate-100 flex items-center justify-between text-[11px]",
+        },
+        permalink.available && permalink.url
+          ? React.createElement(
+              "a",
+              {
+                "data-testid": "citation-source-link",
+                href: permalink.url,
+                target: "_blank",
+                rel: "noopener noreferrer",
+                className:
+                  "inline-flex items-center gap-1 font-medium text-blue-600 hover:text-blue-800 hover:underline focus:outline-none focus:ring-1 focus:ring-blue-500 rounded",
+                "aria-label": `Open ${ev.file_path} in source repository (opens in new tab)`,
+              },
+              React.createElement("span", { className: "text-xs select-none" }, "↗"),
+              "Open in source",
+            )
+          : React.createElement(
+              "span",
+              {
+                "data-testid": "citation-source-unavailable",
+                title: permalink.reason ?? "Source repository or commit not configured",
+                className: "text-slate-400 italic flex items-center gap-1 cursor-help",
+              },
+              "Source link unavailable",
+            ),
+        React.createElement(
+          "div",
+          { className: "flex items-center gap-2" },
+          ev.analysis_run_id || analysisRunId
+            ? React.createElement(
+                "span",
+                { className: "text-[10px] text-slate-400 font-mono" },
+                `run: ${ev.analysis_run_id ?? analysisRunId}`,
+              )
+            : null,
+          React.createElement(
+            "span",
+            { className: "text-[10px] text-slate-400 font-mono" },
+            ev.id,
+          ),
+        ),
+      ),
     ];
 
     return React.createElement(
@@ -322,11 +426,190 @@ export function EvidenceTrail({
  */
 export function NodeInspectorPanel({
   node,
+  edge,
   evidence,
+  repositoryName,
+  commitSha,
+  gitRef,
+  ref: inputRef,
+  analysisRunId,
   onClose,
   className,
   changeMode,
 }: NodeInspectorPanelProps): React.JSX.Element {
+  const effectiveRef = gitRef ?? inputRef;
+
+  // If an edge is selected (and no node is selected), render Edge Inspector
+  if (!node && edge) {
+    const edgeConfidencePct = `${Math.round(edge.confidence * 100)}%`;
+    const edgeEvidence = edge.evidence_id
+      ? evidence?.find((e) => e.id === edge.evidence_id)
+      : undefined;
+
+    return React.createElement(
+      "div",
+      {
+        "data-testid": "node-inspector-panel",
+        className: `flex flex-col h-full overflow-y-auto bg-white border-l border-slate-200 divide-y divide-slate-100 ${className ?? ""}`,
+      },
+      // Header: Edge Type & Close Action
+      React.createElement(
+        "header",
+        {
+          className: "p-4 flex flex-col gap-2 bg-slate-50/50",
+        },
+        React.createElement(
+          "div",
+          { className: "flex items-center justify-between gap-2" },
+          React.createElement(
+            "span",
+            {
+              "data-testid": "inspector-edge-type",
+              className:
+                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-block bg-indigo-100 text-indigo-800 border border-indigo-200 font-mono",
+            },
+            edge.type,
+          ),
+          onClose !== undefined
+            ? React.createElement(
+                "button",
+                {
+                  type: "button",
+                  "data-testid": "clear-selection-button",
+                  onClick: onClose,
+                  className:
+                    "text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded px-1.5 py-0.5 text-xs transition-colors",
+                  title: "Clear selection",
+                },
+                "Clear",
+              )
+            : null,
+        ),
+        React.createElement(
+          "h2",
+          {
+            "data-testid": "inspector-edge-name",
+            className: "text-sm font-bold text-slate-900 break-words font-mono leading-snug",
+          },
+          `${edge.source} → ${edge.target}`,
+        ),
+      ),
+      // Edge Properties
+      React.createElement(
+        "section",
+        {
+          "data-testid": "inspector-edge-details",
+          className: "p-4 flex flex-col gap-3 text-xs",
+        },
+        React.createElement(
+          "h3",
+          { className: "text-xs font-semibold text-slate-500 uppercase tracking-wider" },
+          "Edge Properties",
+        ),
+        React.createElement(
+          "div",
+          { className: "flex flex-col gap-0.5" },
+          React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Edge ID"),
+          React.createElement(
+            "span",
+            {
+              "data-testid": "inspector-edge-id",
+              className: "font-mono text-slate-800 break-all bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100",
+            },
+            edge.id,
+          ),
+        ),
+        React.createElement(
+          "div",
+          { className: "flex flex-col gap-0.5" },
+          React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Source Node"),
+          React.createElement(
+            "span",
+            {
+              "data-testid": "inspector-edge-source",
+              className: "font-mono text-slate-800 break-all bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100",
+            },
+            edge.source,
+          ),
+        ),
+        React.createElement(
+          "div",
+          { className: "flex flex-col gap-0.5" },
+          React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Target Node"),
+          React.createElement(
+            "span",
+            {
+              "data-testid": "inspector-edge-target",
+              className: "font-mono text-slate-800 break-all bg-slate-50 px-1.5 py-0.5 rounded border border-slate-100",
+            },
+            edge.target,
+          ),
+        ),
+        React.createElement(
+          "div",
+          { className: "grid grid-cols-2 gap-2 pt-1" },
+          React.createElement(
+            "div",
+            { className: "flex flex-col gap-0.5" },
+            React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Confidence"),
+            React.createElement(
+              "span",
+              {
+                "data-testid": "inspector-edge-confidence",
+                className: "font-semibold text-slate-800",
+              },
+              edgeConfidencePct,
+            ),
+          ),
+          React.createElement(
+            "div",
+            { className: "flex flex-col gap-0.5" },
+            React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Provenance"),
+            React.createElement(
+              "span",
+              {
+                "data-testid": "inspector-edge-provenance",
+                className: "font-mono text-[11px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded",
+              },
+              edge.provenance,
+            ),
+          ),
+        ),
+      ),
+      // Edge Evidence Provenance
+      React.createElement(
+        "section",
+        {
+          "data-testid": "inspector-edge-evidence-section",
+          className: "p-4 flex flex-col gap-2.5 text-xs flex-1",
+        },
+        React.createElement(
+          "h3",
+          { className: "text-xs font-semibold text-slate-500 uppercase tracking-wider" },
+          "Edge Evidence Provenance",
+        ),
+        edge.evidence_id
+          ? React.createElement(EvidenceCitation, {
+              evidence: edgeEvidence,
+              evidenceId: edge.evidence_id,
+              mode: "expanded",
+              repositoryName,
+              commitSha: commitSha ?? changeMode?.headCommit,
+              gitRef: effectiveRef ?? changeMode?.headCommit,
+              analysisRunId,
+            })
+          : React.createElement(
+              "div",
+              {
+                "data-testid": "edge-evidence-empty",
+                className: "p-3 text-center text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded-md",
+              },
+              "No evidence record linked to this edge.",
+            ),
+      ),
+    );
+  }
+
   // Empty State: No node is currently selected
   if (!node) {
     return React.createElement(
@@ -567,31 +850,40 @@ export function NodeInspectorPanel({
                   ? React.createElement(
                       "div",
                       {
-                        className: "flex flex-col gap-1 pt-1.5 border-t border-slate-100",
+                        className: "flex flex-col gap-1.5 pt-1.5 border-t border-slate-100",
                       },
                       React.createElement(
                         "span",
-                        { className: "text-slate-500 text-[11px]" },
+                        { className: "text-slate-500 text-[11px] font-semibold" },
                         "Impact Finding Evidence",
                       ),
                       React.createElement(
                         "div",
                         {
                           "data-testid": "inspector-impact-evidence-list",
-                          className: "flex flex-wrap gap-1",
+                          className: "flex flex-col gap-1.5",
                         },
-                        ...impactEvidenceIds.map((evId) =>
-                          React.createElement(
-                            "span",
+                        ...impactEvidenceIds.map((evId) => {
+                          const ev =
+                            changeMode?.evidenceById?.get(evId) ??
+                            evidence?.find((e) => e.id === evId);
+                          return React.createElement(
+                            "div",
                             {
                               key: evId,
                               "data-testid": `inspector-evidence-id-${evId}`,
-                              className:
-                                "font-mono text-[10px] text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200",
                             },
-                            evId,
-                          ),
-                        ),
+                            React.createElement(EvidenceCitation, {
+                              evidence: ev,
+                              evidenceId: evId,
+                              mode: "compact",
+                              repositoryName,
+                              commitSha: commitSha ?? changeMode?.headCommit,
+                              gitRef: effectiveRef ?? changeMode?.headCommit,
+                              analysisRunId,
+                            }),
+                          );
+                        }),
                       ),
                     )
                   : null,
@@ -758,6 +1050,10 @@ export function NodeInspectorPanel({
       React.createElement(EvidenceTrail, {
         evidence,
         selectedNodeId: node.id,
+        repositoryName,
+        commitSha: commitSha ?? changeMode?.headCommit,
+        gitRef: effectiveRef ?? changeMode?.headCommit,
+        analysisRunId,
       }),
     ),
   );

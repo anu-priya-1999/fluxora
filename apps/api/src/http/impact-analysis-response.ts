@@ -1,4 +1,6 @@
 import type {
+  EvidenceRecord,
+  GraphQueryResponseEvidence,
   ImpactAnalysis,
   ImpactAnalysisExecutionMetrics,
   ImpactAnalysisExecutionMetricsResponse,
@@ -8,6 +10,28 @@ import type {
   ImpactFinding,
   UnresolvedChangedFile,
 } from "@fluxora/shared-types";
+
+export function formatImpactEvidence(
+  ev: EvidenceRecord,
+): GraphQueryResponseEvidence {
+  const evObj: GraphQueryResponseEvidence = {
+    id: ev.id,
+    subject_type: ev.subjectType,
+    subject_id: ev.subjectId,
+    file_path: ev.filePath,
+    symbol_id: ev.symbolId ?? null,
+    line_start: ev.lineStart ?? null,
+    line_end: ev.lineEnd ?? null,
+    column_start: ev.columnStart ?? null,
+    column_end: ev.columnEnd ?? null,
+    relationship_description: ev.relationshipDescription,
+    confidence: ev.confidence,
+  };
+  if (ev.metadata && Object.keys(ev.metadata).length > 0) {
+    (evObj as { metadata?: Record<string, unknown> }).metadata = ev.metadata;
+  }
+  return evObj;
+}
 
 export function formatImpactFinding(
   finding: ImpactFinding,
@@ -52,7 +76,13 @@ export function formatExecutionMetrics(
 
 export function formatImpactAnalysisResponse(
   analysis: ImpactAnalysis,
+  evidence?: readonly EvidenceRecord[],
 ): ImpactAnalysisResponse {
+  const formattedEvidence =
+    evidence !== undefined && evidence.length > 0
+      ? evidence.map(formatImpactEvidence)
+      : undefined;
+
   return {
     id: analysis.id,
     pull_request_id: analysis.pullRequestId,
@@ -73,6 +103,7 @@ export function formatImpactAnalysisResponse(
       analysis.createdAt instanceof Date
         ? analysis.createdAt.toISOString()
         : String(analysis.createdAt),
+    ...(formattedEvidence !== undefined ? { evidence: formattedEvidence } : {}),
   };
 }
 

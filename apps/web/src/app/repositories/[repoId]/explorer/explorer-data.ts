@@ -4,6 +4,8 @@ import { mapDomainGraphToFlow, type FluxoraFlowEdge, type FluxoraFlowNode } from
 export interface ResolvedAnalysisContext {
   readonly repositoryId: string;
   readonly repositoryName?: string;
+  readonly commitSha?: string;
+  readonly ref?: string;
   readonly analysisRunId: string;
   readonly defaultStartNodeId: string;
   readonly initialImpactAnalysisId?: string | undefined;
@@ -205,6 +207,12 @@ export interface ResolveAnalysisContextInput {
     readonly node_id?: string | string[] | undefined;
     readonly impact_id?: string | string[] | undefined;
     readonly impact_analysis_id?: string | string[] | undefined;
+    readonly repository_name?: string | string[] | undefined;
+    readonly repo_name?: string | string[] | undefined;
+    readonly commit_sha?: string | string[] | undefined;
+    readonly commit?: string | string[] | undefined;
+    readonly ref?: string | string[] | undefined;
+    readonly branch?: string | string[] | undefined;
   } | undefined;
 }
 
@@ -257,12 +265,27 @@ export function resolveRepositoryAnalysisContext(
       ? rawImpactId.trim()
       : undefined;
 
+  const rawRepoName =
+    firstParam(input.searchParams?.repository_name) ??
+    firstParam(input.searchParams?.repo_name);
+
+  const rawCommitSha =
+    firstParam(input.searchParams?.commit_sha) ??
+    firstParam(input.searchParams?.commit);
+
+  const rawRef =
+    firstParam(input.searchParams?.ref) ??
+    firstParam(input.searchParams?.branch);
+
   return {
     ok: true,
     context: {
       repositoryId: repoId,
       analysisRunId: rawRunId.trim(),
       defaultStartNodeId: rawStartNodeId.trim(),
+      ...(rawRepoName?.trim() ? { repositoryName: rawRepoName.trim() } : {}),
+      ...(rawCommitSha?.trim() ? { commitSha: rawCommitSha.trim() } : {}),
+      ...(rawRef?.trim() ? { ref: rawRef.trim() } : {}),
       ...(initialImpactAnalysisId !== undefined
         ? { initialImpactAnalysisId }
         : {}),

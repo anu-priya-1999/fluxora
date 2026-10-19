@@ -45,9 +45,17 @@ export interface GraphCanvasProps {
    */
   readonly selectedNodeId?: string | null;
   /**
+   * Optional currently selected edge ID (Step 49).
+   */
+  readonly selectedEdgeId?: string | null;
+  /**
    * Optional callback when a node is clicked.
    */
   readonly onNodeClick?: (nodeId: string) => void;
+  /**
+   * Optional callback when an edge is clicked (Step 49).
+   */
+  readonly onEdgeClick?: (edgeId: string) => void;
   /**
    * Optional callback when the canvas background pane is clicked.
    */
@@ -123,7 +131,9 @@ export function GraphCanvas({
   nodes: inputNodes,
   edges: inputEdges,
   selectedNodeId,
+  selectedEdgeId,
   onNodeClick,
+  onEdgeClick,
   onPaneClick,
   showControls = true,
   showMiniMap = false,
@@ -228,8 +238,20 @@ export function GraphCanvas({
       };
     });
 
-    return { nodes: updatedNodes, edges: mapped.edges };
-  }, [visibleNodes, visibleEdges, selectedNodeId, changeMode]);
+    const updatedEdges = mapped.edges.map((e) => {
+      const isSelected = e.id === selectedEdgeId;
+      if (!isSelected) {
+        return e;
+      }
+      return {
+        ...e,
+        selected: true,
+        style: e.style ? { ...e.style, stroke: "#3b82f6", strokeWidth: 3 } : { stroke: "#3b82f6", strokeWidth: 3 },
+      };
+    });
+
+    return { nodes: updatedNodes, edges: updatedEdges };
+  }, [visibleNodes, visibleEdges, selectedNodeId, selectedEdgeId, changeMode]);
 
   const handleNodeClick = useMemo(() => {
     if (!onNodeClick) return undefined;
@@ -237,6 +259,13 @@ export function GraphCanvas({
       onNodeClick(node.id);
     };
   }, [onNodeClick]);
+
+  const handleEdgeClick = useMemo(() => {
+    if (!onEdgeClick) return undefined;
+    return (_event: React.MouseEvent, edge: { id: string }) => {
+      onEdgeClick(edge.id);
+    };
+  }, [onEdgeClick]);
 
   const handlePaneClick = useMemo(() => {
     if (!onPaneClick) return undefined;
@@ -266,6 +295,7 @@ export function GraphCanvas({
         {...(onNodesChange !== undefined ? { onNodesChange } : {})}
         {...(onEdgesChange !== undefined ? { onEdgesChange } : {})}
         {...(handleNodeClick !== undefined ? { onNodeClick: handleNodeClick } : {})}
+        {...(handleEdgeClick !== undefined ? { onEdgeClick: handleEdgeClick } : {})}
         {...(handlePaneClick !== undefined ? { onPaneClick: handlePaneClick } : {})}
         onMoveEnd={handleMoveEnd}
         fitView

@@ -1,10 +1,10 @@
-"use client";
-
 import React, { useState } from "react";
+import type { GraphQueryResponseEvidence } from "@fluxora/shared-types";
 import {
   UUID_REGEX,
   type NormalizedChangeModeState,
 } from "./change-mode-data.ts";
+import { EvidenceCitationList } from "./EvidenceCitation.tsx";
 
 export interface ChangeModeBarProps {
   readonly state: NormalizedChangeModeState;
@@ -12,11 +12,17 @@ export interface ChangeModeBarProps {
   readonly onLoadAnalysis: (impactAnalysisId: string) => void;
   readonly onRetry: () => void;
   readonly onClear: () => void;
+  readonly onSelectNode?: (nodeId: string) => void;
+  readonly repositoryName?: string | null | undefined;
+  readonly commitSha?: string | null | undefined;
+  readonly gitRef?: string | null | undefined;
+  readonly ref?: string | null | undefined;
+  readonly analysisRunId?: string | null | undefined;
   readonly className?: string;
 }
 
 /**
- * Compact Change-Mode control bar, legend, and summary header (Step 46).
+ * Compact Change-Mode control bar, legend, and summary header (Step 46 & Step 49).
  *
  * Responsibilities:
  * - Clear UX controls to toggle change mode ON / OFF.
@@ -25,6 +31,7 @@ export interface ChangeModeBarProps {
  * - Displays compact summary chips: direct, downstream, affected APIs, affected events.
  * - Explains visual legend (direct red, downstream chromatic amber, dashed low-confidence, faded unaffected).
  * - Surfaces unresolved files and truncation warnings explicitly without hiding uncertainty.
+ * - Provides an expandable Impact Findings & Evidence Citations inspection drawer (Step 49).
  * - Does not perform graph queries or database access directly.
  */
 export function ChangeModeBar({
@@ -33,10 +40,18 @@ export function ChangeModeBar({
   onLoadAnalysis,
   onRetry,
   onClear,
+  onSelectNode,
+  repositoryName,
+  commitSha,
+  gitRef,
+  analysisRunId,
   className,
+  ...restProps
 }: ChangeModeBarProps): React.JSX.Element {
+  const effectiveRef = gitRef ?? (restProps as { ref?: string | null | undefined }).ref;
   const [inputId, setInputId] = useState(state.impactAnalysisId ?? "");
   const [showUnresolvedDetails, setShowUnresolvedDetails] = useState(false);
+  const [showFindingsPanel, setShowFindingsPanel] = useState(false);
 
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,6 +320,22 @@ export function ChangeModeBar({
                   ")",
                 )
               : null,
+            // Toggle Findings & Evidence Citations drawer button (Step 49)
+            React.createElement(
+              "button",
+              {
+                type: "button",
+                "data-testid": "toggle-findings-panel-btn",
+                onClick: () => setShowFindingsPanel((prev) => !prev),
+                className:
+                  "px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/80 font-medium flex items-center gap-1 hover:bg-indigo-100 transition-colors cursor-pointer text-[11px]",
+                title: "Inspect impact findings and evidence citations",
+              },
+              React.createElement("span", { className: "select-none" }, "🔍"),
+              showFindingsPanel
+                ? "Hide Citations"
+                : `Inspect Citations (${state.directCount + state.downstreamCount})`,
+            ),
           ),
 
           // Legend Guide
@@ -392,6 +423,126 @@ export function ChangeModeBar({
                 ),
               ),
             ),
+          ),
+        )
+      : null,
+
+    // Expandable Impact Findings & Evidence Citations Panel (Step 49)
+    showFindingsPanel &&
+    (state.directImpactFindings.length > 0 ||
+      state.downstreamImpactFindings.length > 0 ||
+      state.affectedApiFindings.length > 0 ||
+      state.affectedEventFindings.length > 0)
+      ? React.createElement(
+          "div",
+          {
+            "data-testid": "impact-findings-panel",
+            className:
+              "p-3 bg-white border border-slate-200 rounded-md text-xs flex flex-col gap-2 mt-1 shadow-sm",
+          },
+          React.createElement(
+            "div",
+            {
+              className:
+                "flex items-center justify-between pb-1.5 border-b border-slate-100",
+            },
+            React.createElement(
+              "span",
+              { className: "font-semibold text-slate-800" },
+              "Impact Findings & Verified Provenance",
+            ),
+            React.createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => setShowFindingsPanel(false),
+                className: "text-slate-400 hover:text-slate-700 text-xs",
+              },
+              "Close",
+            ),
+          ),
+          React.createElement(
+            "div",
+            { className: "flex flex-col gap-2 max-h-72 overflow-y-auto pr-1" },
+            ...[
+              ...state.directImpactFindings.map((f) => ({ finding: f, role: "direct" as const })),
+              ...state.downstreamImpactFindings.map((f) => ({ finding: f, role: "downstream" as const })),
+              ...state.affectedApiFindings.map((f) => ({ finding: f, role: "affected_api" as const })),
+              ...state.affectedEventFindings.map((f) => ({ finding: f, role: "affected_event" as const })),
+            ].map(({ finding, role }) => {
+              const findingEvidenceIds = finding.evidence_ids ?? (finding.evidence_id ? [finding.evidence_id] : []);
+              const resolvedEvidence = findingEvidenceIds
+                .map((id: string) => state.evidenceById.get(id))
+                .filter((e: GraphQueryResponseEvidence | undefined): e is GraphQueryResponseEvidence => Boolean(e));
+
+              return React.createElement(
+                "div",
+                {
+                  key: `${role}-${finding.node_id}`,
+                  "data-testid": `finding-item-${finding.node_id}`,
+                  className:
+                    "p-2 bg-slate-50 border border-slate-200/80 rounded flex flex-col gap-1.5",
+                },
+                React.createElement(
+                  "div",
+                  { className: "flex items-center justify-between gap-2" },
+                  React.createElement(
+                    "div",
+                    { className: "flex items-center gap-1.5" },
+                    React.createElement(
+                      "span",
+                      {
+                        className: `text-[10px] font-bold uppercase px-1.5 py-0.2 rounded ${
+                          role === "direct"
+                            ? "bg-red-100 text-red-700 border border-red-200"
+                            : "bg-amber-100 text-amber-800 border border-amber-200"
+                        }`,
+                      },
+                      role === "direct"
+                        ? "Direct"
+                        : role === "downstream"
+                          ? `Downstream (hop ${finding.hop_distance})`
+                          : role === "affected_api"
+                            ? "API Impact"
+                            : "Event Impact",
+                    ),
+                    React.createElement(
+                      "span",
+                      {
+                        className:
+                          "font-mono font-medium text-slate-800 text-[11px]",
+                      },
+                      finding.node_id,
+                    ),
+                  ),
+                  onSelectNode
+                    ? React.createElement(
+                        "button",
+                        {
+                          type: "button",
+                          "data-testid": `select-node-${finding.node_id}`,
+                          onClick: () => onSelectNode(finding.node_id),
+                          className:
+                            "text-[11px] text-blue-600 hover:underline font-medium cursor-pointer",
+                        },
+                        "View in graph →",
+                      )
+                    : null,
+                ),
+                React.createElement(EvidenceCitationList, {
+                  evidenceList: resolvedEvidence,
+                  evidenceIds: findingEvidenceIds,
+                  evidencePool: state.evidence,
+                  mode: "compact",
+                  repositoryName,
+                  commitSha: commitSha ?? state.headCommit,
+                  gitRef: effectiveRef ?? state.headCommit,
+                  analysisRunId,
+                  findingRole: role,
+                  hopDistance: finding.hop_distance,
+                }),
+              );
+            }),
           ),
         )
       : null,

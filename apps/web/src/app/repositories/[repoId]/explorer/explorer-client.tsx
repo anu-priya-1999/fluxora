@@ -75,6 +75,7 @@ export function ArchitectureExplorerClient({
   const [filters, setFilters] = useState<GraphFilterState>(DEFAULT_GRAPH_FILTERS);
   const [state, setState] = useState<ExplorerState>({ status: "loading" });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [liveUpdateTrigger, setLiveUpdateTrigger] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -100,6 +101,28 @@ export function ArchitectureExplorerClient({
     }
     return state.graph.nodes.find((n) => n.id === selectedNodeId) ?? null;
   }, [state, selectedNodeId]);
+
+  const selectedEdge = useMemo(() => {
+    if (state.status !== "ready" || !selectedEdgeId) {
+      return null;
+    }
+    return state.graph.edges.find((e) => e.id === selectedEdgeId) ?? null;
+  }, [state, selectedEdgeId]);
+
+  const handleSelectNode = useCallback((id: string) => {
+    setSelectedNodeId(id);
+    setSelectedEdgeId(null);
+  }, []);
+
+  const handleSelectEdge = useCallback((id: string) => {
+    setSelectedEdgeId(id);
+    setSelectedNodeId(null);
+  }, []);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }, []);
 
   // Manual retry: increment trigger to re-run the fetch effect
   const handleRetry = useCallback(() => {
@@ -425,13 +448,18 @@ export function ArchitectureExplorerClient({
           onDismiss: () => setRefreshError(null),
         })
       : null,
-    // Step 46: Change Mode Bar
+    // Step 46 & Step 49: Change Mode Bar
     React.createElement(ChangeModeBar, {
       state: changeModeState,
       onToggle: handleToggleChangeMode,
       onLoadAnalysis: handleLoadAnalysis,
       onRetry: handleRetryImpact,
       onClear: handleClearAnalysis,
+      onSelectNode: handleSelectNode,
+      repositoryName: context.repositoryName,
+      commitSha: context.commitSha ?? changeModeState.headCommit,
+      gitRef: context.ref ?? changeModeState.headCommit,
+      analysisRunId: state.analysisRunId,
     }),
     // Filters
     React.createElement(GraphFilters, {
@@ -453,8 +481,10 @@ export function ArchitectureExplorerClient({
           nodes: state.graph.nodes,
           edges: state.graph.edges,
           selectedNodeId,
-          onNodeClick: (id: string) => setSelectedNodeId(id),
-          onPaneClick: () => setSelectedNodeId(null),
+          selectedEdgeId,
+          onNodeClick: handleSelectNode,
+          onEdgeClick: handleSelectEdge,
+          onPaneClick: handleClearSelection,
           showControls: true,
           showMiniMap: false,
           showBackground: true,
@@ -469,8 +499,13 @@ export function ArchitectureExplorerClient({
         },
         React.createElement(NodeInspectorPanel, {
           node: selectedNode,
+          edge: selectedEdge,
           evidence: state.graph.evidence,
-          onClose: () => setSelectedNodeId(null),
+          repositoryName: context.repositoryName,
+          commitSha: context.commitSha ?? changeModeState.headCommit,
+          gitRef: context.ref ?? changeModeState.headCommit,
+          analysisRunId: state.analysisRunId,
+          onClose: handleClearSelection,
           changeMode: changeModeState,
         }),
       ),

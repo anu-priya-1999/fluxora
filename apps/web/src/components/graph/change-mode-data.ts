@@ -1,4 +1,5 @@
 import type {
+  GraphQueryResponseEvidence,
   ImpactAnalysisFindingResponse,
   ImpactAnalysisResponse,
   ImpactAnalysisStatus,
@@ -22,6 +23,7 @@ export interface NormalizedChangeModeState {
   readonly enabled: boolean;
   readonly pullRequestId: string | null;
   readonly impactAnalysisId: string | null;
+  readonly headCommit?: string | null | undefined;
   readonly status: ChangeModeStatus;
   readonly executionStatus?: ImpactAnalysisStatus | undefined;
   readonly directNodeIds: ReadonlySet<string>;
@@ -31,6 +33,13 @@ export interface NormalizedChangeModeState {
   readonly hopDistanceByNodeId: ReadonlyMap<string, number>;
   readonly confidenceByNodeId: ReadonlyMap<string, number>;
   readonly evidenceIdsByNodeId: ReadonlyMap<string, readonly string[]>;
+  readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
+  readonly evidenceById: ReadonlyMap<string, GraphQueryResponseEvidence>;
+  readonly directImpactFindings: readonly ImpactAnalysisFindingResponse[];
+  readonly downstreamImpactFindings: readonly ImpactAnalysisFindingResponse[];
+  readonly affectedApiFindings: readonly ImpactAnalysisFindingResponse[];
+  readonly affectedEventFindings: readonly ImpactAnalysisFindingResponse[];
+  readonly affectedServiceFindings: readonly ImpactAnalysisFindingResponse[];
   readonly directCount: number;
   readonly downstreamCount: number;
   readonly affectedApiCount: number;
@@ -46,6 +55,7 @@ export const DEFAULT_CHANGE_MODE_STATE: NormalizedChangeModeState = {
   enabled: false,
   pullRequestId: null,
   impactAnalysisId: null,
+  headCommit: null,
   status: "idle",
   directNodeIds: new Set(),
   downstreamNodeIds: new Set(),
@@ -54,6 +64,13 @@ export const DEFAULT_CHANGE_MODE_STATE: NormalizedChangeModeState = {
   hopDistanceByNodeId: new Map(),
   confidenceByNodeId: new Map(),
   evidenceIdsByNodeId: new Map(),
+  evidence: [],
+  evidenceById: new Map(),
+  directImpactFindings: [],
+  downstreamImpactFindings: [],
+  affectedApiFindings: [],
+  affectedEventFindings: [],
+  affectedServiceFindings: [],
   directCount: 0,
   downstreamCount: 0,
   affectedApiCount: 0,
@@ -246,6 +263,15 @@ export function normalizeImpactAnalysisResponse(
     evidenceIdsByNodeId.set(nodeId, Object.freeze(sorted));
   }
 
+  // Index evidence records by ID
+  const evidenceList = response.evidence ?? [];
+  const evidenceById = new Map<string, GraphQueryResponseEvidence>();
+  for (const ev of evidenceList) {
+    if (ev && ev.id) {
+      evidenceById.set(ev.id, ev);
+    }
+  }
+
   // 5. Determine status
   let status: ChangeModeStatus = "ready";
   let errorMessage: string | null = null;
@@ -259,10 +285,16 @@ export function normalizeImpactAnalysisResponse(
     status = "empty";
   }
 
+  const rawResponse = response as unknown as Record<string, unknown>;
+  const headCommitVal =
+    (typeof rawResponse.head_commit_sha === "string" ? rawResponse.head_commit_sha : null) ??
+    (typeof rawResponse.headCommit === "string" ? rawResponse.headCommit : null);
+
   return {
     enabled,
     pullRequestId: response.pull_request_id,
     impactAnalysisId: response.id,
+    headCommit: headCommitVal,
     status,
     executionStatus: response.status,
     directNodeIds,
@@ -272,6 +304,13 @@ export function normalizeImpactAnalysisResponse(
     hopDistanceByNodeId,
     confidenceByNodeId,
     evidenceIdsByNodeId,
+    evidence: evidenceList,
+    evidenceById,
+    directImpactFindings: sortedDirect,
+    downstreamImpactFindings: sortedDownstream,
+    affectedApiFindings: response.affected_apis ?? [],
+    affectedEventFindings: response.affected_events ?? [],
+    affectedServiceFindings: response.affected_services ?? [],
     directCount: directNodeIds.size,
     downstreamCount: downstreamNodeIds.size,
     affectedApiCount: affectedApiNodeIds.size,

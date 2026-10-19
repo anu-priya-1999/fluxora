@@ -9,3 +9,5 @@ export * from "./explorer-status-data.ts";
 export * from "./ExplorerStatus.tsx";
 export * from "./change-mode-data.ts";
 export * from "./ChangeModeBar.tsx";
+export * from "./evidence-citation-data.ts";
+export * from "./EvidenceCitation.tsx";

@@ -4,6 +4,7 @@ import type {
   GraphEdgeType,
   GraphNode,
   GraphNodeType,
+  GraphQueryResponseEvidence,
   TraversalDirection,
 } from "./graph.ts";
 import type { PullRequestFile } from "./pull-request.ts";
@@ -241,6 +242,7 @@ export interface ImpactAnalysisResponse {
   readonly max_depth_reached: number;
   readonly execution_metrics: ImpactAnalysisExecutionMetricsResponse;
   readonly created_at: string;
+  readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
 }
 
 /**

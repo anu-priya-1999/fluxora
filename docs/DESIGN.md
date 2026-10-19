@@ -11636,3 +11636,64 @@ Every confirmed graph conclusion (node, edge) and change-impact finding produced
 5. **Multi-Tenant & Analysis-Run Isolation**: Evidence is strictly partitioned by `analysis_run_id` and isolated across organizations by PostgreSQL Row-Level Security (RLS).
 6. **Non-Fabrication**: Source coordinates are preserved from AST when known; traversal paths are recorded in metadata. No synthetic line numbers are ever invented.
 7. **Scope Boundaries**: Steps 49–51 (UI citations, visual weighting, coverage displays) and future simulation engine evidence remain strictly separated.
+
+---
+
+## Global Step 49 — Clickable Evidence Citation UI
+
+### Overview & Objective
+
+Global Step 49 continues **Phase 7: Evidence Engine** per `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/08-frontend-application.md`, and `docs/architecture/22-definition-of-done.md`.
+
+Its core objective is **Traceability**:
+Turn the verified, append-only evidence produced by Fluxora into an accessible, clickable `EvidenceCitation` experience in the frontend, end-to-end. Wherever Fluxora presents a graph or blast-radius conclusion (edges, nodes with provenance, PR impact findings, and inspector details), a user can see that the conclusion is backed by evidence and click to inspect its exact provenance and navigate to the verified source location without fabricating source paths, line ranges, or commit SHAs.
+
+### Architecture & Contract Extensions
+
+1. **Impact Analysis API Response Contract (`@fluxora/shared-types` & `apps/api`)**:
+   - Extended `ImpactAnalysisResponse` with optional `evidence?: readonly GraphQueryResponseEvidence[] | undefined`.
+   - Updated `apps/api/src/http/impact-analysis.ts` and `apps/api/src/http/impact-analysis-response.ts` to join and format associated evidence records using `listImpactFindingEvidence` under strict tenant isolation.
+   - Backward-compatible: retains existing finding structures (`node_id`, `evidence_ids`, `confidence`, `hop_distance`) while delivering complete evidence records to the frontend.
+
+2. **Source Permalink & Provenance Engine (`evidence-citation-data.ts`)**:
+   - **Deterministic URL Construction**: Constructs GitHub source permalinks (`https://github.com/{owner}/{repo}/blob/{commitSha|gitRef}/{filePath}#L{start}-L{end}`).
+   - **Strict Non-Fabrication**: Accepts real positive numeric lines (`line_start`, `line_end`) only; never invents fake line numbers or synthetic commits.
+   - **Path Traversal & Injection Defense**: Sanitizes file paths, rejecting `..`, absolute paths, colons, or URI scheme injections (`javascript:`, `data:`).
+   - **Ref & Commit Validation**: Prefers pinned, immutable commit SHAs (`/^[0-9a-fA-F]{7,40}$/`) over mutable refs (`/^[a-zA-Z0-9_./-]+$/`). Rejects refs containing `..`.
+   - **Honest Fallbacks**: If repository name, commit, or valid path is missing, returns `available: false` with a clear explanation (`reason`), preventing broken or fabricated URLs.
+   - **Deduplication & Deterministic Ordering**: `deduplicateAndSortEvidence` deduplicates by evidence ID and sorts by file path, line start, line end, relationship description, and ID.
+
+3. **Reusable `EvidenceCitation` & `EvidenceCitationList` (`EvidenceCitation.tsx`)**:
+   - Implemented using `React.createElement` for full Vitest / Next.js SSR compatibility without external JSX transpilation overhead.
+   - **Compact Mode**: Inline chip showing short file name, line badge (`L15–L45` or `L15`), confidence percentage chip (only when provided by API), and direct permalink or expanded trigger.
+   - **Expanded Mode**: Full provenance inspection card displaying relationship description, file path, line range, AST symbol, analysis run, confidence, and metadata key-value pairs.
+   - **Loading, Error, & Fallback States**:
+     - `citation-loading-state`: Animated pulse indicator during evidence fetching.
+     - `citation-error-state`: Accessible alert banner with retry/error messaging.
+     - `citation-source-unavailable`: Informative tooltip explaining why source navigation is disabled (e.g. unconfigured repository or missing commit).
+     - `citation-unresolved-id`: Fallback badge when evidence ID exists but record metadata is not loaded.
+   - **Accessibility & Security**: Semantic HTML (`<a>`, `<button>`), accessible ARIA attributes (`role="status"`, `role="alert"`, `aria-label`), visible focus rings (`focus:ring-2 focus:ring-blue-500`), and external link security (`target="_blank" rel="noopener noreferrer"`).
+
+4. **Integration into Graph Explorer & Change-Mode UI**:
+   - **NodeInspectorPanel**:
+     - Extended to support edge selection inspection (`edge` prop) displaying edge type, provenance, confidence, and an expanded `EvidenceCitation` for the edge's `evidence_id`.
+     - In PR Change Mode, inspects selected nodes with compact `EvidenceCitation` chips for each linked PR impact finding.
+     - Updated `EvidenceTrail` with `citation-source-link` permalinks and honest unavailable badges, preserving all legacy Step 36 test IDs.
+   - **GraphCanvas**:
+     - Added `selectedEdgeId` and `onEdgeClick` to support interactive edge selection and styling (`strokeWidth: 3`, `#3b82f6`).
+   - **ChangeModeBar**:
+     - Added expandable `impact-findings-panel` displaying all direct, downstream, API, and event impact findings with clickable `EvidenceCitationList` components and "View in graph" selection actions.
+   - **Explorer Client**:
+     - Threaded repository context (`repositoryName`, `commitSha`, `gitRef`) and active edge selection across `ChangeModeBar`, `GraphCanvas`, and `NodeInspectorPanel`.
+
+### Verification & Test Matrix
+
+- **Unit & Integration Tests**:
+  - `apps/web/src/components/graph/evidence-citation.test.ts`: 26 unit & integration tests covering permalink construction, security sanitization, line formatting, deduplication, component rendering, loading/error states, edge inspection, and PR findings panel.
+  - `apps/web`: 12 test files, 158 tests passing.
+  - `apps/api`: 11 test files, 124 tests passing (including Test W for impact evidence readback).
+- **TypeScript & Linting**:
+  - `pnpm typecheck`: 0 errors across all 7 workspace packages.
+  - `pnpm lint`: 0 ESLint errors across the workspace.
+  - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
+  - `pnpm build`: Next.js production build compiled cleanly in Turbopack.

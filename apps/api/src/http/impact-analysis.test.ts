@@ -281,6 +281,30 @@ function setupTestEnvironment() {
       return analysesStore.get(key) ?? null;
     },
 
+    async listImpactFindingEvidence(_pool, organizationId, impactAnalysisId) {
+      if (organizationId === ORG_A && impactAnalysisId === ANALYSIS_A) {
+        return [
+          {
+            id: "ev-node-d1",
+            analysisRunId: RUN_A,
+            subjectType: "graph_node",
+            subjectId: "node-d1",
+            filePath: "src/DirectService.ts",
+            symbolId: "sym:DirectService",
+            lineStart: 10,
+            lineEnd: 25,
+            columnStart: 1,
+            columnEnd: 40,
+            relationshipDescription: "Direct service definition",
+            confidence: 0.9,
+            metadata: {},
+            createdAt: new Date(),
+          },
+        ];
+      }
+      return [];
+    },
+
     pool: {} as unknown as import("pg").Pool,
   };
 
@@ -832,6 +856,24 @@ describe("Global Step 45: PR Impact Analysis API", () => {
 
       assert.equal(res.statusCode, 200);
       assert.equal(env.getCallCount(), initialCount + 1);
+    });
+
+    it("W. Step 49: GET returns formatted evidence array for impact findings", async () => {
+      const res = await request(server, {
+        method: "GET",
+        path: `/api/v1/impact-analyses/${ANALYSIS_A}`,
+        headers: { authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const analysis = expectAnalysisSuccess(res.body);
+      assert.ok(Array.isArray(analysis.evidence));
+      assert.equal(analysis.evidence.length, 1);
+      assert.equal(analysis.evidence[0]?.id, "ev-node-d1");
+      assert.equal(analysis.evidence[0]?.file_path, "src/DirectService.ts");
+      assert.equal(analysis.evidence[0]?.line_start, 10);
+      assert.equal(analysis.evidence[0]?.line_end, 25);
+      assert.equal(analysis.evidence[0]?.relationship_description, "Direct service definition");
     });
   });
 });
