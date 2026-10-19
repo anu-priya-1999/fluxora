@@ -11513,3 +11513,97 @@ Step 46 does NOT:
 - Implement Golden-Fixture PR Impact Validation (Step 47 owns this);
 - Modify backend impact-analysis engine, persistence, DB schema, worker logic, webhook handling, or API contracts;
 - Add AI/LLM narrative explanations or scenario simulation (Step 48+).
+
+---
+
+## Global Step 47 — Golden-Fixture PR Impact Validation
+
+### Overview & Objective
+
+Global Step 47 is the culminating step of **Phase 6: PR Impact Analysis** as defined by `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/12-testing-strategy.md §12.1–§12.4`, `docs/architecture/05-component-responsibilities.md §5.7–§5.9, §5.16`, and `docs/architecture/06-database-schema.md`.
+
+It establishes an automated, end-to-end deterministic validation pipeline proving that for a real-world repository and recorded golden Pull Request fixture, Fluxora's deterministic PR impact analysis pipeline produces the exact hand-verified direct and downstream impact findings across the core traversal engine, PostgreSQL persistence, and API retrieval contracts.
+
+### Architecture & Verification Pipeline
+
+```
+Golden PR Manifest (fixtures/golden/pr-impact-manifest.json)
+      │
+      ├─ Recorded PR: "Harden subscription plan validation and grace period checks" (#42)
+      ├─ Pinned Repository: "shadcn-ui/taxonomy" @ commit 298a8857c7128a0d121e7f699dfd729f23b3966d
+      └─ Changed Files: lib/subscription.ts (modified), content/docs/billing.mdx (unresolved documentation)
+      │
+      ▼
+PostgreSQL Ingestion & Graph Projection
+      │
+      ├─ Organizations, Repositories, Snapshots, Analysis Runs (multi-tenant RLS setup)
+      ├─ AST extraction & canonical graph build: 490 nodes, 888 edges, Phase 3 pipeline
+      └─ PullRequest & PullRequestFiles persisted into PostgreSQL
+      │
+      ▼
+Step 43 Impact Analysis Engine (traverseGraph & computeImpactAnalysis)
+      │
+      ├─ Diff Hunk Parsing: @@ -7,4 +7,6 @@ in lib/subscription.ts
+      ├─ Seed Resolution: sym:lib/subscription.ts#function:getUserSubscriptionPlan:197
+      ├─ Traversal (direction: "both", maxDepth: 2, decayFactor: 0.9):
+      │    ├─ Direct Impact (Depth 1): Exactly 4 module nodes (confidence = 0.90)
+      │    └─ One-Hop Downstream (Depth 2): Exactly 45 nodes: 3 API routes, 14 modules, 28 symbols (confidence = 0.81)
+      ├─ Affected APIs: GET /api/posts, GET /api/users/stripe, POST /api/posts
+      └─ Unresolved Files: content/docs/billing.mdx (no graph nodes, no phantom nodes)
+      │
+      ▼
+Step 44 Impact Analysis Persistence + EvidenceWriter
+      │
+      ├─ PostgreSQL impact_analyses table insertion
+      ├─ EvidenceWriter: 49 deterministic impact_finding evidence records
+      └─ Idempotency: ON CONFLICT DO UPDATE, zero duplicate evidence records
+      │
+      ▼
+Step 45 API / Worker Job Readback Contract
+      │
+      ├─ processPullRequestImpactJob: Successful job execution with golden payload
+      ├─ getLatestImpactAnalysisForPullRequest & getImpactAnalysisById readback
+      └─ RLS Tenant Isolation: Non-member tenant receives null / empty array
+      │
+      ▼
+Golden Ground Truth Assertion (Assert Actual == Expected)
+      └─ 100% exact set equality on sorted canonical IDs, unaffected negative controls confirmed absent
+```
+
+### Golden Ground Truth & Direct vs. Downstream Semantics
+
+1. **Seed (Depth 0)**:
+   - Symbol: `sym:lib/subscription.ts#function:getUserSubscriptionPlan:197`
+   - Confidence: 1.0
+2. **Direct Impact (Depth 1)**:
+   - Exactly 4 module nodes:
+     1. `mod:app/(dashboard)/dashboard/billing/page.tsx`
+     2. `mod:app/api/posts/route.ts`
+     3. `mod:app/api/users/stripe/route.ts`
+     4. `mod:lib/subscription.ts`
+   - Confidence: $1.0 \times 0.9^1 = 0.90$
+3. **One-Hop Downstream Impact (Depth 2)**:
+   - Exactly 45 nodes:
+     - 3 API Route Handlers:
+       - `route:app/api/posts/route.ts#app-router-handler:GET:/api/posts:360`
+       - `route:app/api/posts/route.ts#app-router-handler:POST:/api/posts:907`
+       - `route:app/api/users/stripe/route.ts#app-router-handler:GET:/api/users/stripe:361`
+     - 14 Modules: UI alerts, cards, forms, shell, header, config, auth, db, session, stripe, utils, types
+     - 28 Symbols: exported functions, route handlers, config objects, type definitions
+   - Confidence: $1.0 \times 0.9^2 = 0.81$
+4. **Affected APIs**: `GET /api/posts`, `GET /api/users/stripe`, `POST /api/posts`
+5. **Unresolved Files**: `content/docs/billing.mdx` (verified that Markdown docs do NOT become phantom nodes)
+6. **Negative Controls (Unaffected Nodes)**:
+   - `route:app/api/og/route.tsx#app-router-handler:GET:/api/og:238`
+   - `route:app/api/webhooks/stripe/route.ts#app-router-handler:POST:/api/webhooks/stripe:561`
+   - `mod:components/site-footer.tsx`
+   - `sym:config/site.ts#constant:siteConfig:49`
+   - `mod:lib/toc.ts`
+   - `mod:app/(marketing)/page.tsx`
+   All verified strictly absent from the impact sets.
+
+### Invariants & Boundaries
+
+1. **Deterministic Core Preserved**: No LLM, probabilistic ranking, or simulation heuristics were introduced. Traversal is 100% deterministic graph mathematics.
+2. **Offline & CI-Safe**: No live GitHub API calls or external network dependencies; operates on pinned golden repository files.
+3. **Strict Scope Boundaries**: Phase 6 is complete. Phase 7 (evidence hardening, AI explanations, scenario simulation) was NOT entered.

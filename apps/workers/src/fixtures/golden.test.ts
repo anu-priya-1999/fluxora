@@ -7,6 +7,8 @@ import {
   GOLDEN_FIXTURE_DIR,
   GOLDEN_FIXTURE_ID,
   GOLDEN_FIXTURE_MANIFEST_PATH,
+  GOLDEN_PR_FIXTURE_MANIFEST_PATH,
+  GOLDEN_PR_FIXTURE_ID,
   GOLDEN_FIXTURE_PINNED_SHA,
   GOLDEN_FIXTURE_REPO_FULL_NAME,
   GOLDEN_FIXTURE_REPO_NAME,
@@ -14,6 +16,7 @@ import {
   GOLDEN_FIXTURE_SOURCE_BRANCH,
   getGoldenFixtureRootPath,
   loadGoldenFixtureManifest,
+  loadGoldenPullRequestManifest,
   readGoldenFixtureFile,
   readGoldenFixtureFileText,
 } from "./golden.ts";
@@ -184,4 +187,66 @@ test("accidental mutations to pinned commit SHA are detected", () => {
     true,
     "Manifest pinned commit SHA must match GOLDEN_FIXTURE_PINNED_SHA constant exactly",
   );
+});
+
+test("golden PR impact manifest exists, can be loaded, and matches canonical PR fixture schema", () => {
+  assert.ok(existsSync(GOLDEN_PR_FIXTURE_MANIFEST_PATH), "PR manifest file must exist on disk");
+  const prManifest = loadGoldenPullRequestManifest();
+
+  assert.equal(prManifest.fixtureId, GOLDEN_PR_FIXTURE_ID);
+  assert.equal(prManifest.pullRequestNumber, 42);
+  assert.equal(prManifest.analysisRunCommitSha, GOLDEN_FIXTURE_PINNED_SHA);
+  assert.equal(prManifest.traversalDirection, "both");
+  assert.equal(prManifest.maxDepth, 2);
+  assert.equal(prManifest.decayFactor, 0.9);
+
+  // Assert expected changed files
+  assert.deepEqual(prManifest.expectedChangedFiles, [
+    "content/docs/billing.mdx",
+    "lib/subscription.ts",
+  ]);
+
+  // Assert unresolved files
+  assert.deepEqual(prManifest.expectedUnresolvedFiles, [
+    "content/docs/billing.mdx",
+  ]);
+
+  // Assert seed node canonical IDs
+  assert.deepEqual(prManifest.expectedSeedCanonicalIds, [
+    "sym:lib/subscription.ts#function:getUserSubscriptionPlan:197",
+  ]);
+
+  // Assert direct impact canonical IDs (4 modules)
+  assert.equal(prManifest.expectedDirectImpactCanonicalIds.length, 4);
+  assert.deepEqual(prManifest.expectedDirectImpactCanonicalIds, [
+    "mod:app/(dashboard)/dashboard/billing/page.tsx",
+    "mod:app/api/posts/route.ts",
+    "mod:app/api/users/stripe/route.ts",
+    "mod:lib/subscription.ts",
+  ]);
+
+  // Assert one-hop downstream impact canonical IDs (45 nodes)
+  assert.equal(prManifest.expectedOneHopDownstreamCanonicalIds.length, 45);
+
+  // Assert affected APIs (3 routes)
+  assert.deepEqual(prManifest.expectedAffectedApiNames, [
+    "GET /api/posts",
+    "GET /api/users/stripe",
+    "POST /api/posts",
+  ]);
+
+  // Assert unaffected canonical IDs
+  assert.ok(prManifest.expectedUnaffectedCanonicalIds.length > 0);
+  assert.ok(prManifest.expectedUnaffectedCanonicalIds.includes("route:app/api/og/route.tsx#app-router-handler:GET:/api/og:238"));
+  assert.ok(prManifest.expectedUnaffectedCanonicalIds.includes("mod:components/site-footer.tsx"));
+
+  // Assert PR fixture payload structure
+  const { prFixture } = prManifest;
+  assert.equal(prFixture.repositoryFullName, GOLDEN_FIXTURE_REPO_FULL_NAME);
+  assert.equal(prFixture.repositoryName, GOLDEN_FIXTURE_REPO_NAME);
+  assert.equal(prFixture.baseSha, GOLDEN_FIXTURE_PINNED_SHA);
+  assert.equal(prFixture.changedFiles.length, 2);
+  assert.ok(prFixture.provenance.sourceRepo.length > 0);
+  assert.ok(prFixture.provenance.derivedFrom.length > 0);
+  assert.ok(prFixture.provenance.verificationMethod.length > 0);
 });

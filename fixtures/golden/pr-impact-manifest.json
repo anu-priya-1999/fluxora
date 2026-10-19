@@ -1,0 +1,123 @@
+{
+  "fixtureId": "golden-taxonomy-pr-subscription-v1",
+  "pullRequestNumber": 42,
+  "analysisRunCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+  "traversalDirection": "both",
+  "maxDepth": 2,
+  "decayFactor": 0.9,
+  "expectedChangedFiles": [
+    "content/docs/billing.mdx",
+    "lib/subscription.ts"
+  ],
+  "expectedUnresolvedFiles": [
+    "content/docs/billing.mdx"
+  ],
+  "expectedSeedCanonicalIds": [
+    "sym:lib/subscription.ts#function:getUserSubscriptionPlan:197"
+  ],
+  "expectedDirectImpactCanonicalIds": [
+    "mod:app/(dashboard)/dashboard/billing/page.tsx",
+    "mod:app/api/posts/route.ts",
+    "mod:app/api/users/stripe/route.ts",
+    "mod:lib/subscription.ts"
+  ],
+  "expectedOneHopDownstreamCanonicalIds": [
+    "mod:components/billing-form.tsx",
+    "mod:components/header.tsx",
+    "mod:components/icons.tsx",
+    "mod:components/shell.tsx",
+    "mod:components/ui/alert.tsx",
+    "mod:components/ui/card.tsx",
+    "mod:config/subscriptions.ts",
+    "mod:lib/auth.ts",
+    "mod:lib/db.ts",
+    "mod:lib/exceptions.ts",
+    "mod:lib/session.ts",
+    "mod:lib/stripe.ts",
+    "mod:lib/utils.ts",
+    "mod:types/index.d.ts",
+    "route:app/api/posts/route.ts#app-router-handler:GET:/api/posts:360",
+    "route:app/api/posts/route.ts#app-router-handler:POST:/api/posts:907",
+    "route:app/api/users/stripe/route.ts#app-router-handler:GET:/api/users/stripe:361",
+    "sym:app/(dashboard)/dashboard/billing/page.tsx#constant:metadata:634",
+    "sym:app/(dashboard)/dashboard/billing/page.tsx#function:BillingPage:731",
+    "sym:app/api/posts/route.ts#constant:postCreateSchema:271",
+    "sym:app/api/posts/route.ts#function:GET:360",
+    "sym:app/api/posts/route.ts#function:POST:907",
+    "sym:app/api/users/stripe/route.ts#constant:billingUrl:313",
+    "sym:app/api/users/stripe/route.ts#function:GET:361",
+    "sym:components/billing-form.tsx#function:BillingForm:559",
+    "sym:components/header.tsx#function:DashboardHeader:99",
+    "sym:components/icons.tsx#constant:Icons:377",
+    "sym:components/shell.tsx#function:DashboardShell:145",
+    "sym:components/ui/alert.tsx#constant:Alert:628",
+    "sym:components/ui/alert.tsx#constant:AlertDescription:1251",
+    "sym:components/ui/alert.tsx#constant:AlertTitle:949",
+    "sym:components/ui/card.tsx#constant:Card:72",
+    "sym:components/ui/card.tsx#constant:CardContent:1280",
+    "sym:components/ui/card.tsx#constant:CardDescription:977",
+    "sym:components/ui/card.tsx#constant:CardHeader:377",
+    "sym:components/ui/card.tsx#constant:CardTitle:655",
+    "sym:config/subscriptions.ts#constant:freePlan:87",
+    "sym:config/subscriptions.ts#constant:proPlan:275",
+    "sym:lib/auth.ts#constant:authOptions:425",
+    "sym:lib/db.ts#constant:db:372",
+    "sym:lib/exceptions.ts#class:RequiresProPlanError:0",
+    "sym:lib/session.ts#function:getCurrentUser:93",
+    "sym:lib/stripe.ts#constant:stripe:75",
+    "sym:lib/utils.ts#function:absoluteUrl:399",
+    "sym:types/index.d.ts#type_alias:UserSubscriptionPlan:957"
+  ],
+  "expectedAffectedApiNames": [
+    "GET /api/posts",
+    "GET /api/users/stripe",
+    "POST /api/posts"
+  ],
+  "expectedAffectedEventNames": [],
+  "expectedUnaffectedCanonicalIds": [
+    "mod:app/(marketing)/page.tsx",
+    "mod:components/site-footer.tsx",
+    "mod:lib/toc.ts",
+    "route:app/api/og/route.tsx#app-router-handler:GET:/api/og:238",
+    "route:app/api/webhooks/stripe/route.ts#app-router-handler:POST:/api/webhooks/stripe:561",
+    "sym:config/site.ts#constant:siteConfig:49",
+    "sym:lib/toc.ts#function:getTableOfContents:319"
+  ],
+  "expectedTruncated": true,
+  "expectedMaxDepthReached": 2,
+  "prFixture": {
+    "fixtureId": "golden-taxonomy-pr-subscription-v1",
+    "repositoryFullName": "shadcn-ui/taxonomy",
+    "repositoryName": "taxonomy",
+    "pullRequestNumber": 42,
+    "title": "Harden subscription plan validation and grace period checks",
+    "description": "Updates getUserSubscriptionPlan in lib/subscription.ts to add user id validation and checks, accompanied by updated billing documentation.",
+    "baseRef": "main",
+    "baseSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+    "headRef": "fix/subscription-plan-validation",
+    "headSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "changedFiles": [
+      {
+        "path": "lib/subscription.ts",
+        "status": "modified",
+        "additions": 3,
+        "deletions": 0,
+        "changes": 3,
+        "patch": "@@ -7,4 +7,6 @@\n export async function getUserSubscriptionPlan(\n   userId: string\n ): Promise<UserSubscriptionPlan> {\n+  if (!userId) {\n+    throw new Error(\"Missing user id\");\n+  }"
+      },
+      {
+        "path": "content/docs/billing.mdx",
+        "status": "added",
+        "additions": 20,
+        "deletions": 0,
+        "changes": 20,
+        "patch": "@@ -0,0 +1,5 @@\n+# Billing Documentation\n+Explains subscription plans and billing management."
+      }
+    ],
+    "provenance": {
+      "sourceRepo": "shadcn-ui/taxonomy",
+      "derivedFrom": "Next.js SaaS subscription lifecycle patterns (NextAuth + Stripe + Prisma)",
+      "verificationMethod": "Manual AST symbol extraction and static dependency graph traversal validation"
+    }
+  }
+}

@@ -2,7 +2,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
-import type { GoldenFixtureManifest } from "@fluxora/shared-types";
+import type {
+  GoldenFixtureManifest,
+  GoldenImpactExpectationManifest,
+} from "@fluxora/shared-types";
 
 export const GOLDEN_FIXTURE_ID = "golden-taxonomy-v1" as const;
 export const GOLDEN_FIXTURE_REPO_URL = "https://github.com/shadcn-ui/taxonomy" as const;
@@ -10,6 +13,7 @@ export const GOLDEN_FIXTURE_REPO_FULL_NAME = "shadcn-ui/taxonomy" as const;
 export const GOLDEN_FIXTURE_REPO_NAME = "taxonomy" as const;
 export const GOLDEN_FIXTURE_PINNED_SHA = "298a8857c7128a0d121e7f699dfd729f23b3966d" as const;
 export const GOLDEN_FIXTURE_SOURCE_BRANCH = "main" as const;
+export const GOLDEN_PR_FIXTURE_ID = "golden-taxonomy-pr-subscription-v1" as const;
 
 /**
  * Resolves path to the golden fixture root directory and manifest.json.
@@ -34,6 +38,7 @@ const workspaceRoot = findWorkspaceRoot(moduleDir);
 
 export const GOLDEN_FIXTURE_DIR = path.resolve(workspaceRoot, "fixtures/golden/taxonomy");
 export const GOLDEN_FIXTURE_MANIFEST_PATH = path.resolve(workspaceRoot, "fixtures/golden/manifest.json");
+export const GOLDEN_PR_FIXTURE_MANIFEST_PATH = path.resolve(workspaceRoot, "fixtures/golden/pr-impact-manifest.json");
 
 export function loadGoldenFixtureManifest(): GoldenFixtureManifest {
   if (!existsSync(GOLDEN_FIXTURE_MANIFEST_PATH)) {
@@ -41,6 +46,14 @@ export function loadGoldenFixtureManifest(): GoldenFixtureManifest {
   }
   const raw = readFileSync(GOLDEN_FIXTURE_MANIFEST_PATH, "utf8");
   return JSON.parse(raw) as GoldenFixtureManifest;
+}
+
+export function loadGoldenPullRequestManifest(): GoldenImpactExpectationManifest {
+  if (!existsSync(GOLDEN_PR_FIXTURE_MANIFEST_PATH)) {
+    throw new Error(`Golden PR fixture manifest not found at ${GOLDEN_PR_FIXTURE_MANIFEST_PATH}`);
+  }
+  const raw = readFileSync(GOLDEN_PR_FIXTURE_MANIFEST_PATH, "utf8");
+  return JSON.parse(raw) as GoldenImpactExpectationManifest;
 }
 
 export function getGoldenFixtureRootPath(): string {
