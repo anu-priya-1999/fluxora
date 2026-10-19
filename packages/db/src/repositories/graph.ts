@@ -779,12 +779,27 @@ export async function persistGraphBuild(
 
   for (const n of input.nodes) {
     assertGraphNodeInput(n);
+    if (n.analysisRunId !== input.analysisRunId || n.organizationId !== input.organizationId) {
+      throw new GraphNodeValidationError(
+        "Graph node analysisRunId or organizationId does not match persistGraphBuild parameters.",
+      );
+    }
   }
   for (const e of input.edges) {
     assertGraphEdgeInput(e);
+    if (e.analysisRunId !== input.analysisRunId || e.organizationId !== input.organizationId) {
+      throw new GraphEdgeValidationError(
+        "Graph edge analysisRunId or organizationId does not match persistGraphBuild parameters.",
+      );
+    }
   }
   for (const ev of input.evidence) {
     assertEvidenceInput(ev);
+    if (ev.analysisRunId !== input.analysisRunId || ev.organizationId !== input.organizationId) {
+      throw new EvidenceValidationError(
+        "Evidence analysisRunId or organizationId does not match persistGraphBuild parameters.",
+      );
+    }
   }
 
   return withTenant(pool, input.organizationId, async (client) => {

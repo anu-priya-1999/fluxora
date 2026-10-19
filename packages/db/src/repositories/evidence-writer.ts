@@ -204,6 +204,7 @@ export class EvidenceWriter {
     relationshipDescription?: string;
     location?: SourceLocation;
     symbolId?: string | null;
+    id?: string;
   }): CreateEvidenceInput {
     const node = params.finding.node;
     const filePath =
@@ -230,7 +231,10 @@ export class EvidenceWriter {
       supportingEvidenceIds: params.finding.evidenceIds ?? [],
     };
 
+    const id = params.id;
+
     return EvidenceWriter.createEvidenceInput({
+      ...(id ? { id } : {}),
       organizationId: params.organizationId,
       analysisRunId: params.analysisRunId,
       subjectType: "impact_finding",

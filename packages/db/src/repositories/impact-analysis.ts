@@ -192,10 +192,10 @@ export async function saveImpactAnalysisTx(
   const directImpactRaw = input.directImpact ?? input.result?.directImpacts ?? [];
   const downstreamImpactRaw =
     input.downstreamImpact ?? input.result?.downstreamImpacts ?? [];
-  const affectedApis = input.affectedApis ?? input.result?.affectedApis ?? [];
-  const affectedEvents =
+  const affectedApisRaw = input.affectedApis ?? input.result?.affectedApis ?? [];
+  const affectedEventsRaw =
     input.affectedEvents ?? input.result?.affectedEvents ?? [];
-  const affectedServices =
+  const affectedServicesRaw =
     input.affectedServices ?? input.result?.affectedServices ?? [];
   const workflowImpactSummary =
     input.workflowImpactSummary ?? input.result?.workflowImpactSummary ?? [];
@@ -218,44 +218,40 @@ export async function saveImpactAnalysisTx(
 
   const impactAnalysisId = input.id ?? crypto.randomUUID();
 
-  // 3. Construct impact_finding evidence inputs using EvidenceWriter
+  // 3. Construct impact_finding evidence inputs using EvidenceWriter across ALL finding categories
   const evidenceInputs: CreateEvidenceInput[] = [];
+  const evidenceIdByNodeId = new Map<string, string>();
 
-  const directImpact: ImpactFinding[] = [];
-  for (const finding of directImpactRaw) {
-    const evInput = EvidenceWriter.createImpactFindingEvidence({
-      organizationId,
-      analysisRunId,
-      impactAnalysisId,
-      pullRequestId,
-      finding,
-    });
-    evidenceInputs.push(evInput);
-    directImpact.push({
+  function processFinding(finding: ImpactFinding): ImpactFinding {
+    let evId = evidenceIdByNodeId.get(finding.node.id);
+    if (!evId) {
+      const evInput = EvidenceWriter.createImpactFindingEvidence({
+        organizationId,
+        analysisRunId: analysisRunId!,
+        impactAnalysisId,
+        pullRequestId: pullRequestId!,
+        finding,
+      });
+      evId = evInput.id!;
+      evidenceIdByNodeId.set(finding.node.id, evId);
+      evidenceInputs.push(evInput);
+    }
+
+    const mergedEvidenceIds = Array.from(
+      new Set([...(finding.evidenceIds ?? []), evId]),
+    ).sort();
+
+    return {
       ...finding,
-      evidenceIds: Array.from(
-        new Set([...(finding.evidenceIds ?? []), evInput.id!]),
-      ).sort(),
-    });
+      evidenceIds: mergedEvidenceIds,
+    };
   }
 
-  const downstreamImpact: ImpactFinding[] = [];
-  for (const finding of downstreamImpactRaw) {
-    const evInput = EvidenceWriter.createImpactFindingEvidence({
-      organizationId,
-      analysisRunId,
-      impactAnalysisId,
-      pullRequestId,
-      finding,
-    });
-    evidenceInputs.push(evInput);
-    downstreamImpact.push({
-      ...finding,
-      evidenceIds: Array.from(
-        new Set([...(finding.evidenceIds ?? []), evInput.id!]),
-      ).sort(),
-    });
-  }
+  const directImpact = directImpactRaw.map(processFinding);
+  const downstreamImpact = downstreamImpactRaw.map(processFinding);
+  const affectedApis = affectedApisRaw.map(processFinding);
+  const affectedEvents = affectedEventsRaw.map(processFinding);
+  const affectedServices = affectedServicesRaw.map(processFinding);
 
   // 4. Insert or update impact_analyses row
   const query = `

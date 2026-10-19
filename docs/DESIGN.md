@@ -11607,3 +11607,32 @@ Golden Ground Truth Assertion (Assert Actual == Expected)
 1. **Deterministic Core Preserved**: No LLM, probabilistic ranking, or simulation heuristics were introduced. Traversal is 100% deterministic graph mathematics.
 2. **Offline & CI-Safe**: No live GitHub API calls or external network dependencies; operates on pinned golden repository files.
 3. **Strict Scope Boundaries**: Phase 6 is complete. Phase 7 (evidence hardening, AI explanations, scenario simulation) was NOT entered.
+
+---
+
+## Global Step 48 — Evidence Completeness Audit + Hardening
+
+### Overview & Objective
+
+Global Step 48 initiates **Phase 7: Evidence Engine (Hardening Pass)** per `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/05-component-responsibilities.md §5.7, §5.8, §5.9`, and `docs/architecture/06-database-schema.md`.
+
+Its mission is to audit every conclusion-producing write path in Fluxora and establish the absolute architectural guarantee of **Evidence Completeness**:
+Every confirmed graph conclusion (node, edge) and change-impact finding produced by the platform MUST have corresponding immutable evidence created via `EvidenceWriter` within the same atomic database transaction.
+
+### Conclusion-Producing Path Inventory & Hardening Matrix
+
+| Component | Write Path | Conclusion Produced | Evidence Enforcement |
+| --- | --- | --- | --- |
+| **Graph Builder** | `persistGraphBuild` | `graph_nodes`, `graph_edges` | Pre-flight validation guarantees all nodes, edges, and evidence match `organizationId` and `analysisRunId`. All 8 edge types (`IMPORTS`, `CALLS`, `EXTENDS`, `EXPOSES_ROUTE`, `EMITS_EVENT`, `CONSUMES_EVENT`, `QUERIES_DB`, `WRITES`) produce traceable `graph_edge` evidence rows. |
+| **Impact Analysis** | `saveImpactAnalysisTx` | `impact_analyses` row & findings | Unified finding processing via `processFinding` links every finding across all 5 categories (`directImpact`, `downstreamImpact`, `affectedApis`, `affectedEvents`, `affectedServices`) to a deduplicated, deterministic `impact_finding` evidence record. |
+| **Static CI Linter** | `verifyGraphWritePaths` | AST validation of codebase | Expanded to scan all conclusion-producing files (`graph.ts`, `impact-analysis.ts`, `graph-builder.ts`, `impact-handler.ts`) for graph node/edge writes and impact persistence calls, enforcing `EvidenceWriter` invocation in CI (`pnpm lint:evidence`). |
+
+### Core Invariants Proven
+
+1. **Evidence Completeness**: No code path can commit or expose a graph edge or impact finding without an associated evidence record.
+2. **Confidence Decay Preservation**: Depth-decayed confidence scores ($1.0 \times 0.9^{\text{depth}}$) are passed directly into evidence rows without artificial resets or rounding. Monotonic decay is verified.
+3. **Transactional Atomicity**: Conclusion writes and evidence writes share a single client transaction. A simulated evidence failure triggers full database rollback, leaving zero orphan conclusions.
+4. **Deterministic Identity & Idempotency**: Evidence IDs are derived via deterministic SHA-256 UUID v5. Repeated executions on the same analysis run produce 0 duplicate records.
+5. **Multi-Tenant & Analysis-Run Isolation**: Evidence is strictly partitioned by `analysis_run_id` and isolated across organizations by PostgreSQL Row-Level Security (RLS).
+6. **Non-Fabrication**: Source coordinates are preserved from AST when known; traversal paths are recorded in metadata. No synthetic line numbers are ever invented.
+7. **Scope Boundaries**: Steps 49–51 (UI citations, visual weighting, coverage displays) and future simulation engine evidence remain strictly separated.
