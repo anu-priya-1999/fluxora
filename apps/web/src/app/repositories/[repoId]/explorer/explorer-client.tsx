@@ -23,6 +23,7 @@ import {
 } from "../../../../components/graph/ExplorerStatus";
 import {
   ChangeModeBar,
+  AnalysisCoverageBar,
   DEFAULT_CHANGE_MODE_STATE,
   fetchImpactAnalysis,
   normalizeImpactAnalysisResponse,
@@ -460,6 +461,21 @@ export function ArchitectureExplorerClient({
       commitSha: context.commitSha ?? changeModeState.headCommit,
       gitRef: context.ref ?? changeModeState.headCommit,
       analysisRunId: state.analysisRunId,
+    }),
+    // Step 51: Analysis Coverage View
+    React.createElement(AnalysisCoverageBar, {
+      edges: state.graph.edges,
+      nodes: state.graph.nodes,
+      changeModeState,
+      analysisRunId: state.analysisRunId,
+      repositoryName: context.repositoryName,
+      commitSha: context.commitSha ?? changeModeState.headCommit,
+      gitRef: context.ref ?? changeModeState.headCommit,
+      isRefreshing,
+      onSelectNode: handleSelectNode,
+      onSelectEdge: handleSelectEdge,
+      selectedEdgeId,
+      selectedNodeId,
     }),
     // Filters
     React.createElement(GraphFilters, {

@@ -11765,3 +11765,67 @@ Visually communicate relative confidence across graph edges and impact-analysis 
   - `pnpm lint`: 0 ESLint errors across the workspace.
   - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
   - `pnpm build`: Next.js production build compiled cleanly in Turbopack.
+
+
+---
+
+## Global Step 51 — Analysis-Coverage View
+
+### Overview & Objective
+
+Global Step 51 completes **Phase 7: Evidence Engine** per `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/08-frontend-application.md`, `docs/architecture/03-architecture-principles.md` (Principles P1, P2, P3), and `docs/architecture/22-definition-of-done.md`.
+
+Its core objective is **Evidence Coverage Visibility**:
+Surface an honest, deterministic view answering:
+> *"How much of the analyzed surface has verified evidence, and where are the gaps?"*
+
+Step 51 bridges the gap between static analysis and human trust, clearly distinguishing analyzed conclusions, evidence-backed conclusions, missing evidence, and unsupported/unresolved files without altering underlying analysis semantics or graph topology.
+
+**Core Invariants Preserved**:
+1. **Deterministic Ratio**: Coverage is defined strictly as:
+   $$\text{Coverage} = \frac{\text{Evidence-Backed Analyzed Conclusions}}{\text{Analyzed Conclusions in Scope}}$$
+2. **Strict Scope Partitioning**: Graph edge coverage and PR impact finding coverage maintain strictly independent numerators and denominators. They are never conflated into an artificial repository-wide average.
+3. **Orthogonal Confidence vs. Coverage**: High confidence never serves as a proxy for evidence. Unbacked claims remain strictly uncovered regardless of confidence score.
+4. **Actionable Gaps**: Missing evidence is not just an aggregate metric; individual uncovered edges and impact findings can be inspected directly on the interactive graph canvas.
+5. **Multi-Channel Accessibility**: Coverage status is communicated via text badges, explicit numeric counts, and ARIA progressbars (`role="progressbar"`), complying with WCAG 2.1 AA without relying on color alone.
+6. **Read-Only Presentation Engine**: Zero database queries from the client, zero schema mutations, and zero frontend recomputation of graph analysis.
+
+### Architecture & Implementation Details
+
+1. **Deterministic Coverage Engine (`coverage-data.ts`)**:
+   - `calculateGraphEdgeCoverage`:
+     - Denominator ($N$): Total graph edges in the query slice (`edges.length`).
+     - Numerator ($K$): Edges with valid non-empty `evidence_id`.
+     - Categories: Grouped by edge type (`IMPORTS`, `CALLS`, `EXPOSES_ROUTE`, `QUERIES_DB`, etc.).
+     - Uncovered items: Sorted deterministically by edge type, source node name, target node name, and edge ID.
+   - `calculateImpactFindingCoverage`:
+     - Denominator ($N$): Total findings across direct, downstream, API, event, and service categories.
+     - Numerator ($K$): Findings with verified `evidence_ids` or `evidence_id`.
+     - Categories: 5 authoritative impact tiers.
+     - Unresolved files: Surfaced explicitly as unmapped PR files (`unresolved_files`).
+     - Uncovered items: Sorted deterministically by category tier, hop distance, finding name, and node ID.
+   - Precision: Computes deterministic single-decimal percentages (`formatCoveragePercentage`). Handles zero analyzed items ($N = 0$) with explicit `N/A` text rather than a fabricated 0% failure.
+
+2. **Analysis Coverage Component (`AnalysisCoverageBar.tsx`)**:
+   - Integrated into the Architecture Explorer directly below the header/ChangeModeBar and above GraphFilters.
+   - **Summary Bar**: Displays status dot, scope badge (`Analysis Run: {id}`), refreshing indicator, summary counts (`Covered: K | Missing: U | Total: N`), percentage badge (`100%`, `96.5%`, `0%`), and ARIA progress bar.
+   - **Surface Tabs**: When PR Change Mode is active, allows seamless switching between `Graph Edges` and `PR Impact Findings` scopes.
+   - **Expanded Category Drawer**: Displays category breakdown cards with covered/total ratios, percentage chips, and mini progress indicators.
+   - **Actionable Findings Drawer**: Filterable by `All`, `Covered`, and `Missing Evidence`. Each uncovered item renders an "Inspect in Graph" action that triggers native graph selection (`onSelectEdge` or `onSelectNode`).
+
+3. **Explorer Client & Node Inspector Integration**:
+   - `explorer-client.tsx`: Renders `AnalysisCoverageBar` with live graph edges, nodes, change mode state, and selection handlers.
+   - `node-inspector-data.ts`: Edge inspection displays an explicit `Covered` vs `Missing Evidence` status chip (`inspector-edge-coverage-status`) linking directly into `EvidenceCitation`.
+
+### Verification & Test Matrix
+
+- **Unit & Integration Tests**:
+  - `apps/web/src/components/graph/coverage.test.ts`: 22 tests covering precision percentage formatting, full/partial/zero/empty states, scope isolation, category breakdowns, high/low confidence evidence orthogonality, UI rendering, expanded drawers, multi-channel accessibility, and NodeInspectorPanel coverage badges.
+  - `apps/web`: 14 test files, 199 tests passing.
+  - Workspace: 50 test files, 411 tests passing across all packages.
+- **TypeScript & Linting**:
+  - `pnpm typecheck`: 0 errors across all 7 workspace packages.
+  - `pnpm lint`: 0 ESLint errors across the workspace.
+  - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
+  - `pnpm build`: Next.js production build compiled cleanly in Turbopack.
+  - `git diff --check`: 0 whitespace or formatting errors.

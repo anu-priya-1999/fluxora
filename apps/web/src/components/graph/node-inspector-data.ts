@@ -464,13 +464,33 @@ export function NodeInspectorPanel({
           "div",
           { className: "flex items-center justify-between gap-2" },
           React.createElement(
-            "span",
-            {
-              "data-testid": "inspector-edge-type",
-              className:
-                "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-block bg-indigo-100 text-indigo-800 border border-indigo-200 font-mono",
-            },
-            edge.type,
+            "div",
+            { className: "flex items-center gap-1.5" },
+            React.createElement(
+              "span",
+              {
+                "data-testid": "inspector-edge-type",
+                className:
+                  "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded inline-block bg-indigo-100 text-indigo-800 border border-indigo-200 font-mono",
+              },
+              edge.type,
+            ),
+            React.createElement(
+              "span",
+              {
+                "data-testid": "inspector-edge-coverage-status",
+                "data-coverage-status": edge.evidence_id ? "covered" : "uncovered",
+                className: `text-[10px] font-semibold px-1.5 py-0.5 rounded border ${
+                  edge.evidence_id
+                    ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                    : "bg-rose-50 text-rose-800 border-rose-200"
+                }`,
+                "aria-label": edge.evidence_id
+                  ? "Evidence Status: Covered"
+                  : "Evidence Status: Missing Evidence (Uncovered)",
+              },
+              edge.evidence_id ? "Covered" : "Missing Evidence",
+            ),
           ),
           onClose !== undefined
             ? React.createElement(
