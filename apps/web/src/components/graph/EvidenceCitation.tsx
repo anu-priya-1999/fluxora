@@ -7,6 +7,7 @@ import {
   deduplicateAndSortEvidence,
   formatLineRange,
 } from "./evidence-citation-data.ts";
+import { normalizeConfidence } from "./confidence-data.ts";
 
 export interface EvidenceCitationProps {
   /**
@@ -17,6 +18,11 @@ export interface EvidenceCitationProps {
    * Raw evidence ID (used for lookup or fallback display when record is not yet resolved).
    */
   readonly evidenceId?: string | undefined;
+  /**
+   * Optional authoritative confidence score (Step 50).
+   * Overrides or supplements evidence.confidence.
+   */
+  readonly confidence?: number | null | undefined;
   /**
    * Display mode: compact badge/chip or expanded detail card.
    */
@@ -84,6 +90,7 @@ export interface EvidenceCitationProps {
 export function EvidenceCitation({
   evidence,
   evidenceId,
+  confidence,
   mode = "compact",
   repositoryName,
   commitSha,
@@ -152,10 +159,14 @@ export function EvidenceCitation({
 
   // Extract metadata and coordinates safely
   const lineRangeStr = formatLineRange(evidence.line_start, evidence.line_end);
-  const confidenceScore =
-    typeof evidence.confidence === "number" ? evidence.confidence : undefined;
-  const confidencePct =
-    confidenceScore !== undefined ? `${Math.round(confidenceScore * 100)}%` : null;
+  const rawConfidence =
+    confidence !== undefined
+      ? confidence
+      : typeof evidence.confidence === "number"
+        ? evidence.confidence
+        : undefined;
+  const normalizedConf = normalizeConfidence(rawConfidence);
+  const confidencePct = normalizedConf ? normalizedConf.formattedPercentage : null;
 
   // Resolve repository / ref / commit from props or evidence metadata
   const effectiveRepo =
@@ -223,13 +234,21 @@ export function EvidenceCitation({
           { className: "font-medium text-slate-800 break-all" },
           `${shortFileName}${lineRangeStr ? `:${lineRangeStr}` : ""}`,
         ),
-        confidencePct
+        normalizedConf && confidencePct
           ? React.createElement(
               "span",
               {
                 "data-testid": "citation-confidence-chip",
-                className:
-                  "text-[10px] px-1 py-0.2 rounded bg-indigo-200/60 text-indigo-800 font-sans font-semibold shrink-0",
+                "data-confidence-tier": normalizedConf.tier,
+                "aria-label": normalizedConf.accessibleLabel,
+                className: `text-[10px] px-1 py-0.2 rounded font-sans font-semibold shrink-0 border ${
+                  normalizedConf.tier === "high"
+                    ? "bg-indigo-200/60 text-indigo-800 border-indigo-300/60"
+                    : normalizedConf.tier === "medium"
+                      ? "bg-slate-100 text-slate-700 border-slate-200"
+                      : "bg-amber-50 text-amber-800 border-amber-200 border-dashed"
+                }`,
+                title: `${normalizedConf.label}: ${normalizedConf.formattedPercentage}`,
               },
               confidencePct,
             )
@@ -287,13 +306,21 @@ export function EvidenceCitation({
                 roleLabel,
               )
             : null,
-          confidencePct
+          normalizedConf && confidencePct
             ? React.createElement(
                 "span",
                 {
                   "data-testid": "citation-confidence",
-                  className:
-                    "text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-100 text-slate-700",
+                  "data-confidence-tier": normalizedConf.tier,
+                  "aria-label": normalizedConf.accessibleLabel,
+                  className: `text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+                    normalizedConf.tier === "high"
+                      ? "bg-slate-100 text-slate-700 border-slate-200"
+                      : normalizedConf.tier === "medium"
+                        ? "bg-amber-50/60 text-amber-800 border-amber-200"
+                        : "bg-amber-100/80 text-amber-900 border-amber-300 border-dashed"
+                  }`,
+                  title: normalizedConf.label,
                 },
                 `Confidence: ${confidencePct}`,
               )
@@ -542,6 +569,10 @@ export interface EvidenceCitationListProps {
     | "affected_service"
     | undefined;
   /**
+   * Optional authoritative confidence score (Step 50).
+   */
+  readonly confidence?: number | null | undefined;
+  /**
    * Hop distance for downstream findings.
    */
   readonly hopDistance?: number | undefined;
@@ -558,6 +589,7 @@ export function EvidenceCitationList({
   evidenceList,
   evidenceIds,
   evidencePool,
+  confidence,
   mode = "compact",
   repositoryName,
   commitSha,
@@ -623,6 +655,7 @@ export function EvidenceCitationList({
       React.createElement(EvidenceCitation, {
         key: ev.id,
         evidence: ev,
+        confidence,
         mode,
         repositoryName,
         commitSha,
@@ -636,6 +669,7 @@ export function EvidenceCitationList({
       React.createElement(EvidenceCitation, {
         key: id,
         evidenceId: id,
+        confidence,
         mode,
         repositoryName,
         commitSha,

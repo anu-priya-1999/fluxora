@@ -11,3 +11,4 @@ export * from "./change-mode-data.ts";
 export * from "./ChangeModeBar.tsx";
 export * from "./evidence-citation-data.ts";
 export * from "./EvidenceCitation.tsx";
+export * from "./confidence-data.ts";

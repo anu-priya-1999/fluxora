@@ -246,7 +246,9 @@ export function GraphCanvas({
       return {
         ...e,
         selected: true,
-        style: e.style ? { ...e.style, stroke: "#3b82f6", strokeWidth: 3 } : { stroke: "#3b82f6", strokeWidth: 3 },
+        style: e.style
+          ? { ...e.style, stroke: "#3b82f6", strokeWidth: 3, opacity: 1.0 }
+          : { stroke: "#3b82f6", strokeWidth: 3, opacity: 1.0 },
       };
     });
 

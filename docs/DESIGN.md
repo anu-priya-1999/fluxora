@@ -11697,3 +11697,71 @@ Turn the verified, append-only evidence produced by Fluxora into an accessible, 
   - `pnpm lint`: 0 ESLint errors across the workspace.
   - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
   - `pnpm build`: Next.js production build compiled cleanly in Turbopack.
+
+
+---
+
+## Global Step 50 — Confidence-Based Visual Weighting
+
+### Overview & Objective
+
+Global Step 50 continues **Phase 7: Evidence Engine** per `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/08-frontend-application.md`, and `docs/architecture/22-definition-of-done.md`.
+
+Its core objective is **Presentation Weighting**:
+Visually communicate relative confidence across graph edges and impact-analysis findings in the Fluxora UI using the authoritative confidence values already computed and persisted by the backend.
+
+**Core Invariants Preserved**:
+1. **Backend is Authoritative**: Confidence is presentation information only. The frontend never recomputes, recalculates, adjusts, or simulates confidence (e.g. no frontend `0.9 ** depth` decay).
+2. **Preserve Topology & Semantics**: Low-confidence edges remain visible, selectable, inspectable, and topologically intact. No graph edges or nodes are hidden, filtered, or culled based on confidence.
+3. **Multi-Channel Accessibility**: Confidence is never communicated by color or opacity alone; stroke width, dash patterns, and textual/screen-reader labels (`aria-label`) ensure WCAG 2.1 AA compliance.
+4. **Non-Fabrication**: Missing confidence remains `null`/missing. Missing confidence renders neutral styling and no synthetic percentages or bands are invented.
+5. **Node Invariant**: Graph nodes in the current backend contract do not have node-level confidence (`GraphQueryResponseNode` has no confidence field). Therefore, graph nodes remain structurally unweighted; node confidence is never derived from adjacent edges or graph depth.
+6. **Strict Step Boundary**: Evidence coverage metrics, repository health statistics, and coverage heatmaps are strictly reserved for Global Step 51.
+
+### Architecture & Implementation Details
+
+1. **Presentation Normalization Module (`confidence-data.ts`)**:
+   - `NormalizedConfidence`: Read-only presentation model containing:
+     - `value`: Original raw floating-point confidence score in $[0, 1]$.
+     - `percentage`: Formatted whole number integer percentage (`Math.round(val * 100)`).
+     - `percentageLabel`: Human-readable label (e.g., `"92%"`).
+     - `tier`: Discrete presentation tier (`'high' | 'medium' | 'low'`).
+     - `accessibleLabel`: Multi-channel accessible descriptor (e.g., `"High confidence, 92 percent"`).
+   - **Deterministic Thresholds**:
+     - `High`: $\ge 0.90$ (direct AST assertions, 1-hop traversal with default $0.90$ hop decay).
+     - `Medium`: $0.70$–$0.89$ (dynamic imports, 2–3 hop traversals).
+     - `Low`: $< 0.70$ (heuristic edges, 4+ hop traversals).
+   - **Edge Style Computation**:
+     - `High`: `strokeWidth: 2px`, `opacity: 1.0`, solid `#64748b`.
+     - `Medium`: `strokeWidth: 1.5px`, `opacity: 0.85`, solid `#94a3b8`.
+     - `Low`: `strokeWidth: 1.25px`, `opacity: 0.65`, strokeDasharray `"4 4"` `#94a3b8`.
+     - `Default` (missing/neutral): `strokeWidth: 1.5px`, `opacity: 0.8`, solid `#94a3b8`.
+
+2. **Graph Edge Weighting (`graph-mapping.ts` & `GraphCanvas.tsx`)**:
+   - `mapDomainGraphToFlow`: Evaluates authoritative `edge.confidence` using `computeEdgeConfidenceStyles` to set React Flow `style` and stores `normalizedConfidence` and `ariaLabel` in `edge.data`.
+   - `GraphCanvas`: Preserves confidence-weighted edge styling while maintaining selection priority (`selectedEdgeId` highlights at `strokeWidth: 3px`, `opacity: 1.0`, and `#3b82f6`).
+
+3. **Impact Findings Visual Weighting (`ChangeModeBar.tsx`)**:
+   - Direct, downstream, API, event, and service impact findings in the `impact-findings-panel` display normalized confidence badges with tier indicator (`data-confidence-tier="high|medium|low"`) and accessible `aria-label`.
+   - Visual Legend: Subtle, non-intrusive legend explaining confidence tiers and edge stroke/dash patterns without introducing unrequested Step 51 coverage analytics.
+   - Deterministic ordering: Findings maintain their deterministic order (by hop distance, file path, symbol name); confidence modulates visual prominence only.
+
+4. **Evidence Citation Integration (`EvidenceCitation.tsx`)**:
+   - `EvidenceCitation`: Integrates `normalizeConfidence` to format and present the verified confidence tier on compact and expanded citation cards with `data-confidence-tier` data attributes and accessible screen-reader text.
+   - Missing confidence gracefully renders without a confidence chip, adhering strictly to non-fabrication.
+
+5. **Node & Edge Inspector Integration (`node-inspector-data.ts`)**:
+   - Edge inspection displays normalized confidence percentage, tier badge, and accessible description alongside edge type and provenance.
+   - Node inspection displays confidence badges on linked PR impact findings while preserving unweighted node headers (honoring the lack of node-level confidence in the backend model).
+
+### Verification & Test Matrix
+
+- **Unit & Integration Tests**:
+  - `apps/web/src/components/graph/confidence-weighting.test.ts`: 19 tests covering confidence normalization, edge style computation, monotonic weighting, low-confidence visibility and selectability, node invariance, impact finding badges, deterministic ordering preservation, `EvidenceCitation` integration, and multi-channel accessibility.
+  - `apps/web`: 13 test files, 177 tests passing.
+  - Workspace: 50 test files, 389 tests passing across all packages.
+- **TypeScript & Linting**:
+  - `pnpm typecheck`: 0 errors across all 7 workspace packages.
+  - `pnpm lint`: 0 ESLint errors across the workspace.
+  - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
+  - `pnpm build`: Next.js production build compiled cleanly in Turbopack.

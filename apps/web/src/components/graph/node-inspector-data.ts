@@ -8,6 +8,7 @@ import { getNodeVisualConfig } from "./node-styles.ts";
 import type { NormalizedChangeModeState } from "./change-mode-data.ts";
 import { buildSourcePermalink } from "./evidence-citation-data.ts";
 import { EvidenceCitation } from "./EvidenceCitation.tsx";
+import { normalizeConfidence } from "./confidence-data.ts";
 
 export interface EvidenceTrailProps {
   /**
@@ -441,7 +442,8 @@ export function NodeInspectorPanel({
 
   // If an edge is selected (and no node is selected), render Edge Inspector
   if (!node && edge) {
-    const edgeConfidencePct = `${Math.round(edge.confidence * 100)}%`;
+    const normalizedEdgeConf = normalizeConfidence(edge.confidence);
+    const edgeConfidencePct = normalizedEdgeConf ? normalizedEdgeConf.formattedPercentage : `${Math.round(edge.confidence * 100)}%`;
     const edgeEvidence = edge.evidence_id
       ? evidence?.find((e) => e.id === edge.evidence_id)
       : undefined;
@@ -553,12 +555,33 @@ export function NodeInspectorPanel({
             { className: "flex flex-col gap-0.5" },
             React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Confidence"),
             React.createElement(
-              "span",
-              {
-                "data-testid": "inspector-edge-confidence",
-                className: "font-semibold text-slate-800",
-              },
-              edgeConfidencePct,
+              "div",
+              { className: "flex items-center gap-1.5" },
+              React.createElement(
+                "span",
+                {
+                  "data-testid": "inspector-edge-confidence",
+                  "data-confidence-tier": normalizedEdgeConf?.tier,
+                  "aria-label": normalizedEdgeConf ? normalizedEdgeConf.accessibleLabel : `Confidence: ${edgeConfidencePct}`,
+                  className: "font-semibold text-slate-800",
+                },
+                edgeConfidencePct,
+              ),
+              normalizedEdgeConf
+                ? React.createElement(
+                    "span",
+                    {
+                      className: `text-[10px] font-mono font-medium px-1.5 py-0.2 rounded border ${
+                        normalizedEdgeConf.tier === "high"
+                          ? "bg-slate-100 text-slate-700 border-slate-200"
+                          : normalizedEdgeConf.tier === "medium"
+                            ? "bg-amber-50 text-amber-800 border-amber-200"
+                            : "bg-amber-100/80 text-amber-900 border-amber-300 border-dashed"
+                      }`,
+                    },
+                    normalizedEdgeConf.tier,
+                  )
+                : null,
             ),
           ),
           React.createElement(
@@ -592,6 +615,7 @@ export function NodeInspectorPanel({
           ? React.createElement(EvidenceCitation, {
               evidence: edgeEvidence,
               evidenceId: edge.evidence_id,
+              confidence: edge.confidence,
               mode: "expanded",
               repositoryName,
               commitSha: commitSha ?? changeMode?.headCommit,
@@ -789,29 +813,53 @@ export function NodeInspectorPanel({
                       String(impactHop ?? 0),
                     ),
                   ),
-                  React.createElement(
-                    "div",
-                    { className: "flex flex-col gap-0.5" },
-                    React.createElement(
-                      "span",
-                      { className: "text-slate-500 text-[11px]" },
-                      "Impact Confidence",
-                    ),
-                    React.createElement(
-                      "span",
-                      {
-                        "data-testid": "inspector-impact-confidence",
-                        className: `font-semibold ${
-                          impactConf !== undefined && impactConf < 0.7
-                            ? "text-amber-600"
-                            : "text-slate-800"
-                        }`,
-                      },
-                      impactConf !== undefined
-                        ? `${Math.round(impactConf * 100)}%`
-                        : "—",
-                    ),
-                  ),
+                  (() => {
+                    const normalizedImpactConf = normalizeConfidence(impactConf);
+                    return React.createElement(
+                      "div",
+                      { className: "flex flex-col gap-0.5" },
+                      React.createElement(
+                        "span",
+                        { className: "text-slate-500 text-[11px]" },
+                        "Impact Confidence",
+                      ),
+                      React.createElement(
+                        "div",
+                        { className: "flex items-center gap-1.5" },
+                        React.createElement(
+                          "span",
+                          {
+                            "data-testid": "inspector-impact-confidence",
+                            "data-confidence-tier": normalizedImpactConf?.tier,
+                            "aria-label": normalizedImpactConf?.accessibleLabel ?? undefined,
+                            className: `font-semibold ${
+                              normalizedImpactConf?.tier === "low"
+                                ? "text-amber-600"
+                                : "text-slate-800"
+                            }`,
+                          },
+                          normalizedImpactConf
+                            ? normalizedImpactConf.formattedPercentage
+                            : "—",
+                        ),
+                        normalizedImpactConf
+                          ? React.createElement(
+                              "span",
+                              {
+                                className: `text-[10px] font-mono px-1.5 py-0.2 rounded border ${
+                                  normalizedImpactConf.tier === "high"
+                                    ? "bg-slate-100 text-slate-700 border-slate-200"
+                                    : normalizedImpactConf.tier === "medium"
+                                      ? "bg-amber-50 text-amber-800 border-amber-200"
+                                      : "bg-amber-100/80 text-amber-900 border-amber-300 border-dashed"
+                                }`,
+                              },
+                              normalizedImpactConf.tier,
+                            )
+                          : null,
+                      ),
+                    );
+                  })(),
                 ),
                 isApi || isEvent
                   ? React.createElement(
@@ -876,6 +924,7 @@ export function NodeInspectorPanel({
                             React.createElement(EvidenceCitation, {
                               evidence: ev,
                               evidenceId: evId,
+                              confidence: impactConf,
                               mode: "compact",
                               repositoryName,
                               commitSha: commitSha ?? changeMode?.headCommit,
@@ -976,19 +1025,43 @@ export function NodeInspectorPanel({
             String(node.depth),
           ),
         ),
-        React.createElement(
-          "div",
-          { className: "flex flex-col gap-0.5" },
-          React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Confidence"),
-          React.createElement(
-            "span",
-            {
-              "data-testid": "inspector-node-confidence",
-              className: "font-semibold text-slate-800",
-            },
-            confidencePercent,
-          ),
-        ),
+        (() => {
+          const normalizedNodeConf = normalizeConfidence(node.confidence);
+          return React.createElement(
+            "div",
+            { className: "flex flex-col gap-0.5" },
+            React.createElement("span", { className: "text-slate-500 text-[11px]" }, "Confidence"),
+            React.createElement(
+              "div",
+              { className: "flex items-center gap-1.5" },
+              React.createElement(
+                "span",
+                {
+                  "data-testid": "inspector-node-confidence",
+                  "data-confidence-tier": normalizedNodeConf?.tier,
+                  "aria-label": normalizedNodeConf ? normalizedNodeConf.accessibleLabel : `Confidence: ${confidencePercent}`,
+                  className: "font-semibold text-slate-800",
+                },
+                confidencePercent,
+              ),
+              normalizedNodeConf && normalizedNodeConf.raw < 1.0
+                ? React.createElement(
+                    "span",
+                    {
+                      className: `text-[10px] font-mono px-1.5 py-0.2 rounded border ${
+                        normalizedNodeConf.tier === "high"
+                          ? "bg-slate-100 text-slate-700 border-slate-200"
+                          : normalizedNodeConf.tier === "medium"
+                            ? "bg-amber-50 text-amber-800 border-amber-200"
+                            : "bg-amber-100/80 text-amber-900 border-amber-300 border-dashed"
+                      }`,
+                    },
+                    normalizedNodeConf.tier,
+                  )
+                : null,
+            ),
+          );
+        })(),
       ),
     ),
 

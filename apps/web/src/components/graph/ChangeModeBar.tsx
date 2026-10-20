@@ -5,6 +5,7 @@ import {
   type NormalizedChangeModeState,
 } from "./change-mode-data.ts";
 import { EvidenceCitationList } from "./EvidenceCitation.tsx";
+import { normalizeConfidence } from "./confidence-data.ts";
 
 export interface ChangeModeBarProps {
   readonly state: NormalizedChangeModeState;
@@ -18,6 +19,7 @@ export interface ChangeModeBarProps {
   readonly gitRef?: string | null | undefined;
   readonly ref?: string | null | undefined;
   readonly analysisRunId?: string | null | undefined;
+  readonly initialShowFindings?: boolean | undefined;
   readonly className?: string;
 }
 
@@ -45,13 +47,14 @@ export function ChangeModeBar({
   commitSha,
   gitRef,
   analysisRunId,
+  initialShowFindings = false,
   className,
   ...restProps
 }: ChangeModeBarProps): React.JSX.Element {
   const effectiveRef = gitRef ?? (restProps as { ref?: string | null | undefined }).ref;
   const [inputId, setInputId] = useState(state.impactAnalysisId ?? "");
   const [showUnresolvedDetails, setShowUnresolvedDetails] = useState(false);
-  const [showFindingsPanel, setShowFindingsPanel] = useState(false);
+  const [showFindingsPanel, setShowFindingsPanel] = useState(initialShowFindings);
 
   const handleInputSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -377,6 +380,22 @@ export function ChangeModeBar({
               }),
               "Unaffected (Faded)",
             ),
+            React.createElement(
+              "span",
+              { className: "flex items-center gap-1" },
+              React.createElement("span", {
+                className: "inline-block w-3 h-0 border-t-2 border-slate-600",
+              }),
+              "High Conf Edge (≥ 90%)",
+            ),
+            React.createElement(
+              "span",
+              { className: "flex items-center gap-1" },
+              React.createElement("span", {
+                className: "inline-block w-3 h-0 border-t-2 border-dashed border-slate-400",
+              }),
+              "Low Conf Edge (< 70%)",
+            ),
           ),
         )
       : null,
@@ -427,12 +446,13 @@ export function ChangeModeBar({
         )
       : null,
 
-    // Expandable Impact Findings & Evidence Citations Panel (Step 49)
+    // Expandable Impact Findings & Evidence Citations Panel (Step 49 & Step 50)
     showFindingsPanel &&
     (state.directImpactFindings.length > 0 ||
       state.downstreamImpactFindings.length > 0 ||
       state.affectedApiFindings.length > 0 ||
-      state.affectedEventFindings.length > 0)
+      state.affectedEventFindings.length > 0 ||
+      state.affectedServiceFindings.length > 0)
       ? React.createElement(
           "div",
           {
@@ -469,33 +489,49 @@ export function ChangeModeBar({
               ...state.downstreamImpactFindings.map((f) => ({ finding: f, role: "downstream" as const })),
               ...state.affectedApiFindings.map((f) => ({ finding: f, role: "affected_api" as const })),
               ...state.affectedEventFindings.map((f) => ({ finding: f, role: "affected_event" as const })),
+              ...state.affectedServiceFindings.map((f) => ({ finding: f, role: "affected_service" as const })),
             ].map(({ finding, role }) => {
               const findingEvidenceIds = finding.evidence_ids ?? (finding.evidence_id ? [finding.evidence_id] : []);
               const resolvedEvidence = findingEvidenceIds
                 .map((id: string) => state.evidenceById.get(id))
                 .filter((e: GraphQueryResponseEvidence | undefined): e is GraphQueryResponseEvidence => Boolean(e));
 
+              const normalizedConf = normalizeConfidence(finding.confidence);
+              const cardBorderClass =
+                normalizedConf?.tier === "low"
+                  ? "border-dashed border-amber-300 bg-amber-50/20"
+                  : normalizedConf?.tier === "medium"
+                    ? "border-slate-200/90 bg-slate-50/90"
+                    : "border-slate-200 bg-slate-50";
+              const cardOpacity = normalizedConf?.opacity ?? 1.0;
+
               return React.createElement(
                 "div",
                 {
                   key: `${role}-${finding.node_id}`,
                   "data-testid": `finding-item-${finding.node_id}`,
-                  className:
-                    "p-2 bg-slate-50 border border-slate-200/80 rounded flex flex-col gap-1.5",
+                  style: { opacity: cardOpacity },
+                  className: `p-2 border rounded flex flex-col gap-1.5 ${cardBorderClass}`,
                 },
                 React.createElement(
                   "div",
                   { className: "flex items-center justify-between gap-2" },
                   React.createElement(
                     "div",
-                    { className: "flex items-center gap-1.5" },
+                    { className: "flex items-center gap-1.5 flex-wrap" },
                     React.createElement(
                       "span",
                       {
                         className: `text-[10px] font-bold uppercase px-1.5 py-0.2 rounded ${
                           role === "direct"
                             ? "bg-red-100 text-red-700 border border-red-200"
-                            : "bg-amber-100 text-amber-800 border border-amber-200"
+                            : role === "downstream"
+                              ? "bg-amber-100 text-amber-800 border border-amber-200"
+                              : role === "affected_api"
+                                ? "bg-emerald-100 text-emerald-800 border border-emerald-200"
+                                : role === "affected_event"
+                                  ? "bg-purple-100 text-purple-800 border border-purple-200"
+                                  : "bg-sky-100 text-sky-800 border border-sky-200"
                         }`,
                       },
                       role === "direct"
@@ -504,7 +540,9 @@ export function ChangeModeBar({
                           ? `Downstream (hop ${finding.hop_distance})`
                           : role === "affected_api"
                             ? "API Impact"
-                            : "Event Impact",
+                            : role === "affected_event"
+                              ? "Event Impact"
+                              : "Service Impact",
                     ),
                     React.createElement(
                       "span",
@@ -514,6 +552,25 @@ export function ChangeModeBar({
                       },
                       finding.node_id,
                     ),
+                    normalizedConf
+                      ? React.createElement(
+                          "span",
+                          {
+                            "data-testid": `finding-confidence-${finding.node_id}`,
+                            "data-confidence-tier": normalizedConf.tier,
+                            "aria-label": normalizedConf.accessibleLabel,
+                            className: `text-[10px] font-mono px-1.5 py-0.2 rounded border font-semibold ${
+                              normalizedConf.tier === "high"
+                                ? "bg-slate-100 text-slate-700 border-slate-200"
+                                : normalizedConf.tier === "medium"
+                                  ? "bg-amber-50 text-amber-800 border-amber-200"
+                                  : "bg-amber-100/80 text-amber-900 border-amber-300 border-dashed"
+                            }`,
+                            title: normalizedConf.label,
+                          },
+                          normalizedConf.formattedPercentage,
+                        )
+                      : null,
                   ),
                   onSelectNode
                     ? React.createElement(
@@ -533,6 +590,7 @@ export function ChangeModeBar({
                   evidenceList: resolvedEvidence,
                   evidenceIds: findingEvidenceIds,
                   evidencePool: state.evidence,
+                  confidence: finding.confidence,
                   mode: "compact",
                   repositoryName,
                   commitSha: commitSha ?? state.headCommit,

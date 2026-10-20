@@ -5,6 +5,10 @@ import type {
   GraphQueryResponseNode,
 } from "@fluxora/shared-types";
 import type { Edge, Node } from "@xyflow/react";
+import {
+  computeEdgeConfidenceStyles,
+  normalizeConfidence,
+} from "./confidence-data.ts";
 
 /**
  * Common shape for input graph nodes to GraphCanvas.
@@ -188,19 +192,30 @@ export function mapDomainGraphToFlow(
           ? e.type
           : "CONNECTED_TO";
 
+    const edgeConfidence = typeof e.confidence === "number" ? e.confidence : undefined;
+    const confStyles = computeEdgeConfidenceStyles(edgeConfidence);
+    const normalizedConfidence = normalizeConfidence(edgeConfidence);
+    const ariaLabel = normalizedConfidence
+      ? `${edgeType} edge from ${source} to ${target}, ${normalizedConfidence.accessibleLabel}`
+      : `${edgeType} edge from ${source} to ${target}`;
+
     edges.push({
       id: e.id,
       source,
       target,
       label: edgeType,
+      ariaLabel,
       animated: edgeType === "EMITS_EVENT" || edgeType === "CONSUMES_EVENT",
       style: {
-        stroke: "#94a3b8",
-        strokeWidth: 1.5,
+        stroke: confStyles.stroke,
+        strokeWidth: confStyles.strokeWidth,
+        opacity: confStyles.opacity,
+        ...(confStyles.strokeDasharray ? { strokeDasharray: confStyles.strokeDasharray } : {}),
       },
       data: {
         edgeType,
-        confidence: e.confidence ?? 1.0,
+        confidence: edgeConfidence ?? 1.0,
+        normalizedConfidence,
         provenance: e.provenance ?? "static-analysis",
         metadata: e.metadata ?? {},
       },
