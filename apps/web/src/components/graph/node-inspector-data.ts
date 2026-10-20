@@ -376,11 +376,11 @@ export function EvidenceTrail({
         React.createElement(
           "div",
           { className: "flex items-center gap-2" },
-          ev.analysis_run_id || analysisRunId
+          analysisRunId
             ? React.createElement(
                 "span",
                 { className: "text-[10px] text-slate-400 font-mono" },
-                `run: ${ev.analysis_run_id ?? analysisRunId}`,
+                `run: ${analysisRunId}`,
               )
             : null,
           React.createElement(
