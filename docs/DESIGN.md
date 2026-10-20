@@ -11829,3 +11829,70 @@ Step 51 bridges the gap between static analysis and human trust, clearly disting
   - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
   - `pnpm build`: Next.js production build compiled cleanly in Turbopack.
   - `git diff --check`: 0 whitespace or formatting errors.
+
+---
+
+## Global Step 52 — Simulation Persistence Foundation
+
+### Overview & Objective
+
+Global Step 52 launches **Phase 8: Simulation** per `docs/architecture/17-implementation-roadmap.md`, `docs/architecture/05-component-responsibilities.md §5.10`, `docs/architecture/06-database-schema.md §6.3`, and `docs/architecture/04-system-architecture-diagrams.md §4.7`.
+
+Its core objective is **Persistence & Domain-Contract Foundation**:
+Establish the PostgreSQL database schema, forward-only migration, Row-Level Security (RLS) policies, domain contracts in `@fluxora/shared-types`, and tenant-scoped repository operations in `@fluxora/db` for Fluxora's simulation system:
+- `Scenario`: The definition of a what-if experiment (target node, failure type, parameters).
+- `Simulation`: An execution record of a scenario against an immutable analysis run snapshot.
+- `SimulationResult`: The deterministic resulting state of each affected graph node resulting from a simulation execution.
+
+**Core Invariants Preserved**:
+1. **Separation of Concerns**:
+   - `Scenario` owns *what* hypothesis is being tested (name, target node, failure type, parameters).
+   - `Simulation` owns *which* graph snapshot was used (`analysisRunId`) and execution status (`pending`, `running`, `completed`, `failed`).
+   - `SimulationResult` owns *how* each node was affected (resulting state, propagation path, rule applied, assumptions, confidence).
+2. **Analysis-Run Snapshot Boundary**: A simulation must never combine a target node from one graph run with results computed against another graph run. The persistence layer enforces that `targetNodeId` and all result `nodeId`s belong to the simulation's `analysisRunId`.
+3. **Multi-Tenancy & Hardware RLS**: All tables enforce PostgreSQL `FORCE ROW LEVEL SECURITY`. Scenarios are directly tenant-scoped via `organization_id`. Simulations and SimulationResults inherit tenant boundaries transitively through security-definer helper functions (`fluxora_scenario_in_current_tenant` and `fluxora_simulation_in_current_tenant`).
+4. **Domain Enum Bounding vs Rule Table Scope**: The schema supports all 4 domain failure types (`unavailable`, `latency`, `capacity`, `removal`) and 4 resulting states (`healthy`, `degraded`, `at_risk`, `failed`). The MVP rule table in Step 53 will execute rules for `unavailable` and `latency`, but all valid failure types persist safely without schema migrations.
+5. **Idempotency**: `simulation_results` enforces `UNIQUE (simulation_id, node_id)` and supports idempotent batch upserts via `ON CONFLICT (simulation_id, node_id) DO UPDATE`.
+6. **Strict Step Boundary**: Rule table (Step 53), Simulation Engine (Step 54), Simulation APIs (Step 55), and Frontend Simulation Mode (Step 56) are strictly excluded from Step 52.
+
+### Architecture & Implementation Details
+
+1. **Database Migration (`0019_simulation_storage.sql`)**:
+   - `scenarios`: `id` (UUID PK), `organization_id` (FK organizations), `repository_id` (FK repositories), `name`, `target_node_id` (FK graph_nodes), `failure_type` (CHECK in `'unavailable', 'latency', 'capacity', 'removal'`), `parameters` (JSONB), `created_by` (FK users, nullable), `created_at`.
+   - `simulations`: `id` (UUID PK), `scenario_id` (FK scenarios), `analysis_run_id` (FK analysis_runs), `status` (CHECK in `'pending', 'running', 'completed', 'failed'`), `created_at`.
+   - `simulation_results`: `id` (UUID PK), `simulation_id` (FK simulations), `node_id` (FK graph_nodes), `resulting_state` (CHECK in `'healthy', 'degraded', 'at_risk', 'failed'`), `propagation_path` (JSONB), `rule_applied`, `assumptions` (JSONB), `confidence` (float in `[0.0, 1.0]`), `created_at`.
+   - Indexes:
+     - `scenarios`: `organization_id`, `repository_id`, `target_node_id`, `(repository_id, created_at DESC)`.
+     - `simulations`: `scenario_id`, `analysis_run_id`, `(scenario_id, created_at DESC)`.
+     - `simulation_results`: `simulation_id`, `node_id`, and `UNIQUE (simulation_id, node_id)`.
+   - RLS Policies: Configured with `FORCE ROW LEVEL SECURITY` and `STABLE SECURITY DEFINER` tenant check helpers.
+
+2. **Domain Models (`@fluxora/shared-types`)**:
+   - Created `packages/shared-types/src/simulation.ts` exporting:
+     - `ScenarioFailureTypes`, `ScenarioFailureType`
+     - `SimulationResultStates`, `SimulationResultState`
+     - `SimulationStatuses`, `SimulationStatus`
+     - `Scenario`, `Simulation`, `SimulationResult`
+     - `CreateScenarioInput`, `CreateSimulationInput`, `CreateSimulationResultInput`, `ListScenariosOptions`
+   - Re-exported from `@fluxora/shared-types/src/index.ts`.
+
+3. **Repository Layer (`@fluxora/db`)**:
+   - Created `packages/db/src/repositories/simulation.ts` providing:
+     - Scenario: `createScenario`, `getScenarioById`, `listScenarios`, `deleteScenario`.
+     - Simulation: `createSimulation`, `getSimulationById`, `listSimulationsForScenario`, `updateSimulationStatus`.
+     - SimulationResult: `createSimulationResult`, `saveSimulationResults`, `getSimulationResultById`, `listSimulationResults`.
+     - Error types: `SimulationPersistenceValidationError`, `ScenarioNotFoundError`, `SimulationNotFoundError`, `SimulationResultNotFoundError`, `SimulationConflictError`.
+   - Re-exported from `@fluxora/db/src/index.ts`.
+
+### Verification & Test Matrix
+
+- **Migration**:
+  - `0019_simulation_storage.sql` applied cleanly via `pnpm --filter @fluxora/db migrate`.
+- **Unit & Integration Tests**:
+  - `packages/db/src/repositories/simulation.test.ts`: 19 tests covering input validation, failure types, snapshot boundaries, lifecycle status updates, result idempotency, RLS isolation, deterministic ordering, and cascade deletions.
+  - `@fluxora/db`: 15 test files, 153 tests passing.
+- **TypeScript & Linting**:
+  - `pnpm typecheck`: 0 errors across workspace.
+  - `pnpm lint`: 0 ESLint errors.
+  - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
+  - `git diff --check`: 0 whitespace or formatting errors.

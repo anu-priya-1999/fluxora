@@ -72,4 +72,5 @@ export * from "./repositories/graph-diff.ts";
 export * from "./repositories/pull-request.ts";
 export * from "./repositories/impact-analysis-engine.ts";
 export * from "./repositories/impact-analysis.ts";
+export * from "./repositories/simulation.ts";
 
