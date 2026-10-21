@@ -11896,3 +11896,86 @@ Establish the PostgreSQL database schema, forward-only migration, Row-Level Secu
   - `pnpm lint`: 0 ESLint errors.
   - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
   - `git diff --check`: 0 whitespace or formatting errors.
+
+---
+
+## Global Step 53 — Initial Simulation Rule Table
+
+### Overview & Objective
+
+Global Step 53 implements the **Initial Simulation Rule Table** for Phase 8 per `docs/architecture/17-implementation-roadmap.md §Phase 8 Step 2`, `docs/architecture/02-product-scope.md`, `docs/architecture/04-system-architecture-diagrams.md §4.7`, `docs/architecture/05-component-responsibilities.md §5.10`, and `docs/architecture/12-testing-strategy.md §12.1`.
+
+Its core objective is **Deterministic, Pure, Versioned Simulation Rules**:
+Establish a deterministic, versioned, side-effect-free, and independently testable Rule Table abstraction with explicit assumption surfacing and confidence scoring:
+1. `calls.sync.no_fallback` (`CALLS + sync + no fallback` → dependent/caller `DEGRADED`, uncapped).
+2. `calls.circuit_breaker` (`CALLS + circuit breaker present` → dependent/caller `DEGRADED`, `capped: true`).
+3. `writes.failure` (`WRITES + failed dependency` → dependent READERS `AT_RISK`).
+4. `emits.consumer_only` (`EMITS + consumer` → consumer `AT_RISK`, producer unaffected).
+
+All other cases represent explicit non-matches rather than synthetic state transitions.
+
+**Core Invariants Preserved**:
+1. **Deterministic Core vs Probabilistic Edge**: All state transitions, assumptions, and confidence values are 100% deterministic and rule-driven. The LLM layer is strictly excluded from defining simulation transitions.
+2. **Fallback & Async as Suppressors**: Fallback presence suppresses the `calls.sync.no_fallback` degradation rule; it does not invent a synthetic transition to `HEALTHY`. Likewise, asynchronous calls do not match the synchronous rule. Both return explicit non-matches (`matched: false`), allowing the future Simulation Engine to preserve current state.
+3. **Narrowed `WRITES+failure`**: Strictly scoped to dependent read/query operations (`QUERIES_DB`). Dependent writes (`WRITES`) return non-match (`matched: false`).
+4. **Explicit Unknown Metadata & Conservative Assumptions (§5.10)**: Uses `MetadataPresence = boolean | "unknown"`. Unknown metadata is never silently converted to `false`. When metadata is `"unknown"` (or omitted), conservative defaults apply (assume absence of protection) and an explicit assumption is surfaced in `decision.assumptions` (e.g. `"No circuit breaker detected on call"`), calibrated with confidence `0.90`.
+5. **Qualitative Latency**: Supports `failureType: "latency"` deterministically through dependency semantics without quantitative telemetry (milliseconds, percentiles, queueing theory).
+6. **Strict Step Boundary**: The Rule Table is purely domain logic independent of PostgreSQL, HTTP/API, React, or job workers. Simulation Engine traversal loop (Step 54), API endpoints (Step 55), and UI mode (Step 56) are strictly excluded from Step 53.
+
+### Architecture & Implementation Details
+
+1. **Domain Types & Contracts (`@fluxora/shared-types`)**:
+   - `packages/shared-types/src/simulation.ts`:
+     - Added `MetadataPresence = boolean | "unknown"`.
+     - Added `DEFAULT_SIMULATION_RULE_TABLE_VERSION = "1.0.0"`.
+     - Added `SimulationRuleIds`, `SimulationRuleId` (normative: `CALLS_CIRCUIT_BREAKER`, `CALLS_SYNC_NO_FALLBACK`, `WRITES_FAILURE_DEPENDENT_READS`, `EMITS_CONSUMER_AT_RISK`).
+     - Added `AffectedNodeRole` (`"source" | "target" | "none"`).
+     - Added `SimulationRuleInput`: `edgeType`, `sourceState`, `targetState`, `sync?`, `hasFallback?`, `hasCircuitBreaker?`, `failureType?`, `isWriteFailure?`, `sourceNodeName?`, `targetNodeName?`, `metadata?`.
+     - Added `SimulationRuleDecision`: `matched`, `resultingState?`, `ruleId`, `ruleVersion`, `affectedNode?`, `capped?`, `assumptions`, `confidence`.
+     - Added `SimulationRule`: `id`, `version`, `name`, `description`, `supportedEdgeTypes`, `evaluate`.
+     - Added `SimulationRuleTable`: `version`, `rules`.
+     - Added `ExtractedSimulationEdgeMetadata`: `sync: MetadataPresence`, `hasFallback: MetadataPresence`, `hasCircuitBreaker: MetadataPresence`.
+
+2. **Simulation Rule Table Engine (`packages/shared-types/src/simulation-rules.ts`)**:
+   - Canonical Rule IDs:
+     - `RULE_ID_CALLS_CIRCUIT_BREAKER = "CALLS+circuit_breaker"`
+     - `RULE_ID_CALLS_SYNC_NO_FALLBACK = "CALLS+sync+no_fallback"`
+     - `RULE_ID_WRITES_FAILURE = "WRITES+failure"`
+     - `RULE_ID_EMITS_CONSUMER_AT_RISK = "EMITS+consumer_only"`
+     - `RULE_ID_NO_MATCH = "NO_MATCH"`
+   - Normative Rules in `DEFAULT_SIMULATION_RULES`:
+     - `callsCircuitBreakerRule`: Matches when callee is impaired and circuit breaker is confirmed present (`hasCircuitBreaker: true`); produces caller `degraded`, `capped: true`.
+     - `callsSyncNoFallbackRule`: Matches when callee is impaired, call is synchronous (or unknown), fallback is absent (or unknown), and circuit breaker is absent (or unknown); produces caller `degraded`, `capped: false`. Suppressed by `hasFallback === true` (non-match) and `sync === false` (non-match).
+     - `writesFailureRule`: Matches dependent query/read edges (`QUERIES_DB`) against impaired datastores or write failures; produces reader `at_risk`. Explicitly non-matching for dependent writes (`WRITES`).
+     - `emitsConsumerAtRiskRule`: Matches event consumer edges (`CONSUMES_EVENT`); produces consumer `at_risk`. Explicitly non-matching for event producers (`EMITS_EVENT`), keeping producers unaffected.
+   - Evaluator Functions:
+     - `evaluateSimulationRule(input, table?)`: Evaluates against rules in order, returning first matching decision or `NO_MATCH`.
+     - `evaluateAllSimulationRules(input, table?)`: Evaluates against all rules in table.
+     - `extractSimulationEdgeMetadata(metadata)`: Normalizes metadata properties, preserving explicit `"unknown"` values.
+     - `createSimulationRuleInputFromEdge(edge, sourceState, targetState, options?)`: Adapter constructing input from GraphEdge.
+     - `isStateMoreSevere(newState, currentState)`: State severity hierarchy (`failed > degraded > at_risk > healthy`).
+
+3. **Bridge & Re-exports (`@fluxora/db`)**:
+   - Created `packages/db/src/repositories/simulation-rules.ts` re-exporting the rule engine and contracts.
+   - Re-exported from `packages/db/src/index.ts`.
+
+### Verification & Test Matrix
+
+- **Unit Tests**:
+  - `packages/db/src/repositories/simulation-rules.test.ts`: 44 tests covering:
+    - Rule 1 (`calls.sync.no_fallback`): failure/degradation propagation, healthy/failed caller boundaries, fallback suppression (Correction 1: no match), async call suppression (Correction 2: no match).
+    - Rule 2 (`calls.circuit_breaker`): capped propagation (`capped: true`), fail-fast isolation assumptions, non-match on unknown circuit breaker.
+    - Conservative defaults & explicit unknown metadata (Correction 4 & §5.10): unknown metadata handling, node name formatting, latency degradation scenario.
+    - Rule 3 (`writes.failure`): datastore outage, read-after-write latency assumption, QUERIES_DB dependent reads, regression test for dependent writes (Correction 3: no match).
+    - Rule 4 (`emits.consumer_only`): consumer at risk, producer unaffected (no match on EMITS_EVENT).
+    - Rule Table priority & evaluation fallthrough.
+    - Extensibility & custom versioned rule tables.
+    - State severity hierarchy (`isStateMoreSevere`).
+    - Metadata extraction and edge adapter helpers.
+  - `@fluxora/db`: 16 test files, 197 passed, 5 skipped (total 202).
+- **TypeScript & Linting**:
+  - `pnpm typecheck`: 0 errors across 7 workspace projects.
+  - `pnpm lint`: 0 ESLint errors.
+  - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
+  - `pnpm build`: Next.js production build compiled cleanly with Turbopack.
+  - `git diff --check`: 0 whitespace or formatting errors.

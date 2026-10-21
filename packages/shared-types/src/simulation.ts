@@ -1,3 +1,5 @@
+import type { GraphEdgeType } from "./graph.ts";
+
 /**
  * Failure types supported by the architectural Scenario definition.
  * Note: MVP rule table in Step 53 implements "unavailable" and "latency",
@@ -121,4 +123,181 @@ export interface CreateSimulationResultInput {
 export interface ListScenariosOptions {
   readonly repositoryId?: string;
   readonly limit?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Simulation Rule Table Domain Contracts (Step 53)
+// ---------------------------------------------------------------------------
+
+/**
+ * Three-state boolean representation for simulation metadata properties:
+ * - true: verified present / confirmed
+ * - false: verified absent / confirmed
+ * - "unknown": not detected, not inspectable, or omitted from static analysis
+ */
+export type MetadataPresence = boolean | "unknown";
+
+/**
+ * Current default version of the Simulation Rule Table.
+ */
+export const DEFAULT_SIMULATION_RULE_TABLE_VERSION = "1.0.0" as const;
+
+/**
+ * Canonical rule identifiers for the normative simulation rule table.
+ */
+export const SimulationRuleIds = [
+  "CALLS_CIRCUIT_BREAKER",
+  "CALLS_SYNC_NO_FALLBACK",
+  "WRITES_FAILURE_DEPENDENT_READS",
+  "EMITS_CONSUMER_AT_RISK",
+] as const;
+
+export type SimulationRuleId = (typeof SimulationRuleIds)[number] | (string & {});
+
+/**
+ * Which node relative to the edge being evaluated is affected by the rule decision.
+ */
+export type AffectedNodeRole = "source" | "target" | "none";
+
+/**
+ * Input evaluated by a simulation rule.
+ */
+export interface SimulationRuleInput {
+  /** The edge type (e.g. "CALLS", "WRITES", "QUERIES_DB", "EMITS_EVENT", "CONSUMES_EVENT", or shorthand "EMITS") */
+  readonly edgeType: GraphEdgeType;
+
+  /** Current state of the edge's source node */
+  readonly sourceState: SimulationResultState;
+
+  /** Current state of the edge's target node */
+  readonly targetState: SimulationResultState;
+
+  /**
+   * Whether the interaction is synchronous:
+   * - true: confirmed synchronous
+   * - false: confirmed asynchronous
+   * - "unknown" (or undefined): unknown/unverified -> conservative default (synchronous)
+   */
+  readonly sync?: MetadataPresence | undefined;
+
+  /**
+   * Whether a fallback handler/mechanism is present:
+   * - true: fallback handler present (suppresses calls.sync.no_fallback)
+   * - false: verified absent
+   * - "unknown" (or undefined): unknown/unverified -> conservative assumption (no fallback assumed)
+   */
+  readonly hasFallback?: MetadataPresence | undefined;
+
+  /**
+   * Whether a circuit breaker is present on the dependency call:
+   * - true: circuit breaker present (triggers calls.circuit_breaker)
+   * - false: verified absent
+   * - "unknown" (or undefined): unknown/unverified -> conservative assumption (no circuit breaker assumed)
+   */
+  readonly hasCircuitBreaker?: MetadataPresence | undefined;
+
+  /**
+   * The scenario failure type being simulated (MVP: "unavailable" | "latency").
+   * Defaults to "unavailable" if not specified.
+   */
+  readonly failureType?: ScenarioFailureType | undefined;
+
+  /**
+   * Explicit flag indicating a write failure occurred on the datastore / write edge.
+   */
+  readonly isWriteFailure?: boolean | undefined;
+
+  /**
+   * Optional name of the source node for generating human-readable assumptions.
+   */
+  readonly sourceNodeName?: string | undefined;
+
+  /**
+   * Optional name of the target node for generating human-readable assumptions.
+   */
+  readonly targetNodeName?: string | undefined;
+
+  /**
+   * Raw metadata map from the GraphEdge, allowing rules to inspect custom properties.
+   */
+  readonly metadata?: Record<string, unknown> | undefined;
+}
+
+/**
+ * The decision output from evaluating a simulation rule.
+ */
+export interface SimulationRuleDecision {
+  /** Whether the rule matched the input conditions */
+  readonly matched: boolean;
+
+  /**
+   * The resulting state for the affected node.
+   * Undefined if matched is false.
+   */
+  readonly resultingState?: SimulationResultState | undefined;
+
+  /**
+   * Identifier of the rule that produced this decision.
+   */
+  readonly ruleId: string;
+
+  /**
+   * Version of the rule / rule table that produced this decision.
+   */
+  readonly ruleVersion: string;
+
+  /**
+   * Which node in the edge relationship is affected by this decision:
+   * - "source": the source node transitions to resultingState (e.g. caller, dependent reader, event producer)
+   * - "target": the target node transitions to resultingState (e.g. event consumer)
+   * - "none": neither node changes state
+   */
+  readonly affectedNode?: AffectedNodeRole | undefined;
+
+  /**
+   * Whether propagation is capped at the affected node (e.g. circuit breaker tripped),
+   * preventing downstream cascading failure from propagating further.
+   */
+  readonly capped?: boolean | undefined;
+
+  /**
+   * Explicit list of assumptions made during evaluation (e.g. conservative defaults
+   * used because edge metadata was unknown or unverified).
+   */
+  readonly assumptions: readonly string[];
+
+  /**
+   * Confidence score in [0.0, 1.0] for the rule decision.
+   * Reflected lower when assumptions are made due to unknown metadata.
+   */
+  readonly confidence: number;
+}
+
+/**
+ * A versioned, deterministic simulation rule.
+ */
+export interface SimulationRule {
+  readonly id: string;
+  readonly version: string;
+  readonly name: string;
+  readonly description: string;
+  readonly supportedEdgeTypes: readonly GraphEdgeType[];
+  readonly evaluate: (input: SimulationRuleInput) => SimulationRuleDecision;
+}
+
+/**
+ * A versioned table of simulation rules.
+ */
+export interface SimulationRuleTable {
+  readonly version: string;
+  readonly rules: readonly SimulationRule[];
+}
+
+/**
+ * Normalized edge metadata relevant to simulation propagation.
+ */
+export interface ExtractedSimulationEdgeMetadata {
+  readonly sync: MetadataPresence;
+  readonly hasFallback: MetadataPresence;
+  readonly hasCircuitBreaker: MetadataPresence;
 }
