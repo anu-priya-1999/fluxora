@@ -1,4 +1,10 @@
-import type { GraphEdgeType } from "./graph.ts";
+import type {
+  GraphEdge,
+  GraphEdgeProvenance,
+  GraphEdgeType,
+  GraphNode,
+  GraphNodeType,
+} from "./graph.ts";
 
 /**
  * Failure types supported by the architectural Scenario definition.
@@ -67,7 +73,29 @@ export interface Simulation {
 }
 
 /**
- * Persisted SimulationResult record (Step 52).
+ * Canonical rule identifier for scenario target failure seed.
+ */
+export const RULE_ID_TARGET_FAILURE = "target_failure" as const;
+
+/**
+ * Structured causal step explaining why a node reached a simulation state (Step 54).
+ */
+export interface SimulationCausalStep {
+  readonly nodeId: string;
+  readonly edgeId?: string | null | undefined;
+  readonly ruleId: string;
+  readonly ruleVersion: string;
+  readonly previousState: SimulationResultState;
+  readonly resultingState: SimulationResultState;
+  readonly assumptions: readonly string[];
+  readonly confidence: number;
+  readonly capped?: boolean | undefined;
+}
+
+export type SimulationPropagationPathStep = SimulationCausalStep | string;
+
+/**
+ * Persisted SimulationResult record (Step 52 & Step 54).
  * Records the deterministic resulting state of an individual graph node in a simulation.
  */
 export interface SimulationResult {
@@ -75,7 +103,7 @@ export interface SimulationResult {
   readonly simulationId: string;
   readonly nodeId: string;
   readonly resultingState: SimulationResultState;
-  readonly propagationPath: readonly string[];
+  readonly propagationPath: readonly (SimulationCausalStep | string)[];
   readonly ruleApplied: string;
   readonly assumptions: readonly string[];
   readonly confidence: number;
@@ -111,7 +139,7 @@ export interface CreateSimulationResultInput {
   readonly simulationId?: string;
   readonly nodeId: string;
   readonly resultingState: SimulationResultState;
-  readonly propagationPath?: readonly string[];
+  readonly propagationPath?: readonly (SimulationCausalStep | string)[];
   readonly ruleApplied: string;
   readonly assumptions?: readonly string[];
   readonly confidence?: number;
@@ -300,4 +328,87 @@ export interface ExtractedSimulationEdgeMetadata {
   readonly sync: MetadataPresence;
   readonly hasFallback: MetadataPresence;
   readonly hasCircuitBreaker: MetadataPresence;
+}
+
+// ---------------------------------------------------------------------------
+// Simulation Engine Contracts (Step 54)
+// ---------------------------------------------------------------------------
+
+/**
+ * Node definition in a SimulationGraphSnapshot.
+ */
+export interface SimulationNode {
+  readonly id: string;
+  readonly canonicalId?: string | null | undefined;
+  readonly nodeType?: GraphNodeType | string | undefined;
+  readonly name: string;
+  readonly path?: string | null | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
+  readonly confidence?: number | undefined;
+  readonly analysisRunId?: string | undefined;
+}
+
+/**
+ * Edge definition in a SimulationGraphSnapshot.
+ */
+export interface SimulationEdge {
+  readonly id: string;
+  readonly sourceNodeId: string;
+  readonly targetNodeId: string;
+  readonly edgeType: GraphEdgeType;
+  readonly canonicalId?: string | null | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
+  readonly confidence?: number | undefined;
+  readonly provenance?: GraphEdgeProvenance | string | undefined;
+  readonly analysisRunId?: string | undefined;
+}
+
+/**
+ * Snapshot of a deterministic graph structure scoped to a single analysis run.
+ */
+export interface SimulationGraphSnapshot {
+  readonly analysisRunId: string;
+  readonly nodes: readonly (GraphNode | SimulationNode)[];
+  readonly edges: readonly (GraphEdge | SimulationEdge)[];
+}
+
+/**
+ * Input contract for the pure Simulation Engine propagation runner.
+ */
+export interface SimulationEngineInput {
+  readonly scenario: Scenario | {
+    readonly id?: string | undefined;
+    readonly targetNodeId: string;
+    readonly failureType: ScenarioFailureType;
+    readonly parameters?: Record<string, unknown> | undefined;
+  };
+  readonly graph: SimulationGraphSnapshot;
+  readonly ruleTable?: SimulationRuleTable | undefined;
+  readonly options?: {
+    readonly maxIterations?: number | undefined;
+  } | undefined;
+}
+
+/**
+ * Simulation result for an individual affected node produced by the engine.
+ */
+export interface SimulationEngineNodeResult {
+  readonly nodeId: string;
+  readonly resultingState: SimulationResultState;
+  readonly propagationPath: readonly SimulationCausalStep[];
+  readonly ruleApplied: string;
+  readonly assumptions: readonly string[];
+  readonly confidence: number;
+  readonly capped?: boolean | undefined;
+}
+
+/**
+ * Complete outcome produced by running the deterministic Simulation Engine.
+ */
+export interface SimulationEngineResult {
+  readonly converged: boolean;
+  readonly iterations: number;
+  readonly ruleTableVersion: string;
+  readonly results: readonly SimulationEngineNodeResult[];
+  readonly nodeStates: ReadonlyMap<string, SimulationResultState>;
 }

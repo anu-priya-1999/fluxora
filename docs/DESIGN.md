@@ -11979,3 +11979,126 @@ All other cases represent explicit non-matches rather than synthetic state trans
   - `pnpm lint:evidence`: 0 violations; all conclusion write paths invoke `EvidenceWriter`.
   - `pnpm build`: Next.js production build compiled cleanly with Turbopack.
   - `git diff --check`: 0 whitespace or formatting errors.
+
+
+---
+
+## Global Step 54 — Simulation Engine
+
+### Overview & Objective
+
+Global Step 54 implements the **Simulation Engine** for Phase 8 per:
+- `docs/architecture/17-implementation-roadmap.md §Phase 8 Step 3`
+- `docs/architecture/04-system-architecture-diagrams.md §4.7`
+- `docs/architecture/05-component-responsibilities.md §5.10`
+- `docs/architecture/06-database-schema.md` (Scenario, Simulation, SimulationResult, Evidence)
+- `docs/architecture/12-testing-strategy.md §12.1`
+- `docs/architecture/02-product-scope.md` (MVP simulation boundary)
+
+Its core objective is **Deterministic Scenario Propagation with Convergence, Causal Paths, Assumptions/Confidence, and Evidence-Backed Simulation State Changes**:
+To build an in-memory pure domain propagation engine and an atomic database persistence/orchestration layer that executes scenario experiments against versioned graph snapshots using the Step 53 normative rule table.
+
+**Core Invariants Preserved**:
+1. **Deterministic Core vs Probabilistic AI Edge**: Graph state initialization, target failure seeding, edge traversal, rule evaluation, and convergence are 100% deterministic and never call an LLM.
+2. **Domain / Persistence Separation**: The pure propagation engine (`runSimulationEngine`) is completely decoupled from PostgreSQL and SQL transactions, operating only on in-memory snapshot data. The orchestration layer (`executeSimulation`) handles transactions, RLS tenant boundaries, status updates, and EvidenceWriter persistence.
+3. **Monotonic State Transitions**: Transitions only proceed toward greater severity (`healthy (0) -> at_risk (1) -> degraded (2) -> failed (3)`). Competing equal-severity explanations preserve the first deterministic explanation (tie-breaker).
+4. **Guaranteed Convergence on Cyclic Graphs**: Monotonicity bounds the total possible transitions across $N$ nodes to at most $3N$, guaranteeing termination without relying on arbitrary hop truncations.
+5. **Bidirectional Incident Edge Traversal**: Incident edges are inspected symmetrically; the affected node (`source` or `target`) is determined by the Step 53 rule decision (`affectedNode`).
+6. **Full Causal Path & Assumption Preservation**: Every state change records an append-only chain of `SimulationCausalStep` objects linking back to the seeded failure root, carrying cumulative deduplicated assumptions and calibrated confidence.
+7. **Atomic EvidenceWriter Integration**: Every persisted `SimulationResult` is atomically committed alongside a corresponding `simulation_state` evidence record citing the underlying graph edge and code provenance. Rolling back the transaction leaves zero unevidenced simulation results.
+8. **Analysis-Run Snapshot Isolation**: Graph nodes and edges belonging to foreign analysis runs are rejected (`CrossAnalysisRunBoundaryError`), preventing cross-snapshot contamination.
+9. **Strict Step 54 Boundary**: HTTP APIs (Step 55), frontend simulation overlays (Step 56), and golden-fixture evaluations (Step 58) are strictly excluded.
+
+### Architecture & Implementation Details
+
+1. **Domain Contracts & Types (`@fluxora/shared-types`)**:
+   - `packages/shared-types/src/simulation.ts`:
+     - Added `RULE_ID_TARGET_FAILURE = "target_failure"`.
+     - Added `SimulationCausalStep`: `nodeId`, `edgeId?`, `ruleId`, `ruleVersion`, `previousState`, `resultingState`, `assumptions`, `confidence`, `capped?`.
+     - Added `SimulationPropagationPathStep = SimulationCausalStep | string`.
+     - Updated `SimulationResult.propagationPath` to `readonly (SimulationCausalStep | string)[]`.
+     - Added `SimulationNode`: `id`, `canonicalId?`, `nodeType?`, `name`, `path?`, `metadata?`, `confidence?`, `analysisRunId?`.
+     - Added `SimulationEdge`: `id`, `sourceNodeId`, `targetNodeId`, `edgeType`, `canonicalId?`, `metadata?`, `confidence?`, `provenance?`, `analysisRunId?`.
+     - Added `SimulationGraphSnapshot`: `analysisRunId`, `nodes`, `edges`.
+     - Added `SimulationEngineInput`: `scenario`, `graph`, `ruleTable?`, `options?`.
+     - Added `SimulationEngineNodeResult`: `nodeId`, `resultingState`, `propagationPath`, `ruleApplied`, `assumptions`, `confidence`, `capped?`.
+     - Added `SimulationEngineResult`: `converged`, `iterations`, `ruleTableVersion`, `results`, `nodeStates`.
+
+2. **Evidence Writer Extension (`@fluxora/db`)**:
+   - `packages/db/src/repositories/evidence-writer.ts`:
+     - Added `EvidenceWriter.createSimulationStateEvidence(...)`: constructs deterministic `CreateEvidenceInput` with `subjectType: "simulation_state"`, `subjectId: simulationResultId`, preserving graph-edge file/symbol/line coordinates and relationship descriptions without coordinate fabrication.
+   - `packages/db/src/repositories/evidence-lint.ts`:
+     - Added `packages/db/src/repositories/simulation-engine.ts` to `DEFAULT_CONCLUSION_WRITE_TARGETS`.
+     - Extended AST lint to detect `writesSimulationResults` and verify invocation of `EvidenceWriter.createSimulationStateEvidence`.
+
+3. **Simulation Engine Implementation (`packages/db/src/repositories/simulation-engine.ts`)**:
+   - Error Hierarchy:
+     - `SimulationEngineValidationError`
+     - `UnsupportedScenarioFailureTypeError`
+     - `SimulationConvergenceError`
+     - `CrossAnalysisRunBoundaryError`
+     - `ScenarioNotFoundError`
+     - `SimulationNotFoundError`
+   - Pure Domain Engine (`runSimulationEngine`):
+     - Validates MVP failure types (`unavailable` or `latency`).
+     - Defensively verifies snapshot nodes and edges match `analysisRunId`.
+     - Indexes nodes and incident edges with deterministic sorting (`sourceNodeId ASC`, `targetNodeId ASC`, `edgeType ASC`, `id ASC`).
+     - Initializes all nodes to `healthy`.
+     - Seeds target failure (`unavailable` -> `failed`, `latency` -> `degraded`) with `RULE_ID_TARGET_FAILURE`.
+     - Processes deterministic FIFO worklist: evaluates incident edges via `evaluateSimulationRule`, enforces `isStateMoreSevere`, appends causal steps, propagates deduplicated assumptions, isolates cascading failure when `capped === true`, and enqueues affected nodes.
+   - Database Orchestration Layer (`executeSimulation`):
+     - Enforces tenant isolation via `withTenant`.
+     - Transitions simulation status: `pending -> running`.
+     - Fetches tenant-scoped graph snapshot via `getGraphStateForAnalysisRunTx`.
+     - Invokes `runSimulationEngine`.
+     - Persists `SimulationResult` records via atomic upsert (`ON CONFLICT (simulation_id, node_id) DO UPDATE`).
+     - Links each result to base edge provenance and writes `simulation_state` evidence batch via `EvidenceWriter.writeEvidenceBatchTx`.
+     - Transitions simulation status: `running -> completed`.
+     - On failure, rolls back transaction and marks simulation as `'failed'`.
+
+### Verification & Test Matrix
+
+- **Unit & Hand-Built Full-Scenario Tests (`src/repositories/simulation-engine.test.ts`)**:
+  - Test 1: Single unavailable target seeds FAILED and leaves unrelated nodes healthy.
+  - Test 2: One-hop synchronous CALLS degrades caller.
+  - Test 3: Two-hop propagation through intermediate degraded node.
+  - Test 4: Circuit breaker isolates failure with caller DEGRADED and capped=true.
+  - Test 5: Fallback suppresses CALLS propagation.
+  - Test 6: Async CALLS does not propagate impairment.
+  - Test 7: Database outage places dependent reader at risk (QUERIES_DB).
+  - Test 8: Dependent write is not propagated by WRITES+failure (Step 53 correction).
+  - Test 9: Event broker impairment places consumer at risk (CONSUMES_EVENT).
+  - Test 10: Producer remains unaffected by event broker failure (EMITS_EVENT).
+  - Test 11: Latency scenario seeds DEGRADED and propagates qualitatively without numerical modeling.
+  - Test 12: Cyclic dependencies converge deterministically without infinite loop.
+  - Test 13: Fan-out propagates independently to multiple callers.
+  - Test 14: Fan-in applies state changes monotonically to the most severe state.
+  - Test 15: Mixed rules graph evaluates only supported rules and ignores irrelevant edges.
+  - Test 16: Monotonic state invariant - node never reverts to a less severe state.
+  - Test 17: Multiple executions produce strictly identical results, orderings, and paths.
+  - Test 18: Conservative Step 53 assumptions for unknown metadata preserved into engine output.
+  - Test 19: Cross-analysis-run boundary rejection throws CrossAnalysisRunBoundaryError.
+  - Test 20: Unsupported scenario failure type throws UnsupportedScenarioFailureTypeError.
+  - Test 21 (Defensive): Missing target node throws SimulationEngineValidationError.
+  - Test 22 (Defensive): Edge referencing unknown source node throws SimulationEngineValidationError.
+  - Test 23 (Defensive): Edge referencing unknown target node throws SimulationEngineValidationError.
+  - Test 24 (Defensive): Missing or invalid snapshot analysisRunId throws SimulationEngineValidationError.
+  - Test 25 (Defensive): Edge with incompatible analysisRunId throws CrossAnalysisRunBoundaryError.
+  - Test 26 (Defensive): Convergence safety guard activation throws SimulationConvergenceError when maxIterations is exceeded.
+- **Database Persistence & Invariant Tests**:
+  - Test 27: `executeSimulation` runs scenario, persists SimulationResults and Evidence atomically.
+  - Test 28: Deterministic idempotency across reruns without duplicate rows.
+  - Test 29: Status transitions to `failed` and rolls back on invalid failure type.
+  - Test 30: Tenant isolation: Org B cannot execute or access Org A simulation.
+  - Test 31 (Defensive): `executeSimulation` rolls back results and marks simulation as failed when evidence persistence fails.
+- **Evidence Linter Tests (`src/repositories/evidence-audit.test.ts`)**:
+  - A4: Linter detects missing evidence on raw simulation result write.
+  - A5: Linter passes when EvidenceWriter is properly invoked for simulation state.
+  - A6: CI lint check passes for all 5 configured conclusion-producing target files.
+- **Static Verification & Builds**:
+  - `pnpm test`: 223 passed across 17 test files in `@fluxora/db`.
+  - `pnpm typecheck`: 0 errors across all 7 workspace projects.
+  - `pnpm lint`: 0 ESLint errors.
+  - `pnpm lint:evidence`: 0 violations across 5 conclusion-producing targets.
+  - `pnpm build`: Next.js production build cleanly compiled.
+  - `git diff --check`: 0 whitespace or formatting issues.

@@ -7,7 +7,12 @@ export interface EvidenceLintViolation {
   functionName: string;
   line: number;
   message: string;
-  conclusionType?: "graph_node" | "graph_edge" | "impact_finding" | "composite";
+  conclusionType?:
+    | "graph_node"
+    | "graph_edge"
+    | "impact_finding"
+    | "simulation_state"
+    | "composite";
 }
 
 export interface EvidenceLintResult {
@@ -19,6 +24,7 @@ export interface EvidenceLintResult {
 export const DEFAULT_CONCLUSION_WRITE_TARGETS = [
   "packages/db/src/repositories/graph.ts",
   "packages/db/src/repositories/impact-analysis.ts",
+  "packages/db/src/repositories/simulation-engine.ts",
   "apps/workers/src/builder/graph-builder.ts",
   "apps/workers/src/pull-request/impact-handler.ts",
 ];
@@ -167,10 +173,17 @@ function checkFunctionForEvidenceCompliance(
     funcText.includes("saveImpactAnalysisTx") ||
     funcText.includes("persistPullRequestImpactAnalysis");
 
+  const writesSimulationResults =
+    funcText.includes("INSERT INTO simulation_results") ||
+    funcText.includes("saveSimulationResults") ||
+    funcText.includes("saveSimulationResultsTx") ||
+    funcText.includes("persistSimulationExecution");
+
   const createsGraphRecords = writesGraphNodes || writesGraphEdges;
   const createsImpactRecords = writesImpactAnalyses;
+  const createsSimulationRecords = writesSimulationResults;
 
-  if (!createsGraphRecords && !createsImpactRecords) {
+  if (!createsGraphRecords && !createsImpactRecords && !createsSimulationRecords) {
     return;
   }
 
@@ -183,6 +196,7 @@ function checkFunctionForEvidenceCompliance(
     funcText.includes("createNodeEvidence") ||
     funcText.includes("createEdgeEvidence") ||
     funcText.includes("createImpactFindingEvidence") ||
+    funcText.includes("createSimulationStateEvidence") ||
     funcText.includes("createEvidenceInput") ||
     funcText.includes("persistGraphBuild") ||
     funcText.includes("buildAndPersistGraph") ||
@@ -191,7 +205,8 @@ function checkFunctionForEvidenceCompliance(
     funcText.includes("saveImpactAnalysisTx") ||
     funcText.includes("persistPullRequestImpactAnalysis") ||
     funcText.includes("deps.persistAnalysis") ||
-    funcText.includes("persistAnalysis");
+    funcText.includes("persistAnalysis") ||
+    funcText.includes("executeSimulation");
 
   if (!usesEvidenceWriter) {
     const lineAndChar = sourceFile.getLineAndCharacterOfPosition(
@@ -201,7 +216,10 @@ function checkFunctionForEvidenceCompliance(
 
     let conclusionType: EvidenceLintViolation["conclusionType"] = "composite";
     let typeDescription = "conclusion";
-    if (createsImpactRecords && !createsGraphRecords) {
+    if (createsSimulationRecords && !createsGraphRecords && !createsImpactRecords) {
+      conclusionType = "simulation_state";
+      typeDescription = "simulation state conclusions";
+    } else if (createsImpactRecords && !createsGraphRecords) {
       conclusionType = "impact_finding";
       typeDescription = "impact analysis conclusions (impact findings)";
     } else if (writesGraphEdges && !writesGraphNodes) {
@@ -220,7 +238,7 @@ function checkFunctionForEvidenceCompliance(
       functionName: funcName,
       line,
       conclusionType,
-      message: `Function "${funcName}" in ${filePath}:${line} performs ${typeDescription} writes but does not invoke EvidenceWriter. All conclusion-write paths must use EvidenceWriter to guarantee provenance and atomicity. Fix: Delegate evidence construction or persistence to EvidenceWriter (e.g. EvidenceWriter.createNodeEvidence, EvidenceWriter.createEdgeEvidence, EvidenceWriter.createImpactFindingEvidence).`,
+      message: `Function "${funcName}" in ${filePath}:${line} performs ${typeDescription} writes but does not invoke EvidenceWriter. All conclusion-write paths must use EvidenceWriter to guarantee provenance and atomicity. Fix: Delegate evidence construction or persistence to EvidenceWriter (e.g. EvidenceWriter.createNodeEvidence, EvidenceWriter.createEdgeEvidence, EvidenceWriter.createImpactFindingEvidence, EvidenceWriter.createSimulationStateEvidence).`,
     });
   }
 }

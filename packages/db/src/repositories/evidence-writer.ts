@@ -6,6 +6,7 @@ import type {
   EvidenceRecord,
   EvidenceSubjectType,
   ImpactFinding,
+  SimulationResultState,
   SourceLocation,
 } from "@fluxora/shared-types";
 import type pg from "pg";
@@ -259,6 +260,72 @@ export class EvidenceWriter {
       columnEnd: params.location?.end.column ?? null,
       relationshipDescription: description,
       confidence: params.finding.confidence ?? 1.0,
+      metadata,
+    });
+  }
+
+  /**
+   * Constructs Evidence for a SimulationResult record (Step 54).
+   * Links the simulated state change to the graph edge, the rule applied,
+   * and base evidence provenance without fabricating source coordinates.
+   */
+  static createSimulationStateEvidence(params: {
+    organizationId: string;
+    analysisRunId: string;
+    simulationResultId: string;
+    nodeId: string;
+    resultingState: SimulationResultState;
+    ruleApplied: string;
+    edgeId?: string | null | undefined;
+    filePath?: string | undefined;
+    symbolId?: string | null | undefined;
+    lineStart?: number | null | undefined;
+    lineEnd?: number | null | undefined;
+    columnStart?: number | null | undefined;
+    columnEnd?: number | null | undefined;
+    relationshipDescription?: string | undefined;
+    confidence?: number | undefined;
+    metadata?: Record<string, unknown> | undefined;
+    id?: string | undefined;
+  }): CreateEvidenceInput {
+    const filePath =
+      params.filePath && params.filePath.trim().length > 0
+        ? params.filePath.trim()
+        : "unknown";
+
+    const description =
+      params.relationshipDescription &&
+      params.relationshipDescription.trim().length > 0
+        ? params.relationshipDescription.trim()
+        : params.edgeId
+          ? `Simulation state changed to ${params.resultingState} because rule ${params.ruleApplied} propagated impairment across graph edge ${params.edgeId}.`
+          : `Simulation state set to ${params.resultingState} for node ${params.nodeId} via rule ${params.ruleApplied}.`;
+
+    const metadata: Record<string, unknown> = {
+      simulationResultId: params.simulationResultId,
+      nodeId: params.nodeId,
+      resultingState: params.resultingState,
+      ruleApplied: params.ruleApplied,
+      ...(params.edgeId ? { edgeId: params.edgeId } : {}),
+      ...(params.metadata ?? {}),
+    };
+
+    const id = params.id;
+
+    return EvidenceWriter.createEvidenceInput({
+      ...(id ? { id } : {}),
+      organizationId: params.organizationId,
+      analysisRunId: params.analysisRunId,
+      subjectType: "simulation_state",
+      subjectId: params.simulationResultId,
+      filePath,
+      symbolId: params.symbolId ?? null,
+      lineStart: params.lineStart ?? null,
+      lineEnd: params.lineEnd ?? null,
+      columnStart: params.columnStart ?? null,
+      columnEnd: params.columnEnd ?? null,
+      relationshipDescription: description,
+      confidence: params.confidence ?? 1.0,
       metadata,
     });
   }

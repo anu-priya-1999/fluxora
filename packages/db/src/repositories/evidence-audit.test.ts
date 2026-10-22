@@ -172,7 +172,43 @@ describe("Global Step 48: Evidence Completeness Audit + Hardening", () => {
       assert.equal(violations.length, 0);
     });
 
-    it("A4. CI lint check passes for all configured conclusion-producing target files", () => {
+    it("A4. Linter detects missing evidence on raw simulation result write", () => {
+      const code = `
+        export async function storeSimResults(pool, result) {
+          const sql = "INSERT INTO simulation_results (simulation_id, node_id, resulting_state) VALUES ($1, $2, $3)";
+          return pool.query(sql, [result.simId, result.nodeId, result.state]);
+        }
+      `;
+      const violations = inspectSourceContent("custom-simulation-writer.ts", code);
+      assert.equal(violations.length, 1);
+      assert.equal(violations[0]!.functionName, "storeSimResults");
+      assert.equal(violations[0]!.conclusionType, "simulation_state");
+      assert.ok(violations[0]!.message.includes("does not invoke EvidenceWriter"));
+    });
+
+    it("A5. Linter passes when EvidenceWriter is properly invoked for simulation state", () => {
+      const code = `
+        import { EvidenceWriter } from "@fluxora/db";
+
+        export async function validSimResultWrite(client, simResult, options) {
+          const ev = EvidenceWriter.createSimulationStateEvidence({
+            organizationId: options.orgId,
+            analysisRunId: options.runId,
+            simulationResultId: simResult.id,
+            nodeId: simResult.nodeId,
+            resultingState: simResult.resultingState,
+            ruleApplied: simResult.ruleApplied,
+          });
+          await EvidenceWriter.writeEvidenceSingleTx(client, ev);
+          const sql = "INSERT INTO simulation_results (id) VALUES ($1)";
+          return client.query(sql, [simResult.id]);
+        }
+      `;
+      const violations = inspectSourceContent("valid-sim-writer.ts", code);
+      assert.equal(violations.length, 0);
+    });
+
+    it("A6. CI lint check passes for all configured conclusion-producing target files", () => {
       const result = verifyGraphWritePaths();
       assert.equal(result.success, true, "All conclusion write paths must pass evidence verification");
       assert.equal(result.violations.length, 0);
