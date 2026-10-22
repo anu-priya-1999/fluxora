@@ -12102,3 +12102,89 @@ To build an in-memory pure domain propagation engine and an atomic database pers
   - `pnpm lint:evidence`: 0 violations across 5 conclusion-producing targets.
   - `pnpm build`: Next.js production build cleanly compiled.
   - `git diff --check`: 0 whitespace or formatting issues.
+
+---
+
+## Global Step 55 — Simulation HTTP APIs
+
+### Overview & Objective
+
+Global Step 55 implements the **Simulation HTTP APIs** for Phase 8 per:
+- `docs/architecture/17-implementation-roadmap.md §Phase 8 Step 4`
+- `docs/architecture/04-system-architecture-diagrams.md §4.7`
+- `docs/architecture/05-component-responsibilities.md §5.3` (API Server) and `§5.10` (Simulation Engine)
+- `docs/architecture/02-product-scope.md` (MVP simulation boundary)
+- `docs/architecture/06-database-schema.md` (Scenario, Simulation, SimulationResult, Evidence)
+- `docs/architecture/07-api-architecture.md §7.2` (Simulation endpoints)
+
+Its core objective is **Exposing Deterministic Simulation Capabilities via Secure, Tenant-Scoped HTTP Endpoints**:
+Expose the existing Step 52 persistence models, Step 53 simulation rules, and Step 54 simulation engine (`executeSimulation`) through native `node:http` API endpoints with strict authentication, tenant boundary isolation, payload validation, and deterministic results serialization.
+
+### The Four HTTP Endpoints
+
+1. **Endpoint A — Create a Scenario (`POST /scenarios` & `POST /api/v1/scenarios`)**:
+   - Creates a scenario using existing domain contracts and repository conventions.
+   - Requires non-empty `name`, valid UUID `target_node_id`, and supported `failure_type`.
+   - Requires repository scoping via `repository_id` or `analysis_run_id` (or both).
+   - Validates target node existence and analysis-run compatibility within the tenant.
+   - Restricts failure types to MVP-supported values: `"unavailable"` and `"latency"`. Explicitly rejects unsupported types (`"capacity"`, `"removal"`).
+   - Responds with `201 Created` and direct `ScenarioResponse` (without redundant wrapper).
+
+2. **Endpoint B — Run a Scenario (`POST /scenarios/:id/run` & `POST /api/v1/scenarios/:id/run`)**:
+   - Executes an authorized scenario through the Step 54 `executeSimulation(...)` engine.
+   - Loads the scenario within the authenticated tenant boundary; returns `404 Not Found` if missing or foreign.
+   - Resolves target analysis run (from request body, scenario parameters, or target node snapshot).
+   - Verifies target node membership in the analysis run snapshot.
+   - Initializes a Simulation record (`pending`), invokes `executeSimulation`, and transitions through the lifecycle (`running -> completed` or `failed`).
+   - Execution is synchronous: returns `200 OK` with full outcome (`SimulationResponse`, `results`, `assumptions`, convergence metrics). Does not return `202 Accepted` because no asynchronous background queue is used.
+   - Execution model & result persistence idempotency: Each accepted HTTP request creates a distinct Simulation record (no request-level deduplication). Within each simulation, result persistence is idempotent via Step 54's `ON CONFLICT (simulation_id, node_id) DO UPDATE` to prevent duplicate result rows.
+
+3. **Endpoint C — Retrieve a Simulation (`GET /simulations/:id` & `GET /api/v1/simulations/:id`)**:
+   - Retrieves simulation metadata and execution status for the authenticated tenant.
+   - Scoped strictly to `organization_id` via tenant join; returns `404 Not Found` for nonexistent or cross-tenant simulations.
+   - Returns simulation identifier, scenario identifier, analysis run identifier, execution status, timestamps, and result summary.
+
+4. **Endpoint D — Retrieve Simulation Results (`GET /simulations/:id/results` & `GET /api/v1/simulations/:id/results`)**:
+   - Retrieves persisted `SimulationResult` records for the specified authorized simulation.
+   - Returns deterministic results ordered by `created_at ASC, id ASC`.
+   - Preserves full causal paths (`SimulationCausalStep[]`), applied rule identifiers, explicit assumptions, and confidence scores without summarization or truncation.
+   - Gracefully returns empty results array (`total: 0`) for simulations with no persisted results.
+
+### Authentication & Tenant Isolation
+
+- Enforces Bearer JWT verification via `authenticateClerkToken`.
+- Validates connected GitHub identity (`isCanonicalGithubId`) and provisions/loads tenant organization membership via `provisionGithubUser` and `getUserById`.
+- Rejects explicit caller-specified `organization_id` or `organizationId` in request bodies (`400 invalid_request`).
+- Prevents cross-tenant access and enumeration: queries verify tenant ownership via joins on `organizations` and `scenarios`. Foreign resources return `404 Not Found` rather than leaking existence.
+
+### Error Handling & HTTP Status Conventions
+
+- `400 invalid_request`: Missing required fields, invalid UUIDs, tenant body override, incompatible node/run relationships.
+- `400 unsupported_failure_type`: Unsupported failure types (`"capacity"`, `"removal"`).
+- `400 invalid_json`: Malformed JSON request bodies.
+- `401 invalid_session`: Missing or invalid Bearer authentication header.
+- `403 github_account_required`: Authenticated identity lacking connected GitHub account.
+- `403 tenant_session_rejected`: Account cannot be loaded for tenant organization.
+- `404 not_found`: Missing or cross-tenant scenario, simulation, or results.
+- `404 analysis_snapshot_unavailable`: Missing or cross-tenant analysis run snapshot.
+- `405 method_not_allowed`: Unsupported HTTP methods on registered simulation routes.
+- `413 payload_too_large`: Request body exceeding 16KB limit.
+- `415 unsupported_media_type`: Request body with non-JSON Content-Type.
+- `422 simulation_convergence_failure`: Convergence guard tripped in cyclic graphs.
+- `500 internal_error`: Internal server or unexpected database errors.
+
+### Implementation Architecture
+
+- `packages/shared-types/src/simulation.ts`: Added HTTP API contracts (`CreateScenarioRequest`, `ScenarioResponse`, `RunScenarioRequest`, `SimulationResultResponse`, `SimulationResponse`, `SimulationResultsListResponse`).
+- `apps/api/src/http/simulation-request.ts`: URL regex patterns (`SCENARIOS_PATTERN`, `SCENARIO_RUN_PATTERN`, `SIMULATION_GET_PATTERN`, `SIMULATION_RESULTS_GET_PATTERN`), route matchers, `SimulationRequestValidationError`, and body parsers.
+- `apps/api/src/http/simulation-response.ts`: Pure response serialization formatting scenarios, simulations, and result collections.
+- `apps/api/src/http/simulation.ts`: Handlers (`handleCreateScenario`, `handleRunScenario`, `handleGetSimulation`, `handleGetSimulationResults`) with dependency injection for unit and integration testing.
+- `apps/api/src/http/server.ts`: Route registration, CORS preflight integration, and 405 Method Not Allowed handling.
+
+### Explicit Scope Exclusions
+
+- No rewrite of Step 54 Simulation Engine or Step 53 Rule Table.
+- No frontend simulation mode overlay or React components (deferred to Step 56).
+- No golden-fixture validation scenarios (deferred to Step 58).
+- No background workers, job queues, or asynchronous execution for simulation runs.
+- No AI/LLM narrative generation or probabilistic inference (deferred to Phase 9).

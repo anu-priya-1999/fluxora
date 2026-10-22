@@ -56,6 +56,22 @@ import {
   matchPullRequestAnalyzeImpactPath,
 } from "./impact-analysis-request.ts";
 import {
+  handleCreateScenario,
+  handleGetSimulation,
+  handleGetSimulationResults,
+  handleRunScenario,
+  type SimulationHandlerDependencies,
+} from "./simulation.ts";
+import {
+  isScenarioRunPath,
+  isScenariosPath,
+  isSimulationGetPath,
+  isSimulationResultsGetPath,
+  matchScenarioRunPath,
+  matchSimulationGetPath,
+  matchSimulationResultsGetPath,
+} from "./simulation-request.ts";
+import {
   setupWebSocketServer,
   type FluxoraWsServerOptions,
 } from "../ws/server.ts";
@@ -65,6 +81,7 @@ export interface CreateApiServerOptions {
   graphQueryDeps?: GraphQueryHandlerDependencies;
   githubWebhookDeps?: GithubWebhookHandlerDependencies;
   impactAnalysisDeps?: ImpactAnalysisHandlerDependencies;
+  simulationDeps?: SimulationHandlerDependencies;
 }
 
 export function createApiServer(
@@ -86,6 +103,10 @@ export function createApiServer(
     optionsOrWs && "impactAnalysisDeps" in optionsOrWs
       ? optionsOrWs.impactAnalysisDeps
       : undefined;
+  const simulationDeps =
+    optionsOrWs && "simulationDeps" in optionsOrWs
+      ? optionsOrWs.simulationDeps
+      : undefined;
 
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
@@ -99,6 +120,7 @@ export function createApiServer(
       graphQueryDeps,
       githubWebhookDeps,
       impactAnalysisDeps,
+      simulationDeps,
     ).catch(
       (error: unknown) => {
         if (res.headersSent) {
@@ -130,6 +152,7 @@ async function handleRequest(
   graphQueryDeps?: GraphQueryHandlerDependencies,
   githubWebhookDeps?: GithubWebhookHandlerDependencies,
   impactAnalysisDeps?: ImpactAnalysisHandlerDependencies,
+  simulationDeps?: SimulationHandlerDependencies,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -263,6 +286,113 @@ async function handleRequest(
           match.impactAnalysisId,
           sendJson,
           impactAnalysisDeps,
+        );
+        return;
+      }
+    }
+  }
+
+  if (isScenariosPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "POST") {
+      await handleCreateScenario(req, res, sendJson, simulationDeps);
+      return;
+    }
+  }
+
+  if (isScenarioRunPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "POST") {
+      const match = matchScenarioRunPath(path);
+      if (match !== null) {
+        await handleRunScenario(
+          req,
+          res,
+          match.scenarioId,
+          sendJson,
+          simulationDeps,
+        );
+        return;
+      }
+    }
+  }
+
+  if (isSimulationResultsGetPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "GET") {
+      const match = matchSimulationResultsGetPath(path);
+      if (match !== null) {
+        await handleGetSimulationResults(
+          req,
+          res,
+          match.simulationId,
+          sendJson,
+          simulationDeps,
+        );
+        return;
+      }
+    }
+  }
+
+  if (isSimulationGetPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "GET") {
+      const match = matchSimulationGetPath(path);
+      if (match !== null) {
+        await handleGetSimulation(
+          req,
+          res,
+          match.simulationId,
+          sendJson,
+          simulationDeps,
         );
         return;
       }
@@ -408,7 +538,11 @@ function isKnownPath(path: string): boolean {
     isRepositoryConnectPath(path) ||
     isGithubWebhookPath(path) ||
     isPullRequestAnalyzeImpactPath(path) ||
-    isImpactAnalysisGetPath(path)
+    isImpactAnalysisGetPath(path) ||
+    isScenariosPath(path) ||
+    isScenarioRunPath(path) ||
+    isSimulationGetPath(path) ||
+    isSimulationResultsGetPath(path)
   );
 }
 

@@ -412,3 +412,92 @@ export interface SimulationEngineResult {
   readonly results: readonly SimulationEngineNodeResult[];
   readonly nodeStates: ReadonlyMap<string, SimulationResultState>;
 }
+
+// ---------------------------------------------------------------------------
+// HTTP API Contracts (Step 55)
+// ---------------------------------------------------------------------------
+
+export const SCENARIOS_PATH = "/api/v1/scenarios" as const;
+export const SIMULATIONS_PATH = "/api/v1/simulations" as const;
+
+/**
+ * Request payload for POST /scenarios
+ */
+export interface CreateScenarioRequest {
+  readonly name: string;
+  readonly target_node_id: string;
+  readonly failure_type: ScenarioFailureType;
+  readonly repository_id?: string | undefined;
+  readonly analysis_run_id?: string | undefined;
+  readonly parameters?: Record<string, unknown> | undefined;
+}
+
+/**
+ * Formatted response for a Scenario resource.
+ */
+export interface ScenarioResponse {
+  readonly id: string;
+  readonly organization_id: string;
+  readonly repository_id: string;
+  readonly name: string;
+  readonly target_node_id: string;
+  readonly failure_type: ScenarioFailureType;
+  readonly parameters: Record<string, unknown>;
+  readonly created_by: string | null;
+  readonly created_at: string;
+}
+
+/**
+ * Request payload for POST /scenarios/:id/run
+ */
+export interface RunScenarioRequest {
+  readonly analysis_run_id?: string | undefined;
+}
+
+/**
+ * Formatted response for an individual SimulationResult item.
+ */
+export interface SimulationResultResponse {
+  readonly id: string;
+  readonly simulation_id: string;
+  readonly node_id: string;
+  readonly resulting_state: SimulationResultState;
+  readonly state: SimulationResultState;
+  readonly propagation_path: readonly (SimulationCausalStep | string)[];
+  readonly rule_applied: string;
+  readonly assumptions: readonly string[];
+  readonly confidence: number;
+  readonly created_at: string;
+}
+
+/**
+ * Formatted response for a Simulation execution record.
+ */
+export interface SimulationResponse {
+  readonly id: string;
+  readonly scenario_id: string;
+  readonly analysis_run_id: string;
+  readonly status: SimulationStatus;
+  readonly created_at: string;
+  readonly simulation?: {
+    readonly id: string;
+    readonly scenario_id: string;
+    readonly analysis_run_id: string;
+    readonly status: SimulationStatus;
+    readonly created_at: string;
+  } | undefined;
+  readonly results?: readonly SimulationResultResponse[] | undefined;
+  readonly assumptions?: readonly string[] | undefined;
+  readonly total_results?: number | undefined;
+  readonly converged?: boolean | undefined;
+  readonly iterations?: number | undefined;
+}
+
+/**
+ * Formatted response for GET /simulations/:id/results
+ */
+export interface SimulationResultsListResponse {
+  readonly simulation_id: string;
+  readonly results: readonly SimulationResultResponse[];
+  readonly total: number;
+}
