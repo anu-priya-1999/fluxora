@@ -119,6 +119,15 @@ export function parseCreateScenarioBody(body: unknown): ParsedCreateScenarioInpu
     );
   }
 
+  // Reject unsupported seed_failures property
+  if ("seed_failures" in body || "seedFailures" in body) {
+    throw new SimulationRequestValidationError(
+      "seed_failures is not supported. Specify a single failure scenario via target_node_id and failure_type.",
+      "invalid_request",
+      400,
+    );
+  }
+
   // Validate name
   const rawName = body["name"];
   if (typeof rawName !== "string" || rawName.trim().length === 0) {

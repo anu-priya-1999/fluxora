@@ -12188,3 +12188,82 @@ Expose the existing Step 52 persistence models, Step 53 simulation rules, and St
 - No golden-fixture validation scenarios (deferred to Step 58).
 - No background workers, job queues, or asynchronous execution for simulation runs.
 - No AI/LLM narrative generation or probabilistic inference (deferred to Phase 9).
+
+
+---
+
+## Global Step 56 — Simulation Studio UI
+
+### Overview & Objective
+
+Global Step 56 implements the **Simulation Studio UI** for Phase 8 per:
+- `docs/architecture/17-implementation-roadmap.md §Phase 8 Step 5`
+- `docs/architecture/04-system-architecture-diagrams.md §4.7`
+- `docs/architecture/05-component-responsibilities.md §5.3` (API Server — Node native `node:http`) and `§5.10` (Simulation Engine)
+- `docs/architecture/02-product-scope.md` (MVP simulation boundary)
+- `docs/architecture/07-api-architecture.md §7.2` (Simulation endpoints)
+
+Its core objective is **Delivering a Production-Quality Simulation Studio Workbench**:
+Provide a comprehensive, responsive Next.js App Router application page (`/simulations`) where authenticated users can select repositories and analysis run snapshots, query real graph nodes to seed failure scenarios, create versioned scenarios via `POST /api/v1/scenarios`, run deterministic propagation runs via `POST /api/v1/scenarios/:id/run`, inspect affected nodes in a filterable/sortable table, and explore multi-hop causal chains with explicit assumptions, confidence scores, and circuit-breaker capping indicators.
+
+### Key Architectural Features & Decisions
+
+1. **Dedicated Route & URL Synchronization (`/simulations`)**:
+   - Location: `apps/web/src/app/simulations/page.tsx`
+   - Server-side Clerk authentication check via `await auth()`; unauthenticated users are redirected to sign-in with preserved return back URL.
+   - Deep-linking support via search parameters: `repository_id` / `repo_id`, `analysis_run_id` / `run_id`, `start_node_id`, `target_node_id` / `node_id`, `scenario_id`, `simulation_id`.
+   - Convenience redirects: `/simulation` redirects to `/simulations`; `/repositories/[repoId]/simulation` scopes to `repository_id=${repoId}` and redirects to `/simulations`.
+   - Connected navigation: Links added from Dashboard (`/dashboard`) and Architecture Explorer header bar.
+
+2. **Dual-Column Workbench Interface (`SimulationStudio.tsx`)**:
+   - **Configuration & Controls (Left Column)**:
+     - Repository & analysis run selection with format validation (UUID regex). Includes action to query snapshot nodes via `POST /api/v1/graph/query`.
+     - Target node failure seed selection with real-time text search over actual graph nodes.
+     - Scenario name input with required non-empty validation.
+     - Failure type selection restricted to MVP supported types: `"unavailable"` and `"latency"`.
+     - Distinct **Create Scenario** action button (`POST /api/v1/scenarios`) with in-flight loading states.
+     - Distinct **Run Simulation** action button (`POST /api/v1/scenarios/:id/run`) with duplicate-submission prevention.
+   - **Outcomes & Causal Inspection (Right Column)**:
+     - Impact summary: Total affected count (derived from `total` or results length), breakdown by canonical state (`failed`, `degraded`, `at_risk`, `healthy`), circuit-breaker capped count, convergence status, and iterations.
+     - Affected nodes table: Filterable by state (`all`, `failed`, `degraded`, `at_risk`, `healthy`) and searchable by node name/ID/rule. Sortable by canonical state severity (`failed > degraded > at_risk > healthy`), name, confidence, and path length. Row selection activates causal path inspection.
+     - Causal path inspector: Step-by-step breadcrumb timeline rendering state transitions (`previousState → resultingState`), rule ID & version, edge ID (or `"None (Seed target failure)"`), capped badge, explicit assumptions list, and confidence.
+     - Details & limitations: Displays runtime IDs, derived rule table version (from causal step metadata), deterministic guarantees, qualitative latency limitations, and repository/analysis context resolution notes.
+
+3. **Step 55 Contract Alignment & Response Shape Mapping**:
+   - Scenario Creation (`POST /api/v1/scenarios`): Sends established fields `name`, `target_node_id`, `failure_type`, `repository_id`, `analysis_run_id`, and optional `parameters`. Never sends `seed_failures` or client-specified `organization_id`. Consumes verified `ScenarioResponse` shape.
+   - Simulation Execution (`POST /api/v1/scenarios/:id/run`): Sends optional `analysis_run_id`. Consumes `SimulationResponse` containing `status`, `total_results`, `converged`, `iterations`, `results`, and `assumptions`.
+   - Result List Retrieval (`GET /api/v1/simulations/:id/results`): Consumes `SimulationResultsListResponse` containing `simulation_id`, `results`, and `total` (not `total_affected`).
+   - Node Result Model: Consumes `SimulationResultResponse` containing `node_id`, `resulting_state`, `state`, `propagation_path` (array of `SimulationCausalStep | string`, not `causal_steps`), `rule_applied`, `assumptions`, and `confidence`.
+   - Derived Metadata Discipline: `rule_table_version` is derived from causal step metadata without assuming top-level presence in API responses. `converged` and `iterations` are displayed when returned by run execution and omitted when undefined (as on `GET /simulations/:id`).
+
+4. **Dependent Selection Invalidation**:
+   - Changing Repository ID invalidates analysis run, target node, loaded graph nodes, scenario ID, simulation outcome, and results table.
+   - Changing Analysis Run ID invalidates target node, loaded graph nodes, scenario ID, simulation outcome, and results table.
+   - Changing Target Node invalidates scenario ID, simulation outcome, and results table.
+
+5. **Honest Simulation Confidence & Qualitative Latency**:
+   - Explicitly displays that confidence scores reflect static metadata completeness and conservative assumptions, not statistical real-world failure probabilities or SLA guarantees.
+   - Clarifies that latency degradation simulates at-risk dependency propagation through topology without fabricating numerical millisecond queueing metrics.
+   - Network and backend errors (401, 404, 422 convergence failure, 500) are rendered as explicit error banners and never disguised as successful empty simulations.
+
+### Implementation Architecture
+
+- `apps/web/src/components/simulation/simulation-types.ts`: Domain types, impact summary models, filter states, and API result wrappers.
+- `apps/web/src/components/simulation/simulation-api.ts`: Typed API client functions for graph querying, scenario creation, simulation execution, and results retrieval.
+- `apps/web/src/components/simulation/simulation-helpers.ts`: Pure computation helpers for impact summaries across all 4 canonical states, sorting/filtering, causal step extraction from `propagation_path`, and form validation.
+- `apps/web/src/components/simulation/SimulationStudio.tsx`: Full interactive React workbench component.
+- `apps/web/src/components/simulation/index.ts`: Barrel exports.
+- `apps/web/src/app/simulations/page.tsx`: Server component App Router page with Clerk authentication and search parameter resolution.
+- `apps/web/src/app/simulation/page.tsx`: Convenience route redirecting to `/simulations`.
+- `apps/web/src/app/repositories/[repoId]/simulation/page.tsx`: Convenience route redirecting repository-scoped requests to `/simulations`.
+- `apps/web/src/app/dashboard/page.tsx`: Added link to Simulation Studio.
+- `apps/web/src/app/repositories/[repoId]/explorer/explorer-client.tsx`: Added Simulation Studio button to explorer header.
+- `apps/web/src/components/simulation/simulation-studio.test.ts`: 21 focused tests covering form validation, Step 55 request/response serialization, dependent invalidation, multi-hop causal paths, canonical states, and error handling.
+- `apps/api/src/http/simulation-web-contract.test.ts`: 8 API regression tests validating that the frontend's serialized payloads pass Step 55's actual `parseCreateScenarioBody` and `parseRunScenarioBody` parsers and serializers.
+
+### Explicit Scope Exclusions
+
+- No golden-fixture benchmark evaluations (reserved for Step 58).
+- No speculative failure types (`capacity`, `removal`).
+- No AI/LLM narrative explanations (reserved for Phase 9).
+- No background workers or queueing for simulations.

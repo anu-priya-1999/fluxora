@@ -772,6 +772,26 @@ describe("Simulation HTTP APIs (Step 55)", () => {
       assert.equal(data.parameters.chaos_ratio, 0.5);
       assert.equal(data.parameters.analysis_run_id, RUN_A1);
     });
+
+    it("8b. Request containing seed_failures is explicitly rejected with 400 invalid_request", async () => {
+      const res = await request(server, {
+        method: "POST",
+        path: "/scenarios",
+        headers: { Authorization: "Bearer token-org-a" },
+        body: {
+          name: "Seed Failures Test",
+          target_node_id: NODE_A1,
+          failure_type: "unavailable",
+          seed_failures: [{ node_id: NODE_A1, failure_type: "unavailable" }],
+          analysis_run_id: RUN_A1,
+        },
+      });
+
+      assert.equal(res.statusCode, 400);
+      const err = expectError(res.body);
+      assert.equal(err.error.code, "invalid_request");
+      assert.ok(err.error.message.includes("seed_failures is not supported"));
+    });
   });
 
   // =========================================================================

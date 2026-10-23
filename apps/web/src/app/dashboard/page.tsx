@@ -1,5 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import { UserButton } from "@clerk/nextjs";
+import Link from "next/link";
 
 import { readGithubAppSlug } from "../../github/env";
 import { githubAppInstallUrl } from "../../github/install-url";
@@ -36,6 +37,11 @@ export default async function DashboardPage() {
               Connect GitHub
             </a>
           )}
+        </p>
+        <p>
+          <Link href="/simulations" className="text-blue-600 hover:underline font-semibold">
+            Open Simulation Studio
+          </Link>
         </p>
         <RepositoryIndexedLiveFeed />
       </section>

@@ -438,6 +438,15 @@ export function ArchitectureExplorerClient({
           { className: "text-slate-500 font-mono text-xs" },
           `Run: ${state.analysisRunId} | Nodes: ${state.graph.nodes.length} | Edges: ${state.graph.edges.length}`,
         ),
+        React.createElement(
+          Link as unknown as React.ComponentType<Record<string, unknown>>,
+          {
+            href: `/simulations?repository_id=${context.repositoryId}&analysis_run_id=${state.analysisRunId}${selectedNodeId ? `&target_node_id=${selectedNodeId}` : ""}`,
+            className: "text-xs font-semibold text-blue-600 hover:underline border border-blue-200 bg-blue-50 px-2 py-0.5 rounded",
+            "data-testid": "explorer-simulation-studio-link",
+          },
+          "Simulation Studio",
+        ),
         React.createElement(ExplorerConnectionBadge, { status: connectionStatus }),
       ),
     ),
