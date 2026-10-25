@@ -1,3 +1,4 @@
+import pg from "pg";
 import type {
   EnqueueJobInput,
   Job,
@@ -6,7 +7,7 @@ import type {
 } from "@fluxora/shared-types";
 
 import { getPool } from "../pool.ts";
-import { withTenant } from "../tenant.ts";
+import { localDatabaseRole, withTenant } from "../tenant.ts";
 
 interface JobRow {
   id: string;
@@ -67,10 +68,100 @@ function validateEnqueueInput(input: EnqueueJobInput): void {
   }
 }
 
-export async function enqueueJob(input: EnqueueJobInput): Promise<Job> {
-  validateEnqueueInput(input);
+/**
+ * Executes a callback with a database client configured for queue worker operations.
+ *
+ * Role-management contract:
+ * - If an existing `pg.PoolClient` is passed via `clientOrPool`, the caller manages the client
+ *   lifecycle and its transaction/role context; no `SET ROLE` or `RESET ROLE` is executed.
+ * - If `clientOrPool` is undefined or a `pg.Pool`, the role configuration is validated first
+ *   via `localDatabaseRole()`, preventing connection checkout/leaks on invalid configuration.
+ *   A client is then checked out from the pool.
+ *   If `localDatabaseRole()` returns a role name, `SET ROLE <role>` is executed before the callback.
+ *   In the cleanup/exit paths, `RESET ROLE` is executed. If `RESET ROLE` throws, the client is evicted
+ *   and destroyed from the pool via `client.release(resetError)` so that a connection with a tainted
+ *   role is never returned to the idle pool.
+ */
+/**
+ * Reliably distinguishes a `pg.PoolClient` from a `pg.Pool`.
+ *
+ * In node-postgres:
+ * - `pg.Pool` provides connection-pool management counters (`totalCount`, `idleCount`, `waitingCount`)
+ *   and a `connect()` method that yields a `PoolClient`. It never defines `release()`.
+ * - `pg.PoolClient` wraps or extends `pg.Client` (inheriting `connect()` and `query()`) and provides
+ *   `release()` to return the checked-out client to the pool.
+ */
+export function isPoolClient(
+  clientOrPool: unknown,
+): clientOrPool is pg.PoolClient {
+  if (!clientOrPool || typeof clientOrPool !== "object") {
+    return false;
+  }
+  if (clientOrPool instanceof pg.Pool) {
+    return false;
+  }
+  return (
+    "query" in clientOrPool &&
+    typeof (clientOrPool as { release?: unknown }).release === "function" &&
+    !("totalCount" in clientOrPool)
+  );
+}
 
-  const pool = getPool();
+export async function withWorkerClient<T>(
+  clientOrPool: pg.Pool | pg.PoolClient | undefined,
+  fn: (client: pg.PoolClient | pg.ClientBase) => Promise<T>,
+): Promise<T> {
+  if (isPoolClient(clientOrPool)) {
+    return fn(clientOrPool);
+  }
+
+  const role = localDatabaseRole();
+  const pool = (clientOrPool as pg.Pool | undefined) ?? getPool();
+  const client = await pool.connect();
+
+  let result: T;
+  try {
+    if (role !== null) {
+      await client.query(`SET ROLE ${role}`);
+    }
+    result = await fn(client);
+  } catch (operationError) {
+    if (role !== null) {
+      try {
+        await client.query("RESET ROLE");
+        client.release();
+      } catch (resetErr) {
+        // Destroy tainted client from pool
+        client.release(resetErr as Error);
+      }
+    } else {
+      client.release();
+    }
+    throw operationError;
+  }
+
+  // Normal exit path
+  if (role !== null) {
+    try {
+      await client.query("RESET ROLE");
+      client.release();
+    } catch (resetErr) {
+      // Destroy tainted client from pool and surface reset failure
+      client.release(resetErr as Error);
+      throw resetErr;
+    }
+  } else {
+    client.release();
+  }
+
+  return result;
+}
+
+export async function enqueueJob(
+  input: EnqueueJobInput,
+  pool: pg.Pool = getPool(),
+): Promise<Job> {
+  validateEnqueueInput(input);
 
   return withTenant(pool, input.organizationId, async (client) => {
     const result = await client.query<JobRow>(
@@ -131,9 +222,8 @@ export async function enqueueJob(input: EnqueueJobInput): Promise<Job> {
 export async function getJobById(
   organizationId: string,
   jobId: string,
+  pool: pg.Pool = getPool(),
 ): Promise<Job | null> {
-  const pool = getPool();
-
   return withTenant(pool, organizationId, async (client) => {
     const result = await client.query<JobRow>(
       `
@@ -178,6 +268,7 @@ export async function getJobById(
 export async function claimNextJob(
   workerId: string,
   leaseSeconds = 60,
+  clientOrPool?: pg.Pool | pg.PoolClient,
 ): Promise<Job | null> {
   if (workerId.trim().length === 0) {
     throw new Error("workerId must not be empty");
@@ -187,10 +278,7 @@ export async function claimNextJob(
     throw new Error("leaseSeconds must be a positive integer");
   }
 
-  const pool = getPool();
-  const client = await pool.connect();
-
-  try {
+  return withWorkerClient(clientOrPool, async (client) => {
     const result = await client.query<JobRow>(
       `
         SELECT
@@ -211,7 +299,7 @@ export async function claimNextJob(
           started_at,
           completed_at,
           failed_at
-        FROM fluxora_claim_next_job($1, $2)
+        FROM public.fluxora_claim_next_job($1, $2)
       `,
       [workerId.trim(), leaseSeconds],
     );
@@ -223,14 +311,13 @@ export async function claimNextJob(
     }
 
     return mapJob(row);
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function completeJob(
   jobId: string,
   workerId: string,
+  clientOrPool?: pg.Pool | pg.PoolClient,
 ): Promise<Job> {
   if (jobId.trim().length === 0) {
     throw new Error("jobId must not be empty");
@@ -240,10 +327,7 @@ export async function completeJob(
     throw new Error("workerId must not be empty");
   }
 
-  const pool = getPool();
-  const client = await pool.connect();
-
-  try {
+  return withWorkerClient(clientOrPool, async (client) => {
     const result = await client.query<JobRow>(
       `
         SELECT
@@ -264,7 +348,7 @@ export async function completeJob(
           started_at,
           completed_at,
           failed_at
-        FROM fluxora_complete_job($1, $2)
+        FROM public.fluxora_complete_job($1, $2)
       `,
       [jobId.trim(), workerId.trim()],
     );
@@ -278,15 +362,14 @@ export async function completeJob(
     }
 
     return mapJob(row);
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function failJob(
   jobId: string,
   workerId: string,
   errorMessage: string,
+  clientOrPool?: pg.Pool | pg.PoolClient,
 ): Promise<Job> {
   if (jobId.trim().length === 0) {
     throw new Error("jobId must not be empty");
@@ -300,10 +383,7 @@ export async function failJob(
     throw new Error("errorMessage must not be empty");
   }
 
-  const pool = getPool();
-  const client = await pool.connect();
-
-  try {
+  return withWorkerClient(clientOrPool, async (client) => {
     const result = await client.query<JobRow>(
       `
         SELECT
@@ -324,7 +404,7 @@ export async function failJob(
           started_at,
           completed_at,
           failed_at
-        FROM fluxora_fail_job($1, $2, $3)
+        FROM public.fluxora_fail_job($1, $2, $3)
       `,
       [jobId.trim(), workerId.trim(), errorMessage.trim()],
     );
@@ -338,27 +418,29 @@ export async function failJob(
     }
 
     return mapJob(row);
-  } finally {
-    client.release();
-  }
+  });
 }
 
 export async function retryFailedJob(
   jobId: string,
+  workerId: string,
   retryDelaySeconds = 0,
+  errorMessage?: string,
+  clientOrPool?: pg.Pool | pg.PoolClient,
 ): Promise<Job> {
   if (jobId.trim().length === 0) {
     throw new Error("jobId must not be empty");
+  }
+
+  if (workerId.trim().length === 0) {
+    throw new Error("workerId must not be empty");
   }
 
   if (!Number.isInteger(retryDelaySeconds) || retryDelaySeconds < 0) {
     throw new Error("retryDelaySeconds must be a non-negative integer");
   }
 
-  const pool = getPool();
-  const client = await pool.connect();
-
-  try {
+  return withWorkerClient(clientOrPool, async (client) => {
     const result = await client.query<JobRow>(
       `
         SELECT
@@ -379,21 +461,19 @@ export async function retryFailedJob(
           started_at,
           completed_at,
           failed_at
-        FROM fluxora_retry_failed_job($1, $2)
+        FROM public.fluxora_retry_failed_job($1, $2, $3, $4)
       `,
-      [jobId.trim(), retryDelaySeconds],
+      [jobId.trim(), workerId.trim(), retryDelaySeconds, errorMessage ?? null],
     );
 
     const row = result.rows[0];
 
     if (row === undefined) {
       throw new Error(
-        "Job retry rejected: job is not failed or has exhausted its attempts",
+        "Job retry rejected: job is not running, not owned by the worker, lease has expired, or state is invalid",
       );
     }
 
     return mapJob(row);
-  } finally {
-    client.release();
-  }
+  });
 }

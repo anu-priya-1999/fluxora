@@ -185,18 +185,20 @@ export class JobWorker {
   }
 
   private async handleFailure(job: Job, error: unknown): Promise<void> {
-    const failed = await this.jobStore.failJob(
-      job.id,
-      this.workerId,
-      getErrorMessage(error),
-    );
-
-    if (failed.status === "failed" && isRetryableJobError(error)) {
+    const errorMessage = getErrorMessage(error);
+    if (isRetryableJobError(error)) {
       const delaySeconds = computeRetryDelay(
         this.retryDelaySeconds,
-        failed.attemptCount,
+        job.attemptCount,
       );
-      await this.jobStore.retryFailedJob(failed.id, delaySeconds);
+      await this.jobStore.retryFailedJob(
+        job.id,
+        this.workerId,
+        delaySeconds,
+        errorMessage,
+      );
+    } else {
+      await this.jobStore.failJob(job.id, this.workerId, errorMessage);
     }
   }
 }

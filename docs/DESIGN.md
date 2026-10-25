@@ -12267,3 +12267,91 @@ Provide a comprehensive, responsive Next.js App Router application page (`/simul
 - No speculative failure types (`capacity`, `removal`).
 - No AI/LLM narrative explanations (reserved for Phase 9).
 - No background workers or queueing for simulations.
+
+---
+
+## Production Hardening — Fix 1, Fix 1B, Fix 1C & Fix 1D: Job Queue RLS, Least-Privilege Worker Access, and Review Corrections
+
+### 1. Problem & Threat Model
+
+The `public.jobs` table uses forced row-level security (`FORCE ROW LEVEL SECURITY`). Its tenant policies rely on `fluxora_current_org_id()`, which evaluates `current_setting('app.current_org_id', true)`.
+
+However, the background worker queue is intentionally global and cross-tenant:
+- Ingestion, PR analysis, and simulation jobs from multiple customer organizations must be claimed and processed by a distributed pool of worker instances.
+- The worker claims jobs without establishing a tenant context.
+- While queue operations used `SECURITY DEFINER` functions (`fluxora_claim_next_job`, `fluxora_complete_job`, `fluxora_fail_job`, `fluxora_retry_failed_job`), PostgreSQL's `SECURITY DEFINER` executes with the privileges of the function owner. When the function owner is a non-superuser or subject to forced RLS without role-specific bypass policies, RLS evaluation evaluates against the owner's session and filters all jobs.
+- Prior tests ran using the `postgres` superuser, masking this failure mode.
+- In production reviews (Fix 1B, 1C, 1D), additional vulnerabilities and operational risks were identified and addressed:
+  1. **PoolClient vs Pool Detection**: In `packages/db/src/repositories/job.ts`, `withWorkerClient` checked `"query" in clientOrPool && !("connect" in clientOrPool)`. In node-postgres, `pg.PoolClient` inherits `connect` from `pg.Client`, causing caller-supplied pool clients to be misclassified as pools and re-connected.
+  2. **Destructive Migration Tests on Non-Disposable Servers**: The incremental migration integration test dropped `fluxora_inc_migration_test` and `fluxora_migrator_test` on whatever server was specified in the URL. A database different from `DATABASE_URL` does not prove the server is disposable.
+  3. **Partial Fixture Cleanup in Queue Tests**: In `packages/db/src/repositories/job-queue-rls.test.ts`, cleanup checked `if (pool && orgA && orgB)`. If `orgA` succeeded but `orgB` failed, `orgA` was never cleaned up.
+  4. **Migration 0021 Ownership Ordering**: In `0021_job_queue_hardening.sql`, `DROP FUNCTION IF EXISTS public.fluxora_retry_failed_job(uuid, integer)` was placed before obtaining temporary owner authority. Under non-superuser migration roles on deployment platforms (e.g. Render), dropping a function owned by `fluxora_queue` fails without authority.
+  5. **Atomic Retry Authorization**: The historical 2-argument `fluxora_retry_failed_job(uuid, integer)` allowed any caller to retry any failed job across any organization without verifying worker identity or lease validity.
+  6. **Role Attribute Integrity**: The dedicated `fluxora_queue` role required strict validation across all 7 PostgreSQL role attributes to prevent privilege escalation.
+  7. **Host Allowlist Validation Before Database Connection**: In `packages/db/src/repositories/job-queue-rls.test.ts`, `fetchDatabaseIdentity()` previously connected to `FLUXORA_QUEUE_TEST_DATABASE_URL` before verifying that the server was an approved local/CI host, risking running migrations or SQL queries against an unapproved or remote database.
+
+### 2. Architectural Design & Invariants
+
+1. **Reliable PoolClient Detection & Caller-Owned Lifecycle**:
+   - `isPoolClient(clientOrPool)` reliably distinguishes `pg.PoolClient` from `pg.Pool`: verifies `release` is a function, rejects `instanceof pg.Pool`, and rejects objects with pool-level counters (`totalCount`).
+   - For a supplied `PoolClient`, `withWorkerClient` executes the callback using that client directly without calling `connect()`, `release()`, or altering its role context (`SET ROLE` / `RESET ROLE` are omitted).
+   - For a client checked out from a pool, `withWorkerClient` validates the role configuration first via `localDatabaseRole()` before acquiring a connection from the pool. If configuration is invalid (e.g. unsafe identifier), an error is thrown before `pool.connect()`, preventing connection leaks.
+   - Once acquired, `withWorkerClient` executes `SET ROLE` when configured, executes `RESET ROLE` upon completion or callback failure, and destroys tainted connections on reset failure via `client.release(resetErr)`.
+   - Comprehensive unit tests in `packages/db/src/repositories/job-worker-client.test.ts` verify caller-supplied pool clients, pool-acquired clients, normal paths, callback-failure paths, SET ROLE failure paths, RESET ROLE failure paths, and regression tests ensuring invalid role configuration never leaks connections.
+
+2. **Destructive Migration Test Safety & CI Guarantees**:
+   - Introduced explicit opt-in variable: `FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS=true`.
+   - Restricted automated destructive tests to an explicit allowlist of supported disposable local/CI hosts: `localhost`, `127.0.0.1`, `::1`, `[::1]`, `postgres`.
+   - Before connecting to the administrative database or performing any `DROP` or `CREATE` operations, `assertApprovedDestructiveQueueTestHost()` validates the hostname from `FLUXORA_QUEUE_TEST_DATABASE_URL` and rejects unapproved remote hosts with a clear safety violation error.
+   - Distinctness check: asserts that `INC_TEST_DB` (`fluxora_inc_migration_test`) is distinct from both `DATABASE_URL` and `FLUXORA_QUEUE_TEST_DATABASE_URL`, and never targets developer databases (`fluxora_dev` or `*_dev`).
+   - CI workflow (`.github/workflows/ci.yml`) sets `FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS: "true"` exclusively for its dedicated disposable PostgreSQL container service, validated via `actionlint` and YAML parser.
+   - Non-silent CI enforcement: in CI, if required test database configuration or safety opt-in is absent, the test fails immediately rather than silently skipping. Unit tests verify unapproved remote host rejection before any database connection or mutation.
+
+3. **Independent Partial Fixture Cleanup**:
+   - In `packages/db/src/repositories/job-queue-rls.test.ts`, `orgA` and `orgB` are deleted independently.
+   - If only one fixture was created before a failure, that fixture is still cleaned up.
+   - Teardown attempts all cleanup operations and surfaces any errors via `AggregateError` so cleanup failures fail the test.
+
+4. **Dedicated Least-Privilege Function Owner (`fluxora_queue`)**:
+   - `NOLOGIN`, `NOSUPERUSER`, `NOCREATEROLE`, `NOCREATEDB`, `NOBYPASSRLS`, `NOINHERIT`, `NOREPLICATION`.
+   - Migration `0021_job_queue_hardening.sql` strictly validates all 7 role attributes and fails the migration if any unsafe attribute is present.
+   - Column-specific grants: `SELECT` on `public.jobs` and `UPDATE` only on mutable queue lifecycle columns.
+
+5. **Atomic Worker-Authorized Retry Model**:
+   - Dropped the insecure 2-argument signature `public.fluxora_retry_failed_job(uuid, integer)`.
+   - Created atomic `public.fluxora_retry_failed_job(p_job_id uuid, p_worker_id text, p_retry_delay_seconds integer DEFAULT 0, p_error text DEFAULT NULL)`.
+   - Requires `j.id = p_job_id AND j.status = 'running' AND j.locked_by = p_worker_id AND j.lease_expires_at > pg_catalog.now()`.
+   - Atomically transitions to `'pending'` (if `attempt_count < max_attempts`) or `'dead_letter'` (if attempts exhausted), clearing lease and locks in a single atomic SQL statement.
+
+6. **Correct Migration Ownership & ACL Lifecycle Ordering**:
+   - Migration `0021_job_queue_hardening.sql` implements a safe, forward-only sequence:
+     1. Obtains temporary `fluxora_queue` authority and schema `CREATE` privileges.
+     2. Drops the old function owned by `fluxora_queue` while holding owner authority.
+     3. Creates the new 4-parameter function and transfers ownership to `fluxora_queue`.
+     4. Configures ACLs while holding owner authority: revokes `ALL` on function from `PUBLIC`, and grants `EXECUTE` to `CURRENT_USER` (and optional dedicated worker/test roles).
+     5. Revokes temporary schema privileges and membership before the migration ends.
+     6. Verifies all 4 queue functions, lack of `PUBLIC` execute, presence of role execute, and lack of inheriting/setting membership.
+
+7. **Queue Integration Test Host Validation Before Database Connection**:
+   - In `packages/db/src/repositories/job-queue-rls.test.ts`, `assertApprovedQueueTestHost()` strictly validates the hostname from `FLUXORA_QUEUE_TEST_DATABASE_URL` against `APPROVED_QUEUE_TEST_HOSTS` (`localhost`, `127.0.0.1`, `::1`, `[::1]`, `postgres`) before creating any database client or issuing SQL.
+   - Inside `verifyDatabaseIsolation()` and `beforeAll()`, `assertApprovedQueueTestHost()` executes before `fetchDatabaseIdentity()` or `runMigrations(pool)`.
+   - Remote hosts, unapproved IP addresses, and custom hostnames are rejected with a clear safety violation error.
+   - Dedicated unit safety tests prove unapproved remote hosts are rejected before client creation or migration execution while preserving existing identity comparison, `fluxora_dev` rejection, and clean-queue checks.
+
+### 3. Verification Summary
+
+- Forward-only migrations: `0020_job_queue_least_privilege_rls.sql` and `0021_job_queue_hardening.sql`.
+- Dedicated client/pool unit tests (`job-worker-client.test.ts`): 16 passed, 0 failed.
+- Focused queue/RLS integration and safety tests (`job-queue-rls.test.ts`): 18 passed (5 safety guard tests + 13 queue integration tests), 0 failed.
+- Incremental non-superuser migration tests (`job-queue-rls-migration.test.ts`): 6 passed (5 safety guard tests + 1 skipped without destructive opt-in flag), 0 failed.
+- Combined queue test suite execution: 40 passed, 0 failed.
+- @fluxora/db unit & integration tests: 20 test files, 269 passed, 6 skipped.
+- @fluxora/api tests: 14 test files, 190 passed.
+- @fluxora/workers tests: 21 test files, 295 passed, 4 skipped.
+- @fluxora/web tests: 15 test files, 220 passed.
+- @fluxora/infrastructure tests: 1 test file, 7 passed.
+- Workspace typecheck (`pnpm typecheck`): 0 errors across all 7 workspace projects.
+- Workspace lint (`pnpm lint`): 0 errors.
+- Evidence lint (`pnpm lint:evidence`): 0 errors across all 5 conclusion-producing target files.
+- Workspace build (`pnpm build`): Next.js 16 App Router build successful.
+- Git whitespace & safety check (`git diff --check`): clean.

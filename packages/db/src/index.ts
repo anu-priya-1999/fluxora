@@ -2,6 +2,8 @@ export { getDatabaseUrl } from "./config.ts";
 export { loadRootEnvFile } from "./cli/env.ts";
 export { closePool, getPool } from "./pool.ts";
 export {
+  DATABASE_ROLE_ENV,
+  localDatabaseRole,
   setTenantOnClient,
   TENANT_SESSION_VARIABLE,
   withTenant,

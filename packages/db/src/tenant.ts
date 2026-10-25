@@ -19,9 +19,9 @@ export type TenantScopedCallback<T> = (client: pg.PoolClient) => Promise<T>;
  * Runs `fn` inside a transaction with `app.current_org_id` set for RLS.
  * Callers must use the supplied client for all queries in `fn`.
  */
-const DATABASE_ROLE_ENV = "FLUXORA_DATABASE_ROLE";
+export const DATABASE_ROLE_ENV = "FLUXORA_DATABASE_ROLE";
 
-function localDatabaseRole(): string | null {
+export function localDatabaseRole(): string | null {
   const role = process.env[DATABASE_ROLE_ENV];
   if (role === undefined || role.length === 0) {
     return null;

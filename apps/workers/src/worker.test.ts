@@ -75,7 +75,7 @@ test("JobWorker retries retryable failures with exponential retry delays across 
     async failJob(jobId) {
       return failedJob({ ...runningJob(currentAttempt), id: jobId });
     },
-    async retryFailedJob(jobId, retryDelaySeconds = 0) {
+    async retryFailedJob(jobId, _workerId, retryDelaySeconds = 0) {
       delays.push(retryDelaySeconds);
       return { ...runningJob(currentAttempt), id: jobId, status: "pending" };
     },
