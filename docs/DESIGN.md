@@ -12355,3 +12355,489 @@ However, the background worker queue is intentionally global and cross-tenant:
 - Evidence lint (`pnpm lint:evidence`): 0 errors across all 5 conclusion-producing target files.
 - Workspace build (`pnpm build`): Next.js 16 App Router build successful.
 - Git whitespace & safety check (`git diff --check`): clean.
+
+---
+
+## Production Hardening — Fix 2: Worker Crash Recovery and Retry Limits
+
+### 1. Problem & Root Cause
+
+When a background worker crashes unexpectedly (e.g., node OOM killer, host termination, uncaught signal, power loss), it cannot invoke `public.fluxora_fail_job()` or `public.fluxora_retry_failed_job()`.
+
+A worker crash differs fundamentally from a reported failure:
+- **Reported failure:** The surviving worker holds an active lease and explicitly calls `public.fluxora_fail_job(p_job_id, p_worker_id, p_error)` or `public.fluxora_retry_failed_job(p_job_id, p_worker_id, p_retry_delay_seconds, p_error)`. The database transitions the job to `failed`, `pending` (with exponential backoff delay), or `dead_letter` atomically while verifying worker identity and active lease ownership.
+- **Worker crash:** The worker abruptly ceases execution without executing cleanup logic or notifying PostgreSQL. The job row remains in status `'running'` with `locked_by` set and an unexpired `lease_expires_at` until the lease naturally expires in the past (`lease_expires_at <= pg_catalog.now()`).
+
+Under historical queue implementations, the claim function `fluxora_claim_next_job` reclaimed expired running jobs without checking whether `attempt_count` had already reached `max_attempts`. Consequently:
+- If a job repeatedly crashed worker processes, every subsequent claim incremented `attempt_count` past `max_attempts`.
+- The configured retry limit (`max_attempts`) was completely bypassed on crash paths, allowing poisoned tasks or crashing bugs to be retried indefinitely.
+- Corrupted or inconsistent pending rows at or above `max_attempts` could also be claimed.
+
+### 2. Attempt-Count Invariant & Semantic Definition
+
+`attempt_count` is defined strictly as:
+> The number of execution attempts successfully claimed by workers.
+
+The queue enforces this invariant at the database level:
+`0 <= attempt_count <= max_attempts`
+
+Rules:
+1. Every successful claim increments `attempt_count` by exactly 1.
+2. A job is eligible for claim if and only if `attempt_count < max_attempts`.
+3. A job must never be returned to a worker if claiming it would cause `attempt_count` to exceed `max_attempts`.
+4. The initial claim counts as attempt 1 (`attempt_count = 1`). A job with `max_attempts = 1` may be claimed at most once.
+
+### 3. Database-Level Crash Recovery Policy
+
+Forward-only migration `0022_job_queue_crash_recovery_retry_limit.sql` updates `public.fluxora_claim_next_job` to implement deterministic, atomic crash recovery:
+
+1. **Dead-Letter Cleanup of Exhausted Expired / Pending Jobs**:
+   - Before attempting to claim new work, `fluxora_claim_next_job` executes a bounded batch update (up to 25 rows) targeting:
+     - Expired `running` jobs whose lease has expired (`status = 'running' AND lease_expires_at <= pg_catalog.now()`) AND whose attempt count has reached or exceeded the limit (`attempt_count >= max_attempts`).
+     - Legacy or manually modified `pending` jobs already at or above the limit (`status = 'pending' AND attempt_count >= max_attempts`).
+   - Matching rows are locked using `FOR UPDATE SKIP LOCKED` to prevent blocking or racing with concurrent claim operations.
+   - Rows are transitioned to `status = 'dead_letter'`.
+   - Metadata cleanup: `locked_at`, `locked_by`, and `lease_expires_at` are cleared to `NULL`.
+   - Terminal failure timestamp `failed_at` is set to `pg_catalog.now()`.
+   - `last_error` records a sanitized diagnostic reason:
+     - For expired running jobs: `'Job lease expired after retry limit reached'`.
+     - For pending jobs: `COALESCE(j.last_error, 'Job exceeded retry limit while pending')`.
+   - Active, unexpired running jobs (`lease_expires_at > now()`) are never touched or dead-lettered.
+
+2. **Atomic Eligible Claim**:
+   - The candidate selection query filters candidates strictly by:
+     `((j.status = 'pending' AND j.attempt_count < j.max_attempts) OR (j.status = 'running' AND j.lease_expires_at IS NOT NULL AND j.lease_expires_at <= pg_catalog.now() AND j.attempt_count < j.max_attempts)) AND j.available_at <= pg_catalog.now()`
+   - Ordered deterministically by `j.available_at ASC, j.id ASC` with `FOR UPDATE SKIP LOCKED LIMIT 1`.
+   - The selected candidate is atomically updated to `status = 'running'`, `attempt_count = j.attempt_count + 1`, and leased to `p_worker_id` for `p_lease_seconds`.
+   - If no eligible candidate exists, the function returns 0 rows (returning `null` to the calling worker).
+
+3. **Concurrency & Locking Guarantees**:
+   - Both the dead-letter cleanup step and candidate selection step use `FOR UPDATE SKIP LOCKED`.
+   - Concurrent workers never block on one another or claim the same job.
+   - An exhausted expired job is never claimed during a race with dead-letter recovery.
+
+4. **Security & Ownership Sequence**:
+   - Function language: `plpgsql` with `#variable_conflict use_column` and pinned `search_path = pg_catalog, public, pg_temp`.
+   - Function owner: preserved as dedicated least-privilege role `fluxora_queue`.
+   - `PUBLIC` execution revoked; `EXECUTE` granted to `CURRENT_USER` (and `fluxora_rls_test` / `fluxora_worker` if present).
+   - Temporary owner-role membership granted to migration user and revoked before migration transaction commit.
+   - `FORCE ROW LEVEL SECURITY` reaffirmed on `public.jobs`.
+
+### 4. Verification Summary
+
+- Forward-only migration: `0022_job_queue_crash_recovery_retry_limit.sql`.
+- Focused queue/RLS regression suite (`job-queue-rls.test.ts`): 28 passed (5 safety guard tests + 13 queue/RLS tests + 10 crash recovery and invariant enforcement tests), 0 failed.
+- Incremental non-superuser migration suite (`job-queue-rls-migration.test.ts`): 7 passed, 0 failed under non-superuser migration role `fluxora_migrator_test`.
+- Full workspace verification:
+  - `@fluxora/db`: 20 test files, 281 passed, 5 skipped, 0 failed.
+  - `@fluxora/workers`: 21 test files, 295 passed, 4 skipped, 0 failed.
+  - `@fluxora/api`: 14 test files, 190 passed, 0 failed.
+  - `@fluxora/web`: 15 test files, 220 passed, 0 failed.
+  - `@fluxora/infrastructure`: 1 test file, 7 passed, 0 failed.
+  - `pnpm typecheck`: 0 errors across 7 projects.
+  - `pnpm lint`: 0 errors.
+  - `pnpm lint:evidence`: 0 errors across 5 targets.
+  - `pnpm build`: Next.js 16 build clean.
+  - `actionlint`: .github/workflows/ci.yml clean.
+  - `git diff --check`: clean.
+
+---
+
+## Production Hardening — Fix 2A: Database Attempt-Count Invariant & Parameter Validation
+
+### 1. Problem & Context
+
+While Fix 2 (migration `0022`) implemented crash recovery and filtered claim candidates to `attempt_count < max_attempts`, it did not enforce the upper-bound invariant at the database level with a table `CHECK` constraint. Consequently:
+- Historical rows from pre-Fix-2 operations could exist where `attempt_count > max_attempts`.
+- Direct database writes or updates could theoretically violate `attempt_count <= max_attempts`.
+- `public.fluxora_claim_next_job` relied on TypeScript wrapper validation and did not validate SQL input parameters inside PostgreSQL, meaning direct SQL calls with `p_worker_id = ''` or negative `p_lease_seconds` would proceed to database queries and row modifications.
+
+### 2. Forward-Only Migration Strategy (`0023_job_queue_attempt_count_invariant.sql`)
+
+Because migration `0022` had already been applied to persistent environments (`fluxora_dev`), migrations `0001`–`0022` were preserved unmodified. Fix 2A is implemented via forward-only migration `0023_job_queue_attempt_count_invariant.sql`.
+
+### 3. Explicit Legacy-Data Reconciliation Policy
+
+Before adding and validating the table `CHECK` constraint, migration `0023` reconciles all existing rows where `attempt_count > max_attempts` across every possible queue status without silently corrupting historical attempt metrics:
+
+1. **Pending rows (`status = 'pending' AND attempt_count > max_attempts`)**:
+   - The job has already exhausted all attempts and must not be claimed.
+   - Transitioned to `status = 'dead_letter'`.
+   - Locks and lease cleared (`locked_at = NULL, locked_by = NULL, lease_expires_at = NULL`).
+   - `failed_at = COALESCE(failed_at, now())`.
+   - `last_error = COALESCE(last_error, 'Job exceeded retry limit while pending')`.
+   - `max_attempts` aligned to `attempt_count` (preserving true historical attempt count).
+
+2. **Expired running rows (`status = 'running' AND lease_expires_at <= now() AND attempt_count > max_attempts`)**:
+   - The worker crashed on an over-limit execution.
+   - Transitioned to `status = 'dead_letter'`.
+   - Locks and lease cleared (`locked_at = NULL, locked_by = NULL, lease_expires_at = NULL`).
+   - `failed_at = COALESCE(failed_at, now())`.
+   - `last_error = COALESCE(last_error, 'Job lease expired after retry limit reached')`.
+   - `max_attempts` aligned to `attempt_count` (preserving true historical attempt count).
+
+3. **Active running rows (`status = 'running' AND lease_expires_at > now() AND attempt_count > max_attempts`)**:
+   - An active worker holds an unexpired lease.
+   - Active lease is strictly preserved: `status`, `locked_by`, `locked_at`, `lease_expires_at`, and `started_at` remain untouched.
+   - `max_attempts` aligned to `attempt_count`.
+   - When the worker finishes:
+     - On completion (`fluxora_complete_job`): transitions to `completed` with `attempt_count == max_attempts`, preventing it from remaining over-limit indefinitely.
+     - On failure (`fluxora_fail_job`): transitions to `dead_letter` because `attempt_count >= max_attempts`.
+     - On worker crash: once lease expires, normal claim crash recovery dead-letters it.
+
+4. **Completed rows (`status = 'completed' AND attempt_count > max_attempts`)**:
+   - Historical success metrics preserved: `status = 'completed'`, `completed_at` intact, `attempt_count` intact.
+   - `max_attempts` aligned to `attempt_count`.
+
+5. **Failed / Dead-letter rows (`status IN ('failed', 'dead_letter') AND attempt_count > max_attempts`)**:
+   - Terminal state preserved: transitioned to or kept as `dead_letter`.
+   - `failed_at = COALESCE(failed_at, now())`.
+   - `max_attempts` aligned to `attempt_count`.
+
+6. **Safety Invariant**:
+   - `attempt_count` is **never decremented or corrupted**.
+   - If any over-limit row remains after reconciliation, the migration aborts with a diagnostic error (`Failed to reconcile legacy jobs...`).
+
+### 4. Database-Level Constraint & Parameter Validation
+
+1. **Table Constraint**:
+   - Constraint `jobs_attempt_count_le_max_attempts` added `NOT VALID` enforcing `CHECK (attempt_count <= max_attempts)`.
+   - Validated via `ALTER TABLE public.jobs VALIDATE CONSTRAINT jobs_attempt_count_le_max_attempts`.
+   - Pre-existing constraints `jobs_attempt_count_check` (`attempt_count >= 0`) and `jobs_max_attempts_check` (`max_attempts > 0`) remain intact.
+   - Together, the database strictly guarantees:
+     `0 <= attempt_count <= max_attempts` AND `max_attempts > 0`.
+
+2. **SQL Parameter Validation in `public.fluxora_claim_next_job`**:
+   - Rejected before any table queries or row modifications:
+     - NULL or whitespace-only `p_worker_id` (via `pg_catalog.length(pg_catalog.btrim(p_worker_id, E' \t\n\r')) = 0`).
+     - NULL, zero, or negative `p_lease_seconds` (`p_lease_seconds IS NULL OR p_lease_seconds <= 0`).
+   - Uses clear, bounded error messages:
+     - `'p_worker_id must be a non-empty, non-whitespace string'`
+     - `'p_lease_seconds must be a positive integer'`
+   - Rejection causes zero row mutations, zero attempt-count changes, and zero lock updates.
+   - Function ownership remains `fluxora_queue`, `SECURITY DEFINER`, pinned `search_path`, no PUBLIC grants, and `FORCE ROW LEVEL SECURITY` reaffirmed.
+
+---
+
+## Production Hardening — Fix 2B: RLS-Safe Legacy Attempt-Count Reconciliation
+
+### 1. Root Cause Analysis
+
+In migration `0023_job_queue_attempt_count_invariant.sql`, the legacy data reconciliation backfill directly executed an `UPDATE` on `public.jobs`.
+
+However:
+- Table `public.jobs` enforces `FORCE ROW LEVEL SECURITY`.
+- Ordinary tenant policies restrict SELECT and UPDATE to rows where `organization_id = fluxora_current_org_id()`.
+- Queue-level policies (`jobs_queue_select`, `jobs_queue_update`) apply strictly to role `fluxora_queue`, which has `NOINHERIT`.
+- In a production migration run, the migration runner connects as a constrained non-superuser role (the table owner) without tenant context (`fluxora_current_org_id()` evaluates to `NULL`).
+- The original Fix 2A integration test set `app.current_org_id` to a single organization fixture during the test run, inadvertently masking the production condition where no tenant GUC exists.
+- In production, without tenant context and without an active RLS policy for the migration role, `UPDATE public.jobs` would match 0 rows, and subsequent `ALTER TABLE public.jobs VALIDATE CONSTRAINT jobs_attempt_count_le_max_attempts` (which validates at the physical storage level) would fail if any historical over-limit rows existed in any organization.
+
+### 2. Least-Privilege Architecture & Solution
+
+To reconcile legacy rows across all organizations without weakening database security boundaries:
+
+1. **Transaction-Scoped Migration Policy**:
+   - Migration `0023` creates a temporary migration-scoped RLS policy:
+     ```sql
+     DROP POLICY IF EXISTS jobs_migration_reconcile_0023 ON public.jobs;
+     CREATE POLICY jobs_migration_reconcile_0023
+       ON public.jobs
+       FOR ALL
+       TO CURRENT_USER
+       USING (true)
+       WITH CHECK (true);
+     ```
+   - Scoped strictly to `CURRENT_USER` (the table-owning migration role).
+   - Because PostgreSQL combines permissive policies with `OR`, `(tenant_policy OR jobs_migration_reconcile_0023)` evaluates to `true` for `CURRENT_USER`, allowing the migration runner to view and reconcile all legacy rows schema-wide regardless of tenant GUC context.
+   - Non-migration roles receive zero visibility or privileges from this policy.
+
+2. **Immediate Removal & Rollback Safety**:
+   - The temporary policy is dropped immediately following the reconciliation backfill and verification DO block:
+     ```sql
+     DROP POLICY jobs_migration_reconcile_0023 ON public.jobs;
+     ```
+   - The migration transaction then proceeds to constraint validation, function updating, and ownership transfer.
+   - `FORCE ROW LEVEL SECURITY` remains permanently enabled and enforced on `public.jobs`.
+   - Neither `BYPASSRLS` nor superuser privileges are granted or required.
+   - If any statement or verification fails, the entire transaction rolls back atomically, ensuring the backfill, temporary policy, and constraint changes are discarded together.
+   - The verification DO block confirms that `jobs_migration_reconcile_0023` does not exist in `pg_catalog.pg_policies`.
+
+### 3. Production Context Reproduction & Test Verification
+
+In `packages/db/src/migrate/job-queue-rls-migration.test.ts`:
+
+1. **Multi-Tenant Legacy Fixtures**:
+   - Fixtures covering all 5 legacy over-limit cases are created across two distinct organizations (`inc-mig-org-1` and `inc-mig-org-2`) using their respective tenant contexts.
+2. **Strict Production Environment Reproduction**:
+   - Tenant context is explicitly cleared via `RESET app.current_org_id` and verified `null` prior to running migration 0023.
+   - Verified that under `FORCE ROW LEVEL SECURITY`, the non-superuser migration role sees 0 rows in `public.jobs` without tenant context before migration 0023 runs.
+3. **Constrained Non-Superuser Execution**:
+   - Migration 0023 is applied as non-superuser migration role `fluxora_migrator_test`.
+   - Verified that after migration commit, the temporary policy `jobs_migration_reconcile_0023` is completely absent.
+   - Verified that the migration role without tenant context continues to see 0 rows (no bypass retained).
+4. **Cross-Tenant Reconciliation Assertions**:
+   - Switching to `inc-mig-org-1` context verifies pending, expired running, and active running rows were reconciled, and the active running job completes cleanly via `fluxora_complete_job`.
+   - Switching to `inc-mig-org-2` context verifies completed, failed, dead-letter, and pending rows were reconciled.
+   - Verified that the `CHECK (attempt_count <= max_attempts)` constraint is present, validated, and prevents future invalid writes in both organizations.
+5. **Clean Installation Verification**:
+   - Added clean installation integration test executing all migrations `0001` through `0023` on a fresh disposable database.
+   - Verified constraint presence and validation, function ownership and grants, `fluxora_queue` role attributes, absence of temporary policies, and `FORCE ROW LEVEL SECURITY`.
+
+### 4. Verification Summary
+
+- Forward-only migration: `0023_job_queue_attempt_count_invariant.sql`.
+- Focused migration suite (`job-queue-rls-migration.test.ts`): 9 passed (including incremental migration under non-superuser role with no tenant GUC and fresh database clean installation through 0023), 0 failed.
+- Focused queue/RLS suite (`job-queue-rls.test.ts`): 32 passed, 0 failed.
+- Full workspace test & quality results:
+  - `@fluxora/db`: 20 test files, 258 passed, 34 skipped, 0 failed (287 passed, 5 skipped with disposable test database).
+  - `@fluxora/workers`: 21 test files, 295 passed, 4 skipped, 0 failed.
+  - `@fluxora/api`: 14 test files, 190 passed, 0 failed.
+  - `@fluxora/web`: 15 test files, 220 passed, 0 failed.
+  - `@fluxora/infrastructure`: 1 test file, 7 passed, 0 failed.
+  - `pnpm typecheck`: 0 errors across 7 workspace projects.
+  - `pnpm lint`: 0 errors.
+  - `pnpm lint:evidence`: 0 errors across 5 conclusion-producing targets.
+  - `pnpm build`: Next.js 16 build clean.
+
+
+---
+
+## Production Hardening — Fix 2C: Preserve Original Retry Configuration During Legacy Reconciliation
+
+### 1. Problem & Semantic Invariant
+
+In Fix 2B, migration `0023_job_queue_attempt_count_invariant.sql` normalized legacy rows whose `attempt_count > max_attempts` by updating `max_attempts = attempt_count`. While this successfully prevented invariant violations and avoided decrementing historical attempt metrics, it permanently overwrote and lost the original configured retry limit for those legacy jobs.
+
+To resolve this without weakening the deterministic execution engine or invalidating the physical attempt-count invariant, Fix 2C introduces a clear semantic and schema distinction between the configured limit and the operational limit:
+
+1. **`configured_max_attempts` (Original Configured Limit)**:
+   - Represents the intended maximum retry budget specified when the job was enqueued or configured by the author / system.
+   - Remains strictly immutable across worker claims, retries, and legacy data reconciliation.
+   - Enforced by CHECK constraint `jobs_configured_max_attempts_check CHECK (configured_max_attempts > 0)`.
+
+2. **`max_attempts` (Effective Operational Upper Bound)**:
+   - The operational limit enforced by PostgreSQL and the queue scheduler.
+   - For all normal jobs, `max_attempts = configured_max_attempts`.
+   - Under legacy reconciliation for pre-existing rows where `attempt_count > max_attempts`, `max_attempts` was elevated to equal `attempt_count` so that the fundamental invariant `0 <= attempt_count <= max_attempts` holds at the physical table level (`CHECK (attempt_count <= max_attempts)`) without falsifying attempt metrics.
+
+### 2. Migration Execution & Reconciliation Order
+
+In revised migration `0023_job_queue_attempt_count_invariant.sql`:
+
+1. **Temporary Migration-Scoped RLS Policy**:
+   - Created scoped strictly to `CURRENT_USER` (`jobs_migration_reconcile_0023`) under transactional execution.
+2. **Pre-Reconciliation Column Addition & Backfill**:
+   - `ALTER TABLE public.jobs ADD COLUMN IF NOT EXISTS configured_max_attempts integer;`
+   - `UPDATE public.jobs SET configured_max_attempts = max_attempts WHERE configured_max_attempts IS NULL;`
+   - Executed **before** any legacy row status or limit normalization, ensuring original limits are permanently preserved in `configured_max_attempts`.
+   - Configured with `DEFAULT 3`, `NOT NULL`, and `CHECK (configured_max_attempts > 0)`.
+3. **Legacy Reconciliation**:
+   - `max_attempts = attempt_count` for rows where `attempt_count > max_attempts`.
+   - `configured_max_attempts` remains unmodified, preserving the original limit.
+   - `attempt_count` metrics are never decremented or fabricated.
+   - Active running leases, locks, and timeouts are preserved.
+   - Pending, expired running, and failed over-limit rows transition to `dead_letter`.
+   - Completed rows retain terminal status and metrics.
+4. **Invariant Validation & Policy Removal**:
+   - Verification DO block confirms no over-limit rows remain and `configured_max_attempts` is non-null.
+   - Temporary policy `jobs_migration_reconcile_0023` is dropped immediately before transaction commit.
+   - CHECK constraint `jobs_attempt_count_le_max_attempts` is added and validated.
+5. **Queue Functions & Enqueue Persistence**:
+   - `fluxora_claim_next_job` output signature updated to return `configured_max_attempts`.
+   - `enqueueJob` persists `configured_max_attempts` alongside `max_attempts`.
+   - Domain model `Job` and `EnqueueJobInput` types updated in `@fluxora/shared-types`.
+   - Repository `mapJob`, `getJobById`, and `claimNextJob` map `configuredMaxAttempts`.
+
+### 3. Verification Summary
+
+- Forward-only revised migration: `0023_job_queue_attempt_count_invariant.sql`.
+- Incremental non-superuser migration suite (`job-queue-rls-migration.test.ts`): 9 passed, 0 failed.
+  - Confirmed original configured limits survive reconciliation across pending, expired running, active running, completed, failed, and dead-letter records.
+  - Confirmed active leases preserved on active running records.
+  - Confirmed CHECK constraint validated and rejects over-limit writes.
+  - Confirmed normal enqueue stores requested configured limits.
+  - Confirmed clean installation and incremental migration under non-superuser role without tenant context.
+- Focused queue/RLS suite (`job-queue-rls.test.ts`): 33 passed, 0 failed.
+  - Verified `configured_max_attempts` enqueue persistence, mapping, and CHECK constraints.
+- Quality & build verification:
+  - `pnpm typecheck`: 0 errors across 7 workspace projects.
+  - `pnpm lint`: 0 errors.
+  - `pnpm lint:evidence`: 0 errors across 5 conclusion-producing targets.
+  - `pnpm build`: Next.js 16 build clean.
+
+
+---
+
+## Production Hardening — Fix 2D: Correct Configured Retry Limit Propagation, Validation, and Immutability
+
+### 1. Problem & Gap Analysis
+
+In Fix 2C, `configured_max_attempts` was introduced to preserve original retry limits during legacy data reconciliation. However:
+1. **Incomplete Function Return Signatures**: `completeJob`, `failJob`, and `retryFailedJob` SQL queries omitted `configured_max_attempts`, while `mapJob` silently fell back to `max_attempts`. For reconciled legacy rows where `max_attempts` was elevated to match `attempt_count`, worker completions and failures incorrectly returned the elevated operational limit rather than the original configured retry limit.
+2. **Missing Input Conflict Validation**: Callers supplying conflicting `maxAttempts` and `configuredMaxAttempts` on enqueue were not rejected, permitting new jobs with conflicting limit parameters.
+3. **Column Default Divergence on Direct SQL Inserts**: A direct SQL `INSERT` supplying only `max_attempts` (or only `configured_max_attempts`) could silently produce differing values due to the static column default of 3.
+4. **Lack of Database-Level Immutability**: No database trigger guarded `configured_max_attempts` against unexpected post-insert mutation.
+
+### 2. Implementation & Database Guard Architecture
+
+1. **Comprehensive Function Return Signatures & Repository Mapping**:
+   - Migration-safe function recreation: All 4 queue functions (`fluxora_claim_next_job`, `fluxora_complete_job`, `fluxora_fail_job`, `fluxora_retry_failed_job`) are explicitly dropped via `DROP FUNCTION IF EXISTS` before recreation with `configured_max_attempts integer` in `RETURNS TABLE` and `RETURNING` clauses.
+   - Preserved `SECURITY DEFINER`, `SET search_path = pg_catalog, public, pg_temp`, function ownership by `fluxora_queue`, and explicit execution ACLs.
+   - In `packages/db/src/repositories/job.ts`:
+     - `JobRow` requires `configured_max_attempts: number` (no optional modifier).
+     - `mapJob` maps `configuredMaxAttempts: row.configured_max_attempts` with zero fallback.
+     - `completeJob`, `failJob`, and `retryFailedJob` select `configured_max_attempts` directly from their respective stored functions.
+2. **Conflicting Enqueue Input Validation**:
+   - In `validateEnqueueInput`: when both `maxAttempts` and `configuredMaxAttempts` are supplied, they must match; otherwise throws `"job maxAttempts and configuredMaxAttempts must match when both are provided"`.
+   - Backward compatibility: callers providing only `maxAttempts` or only `configuredMaxAttempts` continue to work identically, setting both fields to the requested limit.
+   - When neither limit is provided, both default to 3.
+3. **Database-Level Trigger Guard (`fluxora_jobs_retry_limits_guard`)**:
+   - Static column defaults on `max_attempts` and `configured_max_attempts` are dropped in favor of trigger coordination.
+   - `BEFORE INSERT`:
+     - If both limits are omitted/NULL: sets both to 3.
+     - If only `max_attempts` is supplied: propagates to `configured_max_attempts` when positive (or defaults to 3 on invalid inputs so table CHECK constraints evaluate cleanly).
+     - If only `configured_max_attempts` is supplied: propagates to `max_attempts` when positive.
+     - If both are supplied and positive: verifies they match, raising an exception if they conflict.
+   - `BEFORE UPDATE`:
+     - Immutability check: raises exception `"configured_max_attempts is immutable and cannot be updated"` if an update attempts to mutate `configured_max_attempts` after initial assignment.
+     - Preserves legacy reconciliation during backfill (where `OLD.configured_max_attempts` is initially NULL) and subsequent operational limit elevations.
+
+### 3. Verification & Test Evidence
+
+- **Focused Suite**:
+  - `packages/db/src/migrate/job-queue-rls-migration.test.ts` (9 tests passed):
+    - Static analysis verifying all 4 functions include `configured_max_attempts`, `DROP FUNCTION IF EXISTS` lifecycle, and trigger guard registration.
+    - Incremental migration under non-superuser role: verified `fluxora_complete_job` returns original configured limit on reconciled legacy jobs; verified direct SQL single-parameter insert, conflict rejection, and update immutability.
+    - Clean installation through migration 0023 verifying all 4 functions and trigger guard on fresh disposable database.
+  - `packages/db/src/repositories/job-queue-rls.test.ts` (36 tests passed):
+    - Input validation test verifying matching, conflicting, invalid, and backward-compatible parameters.
+    - Direct SQL insert and immutability guard test.
+    - Reconciled legacy fixtures verifying `completeJob`, `failJob` (transitioning to failed and dead_letter), and `retryFailedJob` (transitioning to pending and dead_letter) all return the persisted configured limit.
+- **Combined Focused Suites**: 45 passed (2 test files), 0 failed.
+- **Quality Checks**:
+  - `pnpm typecheck`: 0 errors across 7 workspace projects.
+  - `pnpm lint`: 0 errors.
+  - `pnpm lint:evidence`: 0 errors across 5 conclusion-producing targets.
+  - `pnpm build`: Next.js 16 build clean.
+
+---
+
+## Production Hardening — Fix 2E: Forward-Only Migration 0024 and Applied-Schema Reconciliation
+
+### 1. Problem & Migration History Reconciliation
+
+During Fix 2C and Fix 2D, migration file `0023_job_queue_attempt_count_invariant.sql` was revised in-place in the working tree to introduce `configured_max_attempts`, drop/recreate queue functions, and install trigger guards. However, inspection of the applied migration history in production and developer databases (`fluxora_dev`) revealed:
+- `public.schema_migrations` recorded:
+  - `0022_job_queue_crash_recovery_retry_limit.sql` applied on October 25, 2026 (`2026-10-25T12:55:40.706Z`).
+  - `0023_job_queue_attempt_count_invariant.sql` applied on October 26, 2026 (`2026-10-26T08:00:30.636Z`).
+- Because the migration runner skips migrations already recorded as applied in `schema_migrations`, databases that already applied 0023 remained at the Fix 2B schema:
+  - Column `configured_max_attempts` did NOT exist on `public.jobs`.
+  - All 4 queue functions retained the 0022/0023 return table signatures without `configured_max_attempts`.
+  - No trigger guard `jobs_retry_limits_guard_trigger` existed on `public.jobs`.
+  - Revising an already-applied migration file in-place broke incremental migration for installed environments and created schema drift between fresh installs and upgraded databases.
+
+### 2. Applied-Schema Restoration & Forward-Only Migration Strategy
+
+1. **Preservation of Applied Migration 0023 as Historical**:
+   - Migration `0023_job_queue_attempt_count_invariant.sql` is treated strictly as historical reflecting the applied Fix 2B migration history rather than an inaccurate claim of verbatim source restoration. Migrations `0001` through `0022` are preserved untouched.
+2. **Forward-Only Migration 0024 (`0024_job_queue_configured_retry_limit.sql`)**:
+   - Implemented all post-0023 schema evolutions in a new, transactional, forward-only migration.
+   - Adds column `configured_max_attempts integer` to `public.jobs` if it does not exist (nullable).
+   - **Temporary RLS Migration Policy**: Creates `jobs_migration_reconcile_0024` scoped to `CURRENT_USER` enabling the non-superuser migration runner to backfill rows under `FORCE ROW LEVEL SECURITY` without a tenant GUC, dropping the policy immediately prior to commit.
+   - **Honest Representation of Historical Uncertainty**:
+     - For historical records where migration 0023 already executed and elevated `max_attempts = attempt_count`, or where a job reached its operational limit, the original configured value cannot be reliably established without external audit evidence.
+     - For legacy rows where `attempt_count < max_attempts`, preserves the available limit as the configured value (`configured_max_attempts = max_attempts`).
+     - For rows where `attempt_count >= max_attempts`, honestly represents the original configured value as unknown (`configured_max_attempts = NULL`), rather than inventing or inferring an original value from the normalized value alone.
+     - Documents that `NULL` means the original limit cannot be established reliably.
+     - `configured_max_attempts` is nullable and propagated as `number | null` through `Job`, repository mappings, consumers, and API responses.
+     - Repository mapping directly maps `row.configured_max_attempts` without silently substituting the operational limit.
+     - New jobs must always receive a valid, non-null configured limit (defaulting to 3 if omitted, matching if both provided, or rejecting `<= 0`).
+   - **Constraints & Immutability**:
+     - Drops static column defaults on `max_attempts` and `configured_max_attempts`.
+     - Adds `CHECK (configured_max_attempts IS NULL OR configured_max_attempts > 0)` constraint `jobs_configured_max_attempts_check`.
+     - Validates `jobs_attempt_count_le_max_attempts`.
+     - Installs `fluxora_jobs_retry_limits_guard` trigger function and `jobs_retry_limits_guard_trigger` enforcing:
+       - Default limits of 3 on insert when omitted.
+       - Single-sided parameter propagation.
+       - Matching validation (`"job max_attempts and configured_max_attempts must match on new jobs when both are provided"`).
+       - Enforces non-null limit on insert (`"new jobs must receive a valid, non-null configured limit"`).
+       - Full update immutability (`"configured_max_attempts is immutable and cannot be updated"`), preventing normal updates from replacing an unknown historical value (`NULL`).
+   - **Migration-Safe Function Return Signatures**:
+     - Uses `DROP FUNCTION IF EXISTS` before recreating all 4 queue functions (`fluxora_claim_next_job`, `fluxora_complete_job`, `fluxora_fail_job`, `fluxora_retry_failed_job`), safely handling PostgreSQL's restriction against altering `RETURNS TABLE` columns via `CREATE OR REPLACE FUNCTION`.
+     - Updates all 4 functions to return `configured_max_attempts`.
+     - Uses `GREATEST(0, COALESCE(p_retry_delay_seconds, 0))` without schema prefixing to respect PostgreSQL keyword syntax.
+     - Re-establishes `SECURITY DEFINER`, pinned `search_path = pg_catalog, public, pg_temp`, ownership by `fluxora_queue`, least-privilege grants to `CURRENT_USER` (and conditional runtime roles), and revocation of `EXECUTE` from `PUBLIC`.
+     - Grants `EXECUTE` on `fluxora_jobs_retry_limits_guard()` to `CURRENT_USER` so trigger creation succeeds under a constrained role without relying on `PUBLIC EXECUTE`.
+     - Qualifies all system catalog references (`pg_catalog.pg_roles`, `pg_catalog.current_setting`).
+     - Fully validates all constraints, triggers, functions, ownership, and policy cleanup in an inline post-migration `DO $$` validation block.
+
+### 3. Verification & Safety Guarantees
+
+- **Developer Database Safety**: `fluxora_dev` was inspected with strictly read-only queries. Migration 0024 was never executed against `fluxora_dev`, and `fluxora_dev` was never dropped, reset, or recreated.
+- **Dedicated Disposable Test Databases**:
+  - `fluxora_inc_migration_test`: Verified incremental migration from 0001 through 0020, non-superuser application of 0021, 0022, 0023, legacy row reconciliation under 0023, subsequent forward application of 0024, honest backfill (`NULL` for rows at limit, preserved limit for rows under limit), trigger immutability for both null and non-null values, and function ownership.
+  - `fluxora_clean_install_test`: Verified clean installation of 0001 through 0024 using a constrained non-superuser role (`NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, CREATEROLE`), confirming function ownership (`fluxora_queue`), `SECURITY DEFINER`, pinned `search_path`, execution grants (revoked from `PUBLIC`, granted to migrator), validated constraints, trigger behavior, `FORCE ROW LEVEL SECURITY`, and absence of temporary migration policies.
+  - `fluxora_queue_test`: Verified complete repository integration suite under RLS.
+- **Test Results**:
+  - `packages/db/src/migrate/job-queue-rls-migration.test.ts`: 10 passed (10 tests, 0 skipped, 0 failed).
+  - `packages/db/src/repositories/job-queue-rls.test.ts`: 36 passed (36 tests, 0 failed).
+  - Total queue migration and repository tests: 46 passed across 2 suites.
+- **Workspace Quality Checks**:
+  - `pnpm typecheck`: 0 errors across 7 workspace projects.
+  - `pnpm lint`: 0 errors.
+  - `pnpm lint:evidence`: 0 errors across 5 conclusion-producing targets.
+  - `pnpm build`: Clean workspace build.
+
+---
+
+## Production Hardening - Fix 2F.1: Historical Migration 0023 Candidate Compatibility Verification
+
+### 1. Problem & Context
+
+While Fix 2E verified that migration `0024_job_queue_configured_retry_limit.sql` upgrades databases running the current working-tree candidate `0023_job_queue_attempt_count_invariant.sql`, it did not verify migration 0024 against the earlier 386-line candidate version of migration 0023 archived in `fluxora-fix2a-review-20261026-162346.zip` (session `8f7d1140-dc1c-4e6c-9f9c-0903dc947d11`).
+
+Because the precise SQL text executed in `fluxora_dev` on October 26, 2026 has not been conclusively established, the archived 386-line candidate represents a historical candidate rather than proven provenance. Fix 2F.1 provides dedicated backward-compatibility test coverage ensuring migration 0024 cleanly upgrades databases initialized with this historical candidate without modifying migrations 0001–0023 or touching `fluxora_dev`.
+
+### 2. Implementation & Test Architecture
+
+1. **Self-Contained Fixture**:
+   - `packages/db/src/migrate/fixtures/historical-0023-candidate.sql`: Extracted verbatim 386-line candidate from the Fix 2A archive/session logs.
+   - `packages/db/src/migrate/fixtures/historical-0023-candidate.ts`: Documents candidate provenance (`fluxora-fix2a-review-20261026-162346.zip`, session `8f7d1140-dc1c-4e6c-9f9c-0903dc947d11`), line count (386), and explicit caveat that it is treated as a historical candidate, not proven provenance.
+   - Static test verifies candidate line count (386 lines), presence of `GRANT fluxora_queue TO CURRENT_USER` and `WHERE j.attempt_count > j.max_attempts`, and absence of `configured_max_attempts` and `jobs_migration_reconcile_0023`.
+
+2. **Dedicated Disposable PostgreSQL Test Path**:
+   - Database: `fluxora_historical_migration_test` (fully isolated, distinct from `fluxora_dev`, `fluxora_inc_migration_test`, and `fluxora_clean_install_test`).
+   - Applies migrations `0001` through `0022` to establish pre-0023 schema.
+   - Seeds representative legacy fixtures across two distinct organizations:
+     - Org 1: Over-limit pending job, over-limit expired running job, over-limit active running job with unexpired lease, under-limit pending job.
+     - Org 2: Over-limit completed job, over-limit failed job, over-limit dead-letter job, additional over-limit pending job.
+   - Clears tenant context (`RESET app.current_org_id`, confirming 0 rows visible under RLS).
+   - Applies the archived 386-line candidate as migration 0023 under constrained non-superuser role (`fluxora_migrator_test`, `NOSUPERUSER`, `NOBYPASSRLS`), recording it in `schema_migrations`.
+   - Seeds post-0023 jobs under Org 1 & 2 obeying the invariant.
+   - Clears tenant context before executing migration 0024.
+   - Executes migration 0024 under the constrained non-superuser migration role.
+
+3. **Compatibility Invariants Verified**:
+   - **Statuses & Leases**: Active leases remain running with `locked_by` intact. Expired and pending over-limit rows transitioned to `dead_letter`. Completed rows preserved in `completed`.
+   - **Configured Limit Backfill**: Honest representation of uncertainty:
+     - For rows where `attempt_count < max_attempts`, preserves available limit as `configured_max_attempts`.
+     - For rows where `attempt_count >= max_attempts` (including those elevated by candidate 0023), sets `configured_max_attempts = NULL`.
+   - **Active Lease Completion**: `fluxora_complete_job` completes active lease, returning `configured_max_attempts = NULL` for legacy rows.
+   - **Constraints & Trigger**: `jobs_attempt_count_le_max_attempts`, `jobs_configured_max_attempts_check`, `jobs_attempt_count_check`, and `jobs_max_attempts_check` are present and validated. Trigger guard enforces matching limits on insert and immutability on update for both NULL and non-NULL values.
+   - **Function Signatures & Security**: All 5 functions (`claim`, `complete`, `fail`, `retry`, `limits_guard`) owned by `fluxora_queue`, `SECURITY DEFINER`, pinned `search_path`, execution granted to migrator, revoked from `PUBLIC`.
+   - **Privilege Revocation**: Temporary policy `jobs_migration_reconcile_0024` dropped; migrator retains no bypass or inheriting membership in `fluxora_queue`.
+
+### 3. Verification Summary
+
+- `packages/db/src/migrate/job-queue-rls-migration.test.ts`: 12 passed (12 tests, 0 skipped, 0 failed).
+  - Incremental migration 0021–0024: passed.
+  - Clean installation 0001–0024: passed.
+  - Historical 386-line candidate upgrade to 0024: passed.
+- `packages/db/src/repositories/job-queue-rls.test.ts`: 36 passed (36 tests, 0 failed).
+- Total migration and queue repository tests: 48 passed across 2 suites.
+- `pnpm typecheck`: 0 errors across 7 workspace projects.
+- `pnpm lint`: 0 errors.
+- `pnpm lint:evidence`: 0 errors across 5 conclusion-producing targets.
+- `pnpm build`: Clean workspace build.
+- `fluxora_dev`: Strictly untouched (0 rows in `public.jobs`, migrations 0001–0023 unchanged).

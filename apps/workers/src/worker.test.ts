@@ -21,6 +21,7 @@ function runningJob(attemptCount = 1): Job {
     idempotencyKey: "k",
     attemptCount,
     maxAttempts: 10,
+    configuredMaxAttempts: 10,
     availableAt: new Date(),
     lockedAt: new Date(),
     lockedBy: "w1",

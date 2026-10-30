@@ -29,6 +29,7 @@ function createMockJob(payload: Record<string, unknown>, type: string = PULL_REQ
     idempotencyKey: "test-key-1",
     attemptCount: 0,
     maxAttempts: 3,
+    configuredMaxAttempts: 3,
     availableAt: new Date(),
     lockedAt: null,
     lockedBy: null,

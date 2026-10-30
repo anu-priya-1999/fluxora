@@ -64,6 +64,7 @@ function ingestJob(payload: Job["payload"], organizationId = ORG): Job {
     idempotencyKey: repositoryIngestIdempotencyKey(REPO, SHA),
     attemptCount: 1,
     maxAttempts: 3,
+    configuredMaxAttempts: 3,
     availableAt: new Date(),
     lockedAt: new Date(),
     lockedBy: "worker-1",

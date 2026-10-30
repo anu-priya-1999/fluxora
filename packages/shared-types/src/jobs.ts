@@ -22,6 +22,13 @@ export interface Job {
   idempotencyKey: string;
   attemptCount: number;
   maxAttempts: number;
+  /**
+   * Original retry limit configured when the job was created.
+   * `null` indicates a historical job where the original limit cannot be
+   * established reliably (e.g. attempt_count reached max_attempts prior to
+   * migration 0024 backfill, or was normalized by migration 0023).
+   */
+  configuredMaxAttempts: number | null;
   availableAt: Date;
   lockedAt: Date | null;
   lockedBy: string | null;
@@ -39,6 +46,7 @@ export interface EnqueueJobInput {
   payload?: JobPayload;
   idempotencyKey: string;
   maxAttempts?: number;
+  configuredMaxAttempts?: number;
   availableAt?: Date;
 }
 

@@ -18,6 +18,7 @@ interface JobRow {
   idempotency_key: string;
   attempt_count: number;
   max_attempts: number;
+  configured_max_attempts: number | null;
   available_at: Date;
   locked_at: Date | null;
   locked_by: string | null;
@@ -39,6 +40,7 @@ function mapJob(row: JobRow): Job {
     idempotencyKey: row.idempotency_key,
     attemptCount: row.attempt_count,
     maxAttempts: row.max_attempts,
+    configuredMaxAttempts: row.configured_max_attempts,
     availableAt: row.available_at,
     lockedAt: row.locked_at,
     lockedBy: row.locked_by,
@@ -65,6 +67,23 @@ function validateEnqueueInput(input: EnqueueJobInput): void {
     (!Number.isInteger(input.maxAttempts) || input.maxAttempts <= 0)
   ) {
     throw new Error("job maxAttempts must be a positive integer");
+  }
+
+  if (
+    input.configuredMaxAttempts !== undefined &&
+    (!Number.isInteger(input.configuredMaxAttempts) || input.configuredMaxAttempts <= 0)
+  ) {
+    throw new Error("job configuredMaxAttempts must be a positive integer");
+  }
+
+  if (
+    input.maxAttempts !== undefined &&
+    input.configuredMaxAttempts !== undefined &&
+    input.maxAttempts !== input.configuredMaxAttempts
+  ) {
+    throw new Error(
+      "job maxAttempts and configuredMaxAttempts must match when both are provided",
+    );
   }
 }
 
@@ -163,6 +182,9 @@ export async function enqueueJob(
 ): Promise<Job> {
   validateEnqueueInput(input);
 
+  const configuredLimit =
+    input.configuredMaxAttempts ?? input.maxAttempts ?? 3;
+
   return withTenant(pool, input.organizationId, async (client) => {
     const result = await client.query<JobRow>(
       `
@@ -172,9 +194,10 @@ export async function enqueueJob(
           payload,
           idempotency_key,
           max_attempts,
+          configured_max_attempts,
           available_at
         )
-        VALUES ($1, $2, $3, $4, $5, COALESCE($6, now()))
+        VALUES ($1, $2, $3, $4, $5, $5, COALESCE($6, now()))
         ON CONFLICT (
           organization_id,
           idempotency_key
@@ -189,6 +212,7 @@ export async function enqueueJob(
           idempotency_key,
           attempt_count,
           max_attempts,
+          configured_max_attempts,
           available_at,
           locked_at,
           locked_by,
@@ -204,7 +228,7 @@ export async function enqueueJob(
         input.type.trim(),
         input.payload ?? {},
         input.idempotencyKey.trim(),
-        input.maxAttempts ?? 3,
+        configuredLimit,
         input.availableAt ?? null,
       ],
     );
@@ -236,6 +260,7 @@ export async function getJobById(
           idempotency_key,
           attempt_count,
           max_attempts,
+          configured_max_attempts,
           available_at,
           locked_at,
           locked_by,
@@ -290,6 +315,7 @@ export async function claimNextJob(
           idempotency_key,
           attempt_count,
           max_attempts,
+          configured_max_attempts,
           available_at,
           locked_at,
           locked_by,
@@ -339,6 +365,7 @@ export async function completeJob(
           idempotency_key,
           attempt_count,
           max_attempts,
+          configured_max_attempts,
           available_at,
           locked_at,
           locked_by,
@@ -395,6 +422,7 @@ export async function failJob(
           idempotency_key,
           attempt_count,
           max_attempts,
+          configured_max_attempts,
           available_at,
           locked_at,
           locked_by,
@@ -452,6 +480,7 @@ export async function retryFailedJob(
           idempotency_key,
           attempt_count,
           max_attempts,
+          configured_max_attempts,
           available_at,
           locked_at,
           locked_by,

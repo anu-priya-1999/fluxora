@@ -614,6 +614,7 @@ describe.skipIf(!hasDatabase)(
         idempotencyKey: `golden-pr-job-${Date.now()}`,
         attemptCount: 1,
         maxAttempts: 3,
+        configuredMaxAttempts: 3,
         availableAt: new Date(),
         lockedAt: new Date(),
         lockedBy: "worker-test",

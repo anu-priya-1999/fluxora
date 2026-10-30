@@ -89,6 +89,7 @@ function createJob(
     idempotencyKey: "k-1",
     attemptCount: 1,
     maxAttempts: 10,
+    configuredMaxAttempts: 10,
     availableAt: new Date(),
     lockedAt: new Date(),
     lockedBy: "w1",

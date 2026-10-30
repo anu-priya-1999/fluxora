@@ -261,6 +261,7 @@ function setupTestEnvironment() {
         idempotencyKey: input.idempotencyKey,
         attemptCount: 0,
         maxAttempts: input.maxAttempts ?? 3,
+        configuredMaxAttempts: input.configuredMaxAttempts ?? input.maxAttempts ?? 3,
         availableAt: new Date(),
         lockedAt: null,
         lockedBy: null,

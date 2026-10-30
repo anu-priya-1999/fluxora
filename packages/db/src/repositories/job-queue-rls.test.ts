@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { describe, it, beforeAll, afterAll, vi } from "vitest";
+import { describe, it, beforeAll, afterAll, beforeEach, vi } from "vitest";
 import pg from "pg";
 
 import { loadRootEnvFile } from "../cli/env.ts";
@@ -317,6 +317,9 @@ describe.skipIf(!hasQueueDatabase)("job queue least-privilege RLS and cross-tena
     await closePool();
     pool = getPool();
 
+    // In dedicated disposable test database: ensure clean public schema so migrations run freshly
+    await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+
     await runMigrations(pool);
 
     // 2. Detect unrelated active/pending queue jobs in the global queue before creating test fixtures
@@ -340,6 +343,12 @@ describe.skipIf(!hasQueueDatabase)("job queue least-privilege RLS and cross-tena
     orgB = await createOrganization(pool, {
       name: `fluxora-queue-test-b-${suffix}`,
     });
+  });
+
+  beforeEach(async () => {
+    if (pool) {
+      await pool.query("DELETE FROM public.jobs");
+    }
   });
 
   afterAll(async () => {
@@ -973,5 +982,1080 @@ describe.skipIf(!hasQueueDatabase)("job queue least-privilege RLS and cross-tena
     // Org A CANNOT read Org B's job
     const crossReadB = await getJobById(orgA.id, jobB.id, pool);
     assert.equal(crossReadB, null, "Org A must not read Org B's job");
+  });
+
+  it("crash recovery (single allowed attempt): expired job with max_attempts=1 is dead-lettered and not reclaimed", async () => {
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `crash-rec-1-${suffix}`,
+        maxAttempts: 1,
+      },
+      pool,
+    );
+
+    // Initial claim
+    const claimed = await claimNextJob("worker-crashed", 60, pool);
+    assert.ok(claimed !== null);
+    assert.equal(claimed.id, job.id);
+    assert.equal(claimed.attemptCount, 1);
+    assert.equal(claimed.status, "running");
+
+    // Simulate worker crash: expire lease in the past without calling failJob or retryFailedJob
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [job.id],
+    );
+
+    // Claim attempt by next worker: must not reclaim the expired job because attempt limit is exhausted
+    const nextClaim = await claimNextJob("worker-recovering", 60, pool);
+    assert.equal(nextClaim, null, "Exhausted expired job must not be claimed");
+
+    // Verify terminal dead_letter status and metadata cleanup in the database
+    const rowRes = await pool.query<{
+      status: string;
+      attempt_count: number;
+      max_attempts: number;
+      locked_by: string | null;
+      locked_at: Date | null;
+      lease_expires_at: Date | null;
+      failed_at: Date | null;
+      last_error: string | null;
+    }>(
+      `SELECT status, attempt_count, max_attempts, locked_by, locked_at, lease_expires_at, failed_at, last_error FROM jobs WHERE id = $1`,
+      [job.id],
+    );
+    const row = rowRes.rows[0];
+    assert.ok(row !== undefined);
+    assert.equal(row.status, "dead_letter");
+    assert.equal(row.attempt_count, 1, "attempt_count must not exceed max_attempts");
+    assert.equal(row.locked_by, null, "locked_by must be cleared");
+    assert.equal(row.locked_at, null, "locked_at must be cleared");
+    assert.equal(row.lease_expires_at, null, "lease_expires_at must be cleared");
+    assert.ok(row.failed_at !== null, "failed_at must be recorded");
+    assert.match(row.last_error ?? "", /lease expired after retry limit/i);
+  });
+
+  it("crash recovery (two allowed attempts): reclaims once on first crash, then dead-letters on second crash without exceeding max_attempts", async () => {
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `crash-rec-2-${suffix}`,
+        maxAttempts: 2,
+      },
+      pool,
+    );
+
+    // Attempt 1: First claim
+    const claim1 = await claimNextJob("worker-1", 60, pool);
+    assert.ok(claim1 !== null);
+    assert.equal(claim1.id, job.id);
+    assert.equal(claim1.attemptCount, 1);
+
+    // Simulate first worker crash: expire lease in the past
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [job.id],
+    );
+
+    // Attempt 2: Second claim should succeed with attempt_count = 2
+    const claim2 = await claimNextJob("worker-2", 60, pool);
+    assert.ok(claim2 !== null, "Second worker should reclaim the expired job");
+    assert.equal(claim2.id, job.id);
+    assert.equal(claim2.attemptCount, 2);
+    assert.equal(claim2.lockedBy, "worker-2");
+    assert.equal(claim2.status, "running");
+
+    // Simulate second worker crash: expire lease in the past
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [job.id],
+    );
+
+    // Attempt 3: Third claim must return null and dead-letter the job without incrementing attempt_count
+    const claim3 = await claimNextJob("worker-3", 60, pool);
+    assert.equal(claim3, null, "Exhausted job must not be claimed on third attempt");
+
+    const rowRes = await pool.query<{
+      status: string;
+      attempt_count: number;
+      locked_by: string | null;
+      lease_expires_at: Date | null;
+      failed_at: Date | null;
+      last_error: string | null;
+    }>(
+      `SELECT status, attempt_count, locked_by, lease_expires_at, failed_at, last_error FROM jobs WHERE id = $1`,
+      [job.id],
+    );
+    const row = rowRes.rows[0];
+    assert.ok(row !== undefined);
+    assert.equal(row.status, "dead_letter");
+    assert.equal(row.attempt_count, 2, "attempt_count must remain exactly 2 (never 3)");
+    assert.equal(row.locked_by, null);
+    assert.equal(row.lease_expires_at, null);
+    assert.ok(row.failed_at !== null);
+    assert.match(row.last_error ?? "", /lease expired after retry limit/i);
+  });
+
+  it("crash recovery (attempts remaining): an expired job below its limit is reclaimed exactly once", async () => {
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `crash-rem-3-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+
+    // Initial claim: attempt 1
+    const claim1 = await claimNextJob("worker-1", 60, pool);
+    assert.ok(claim1 !== null);
+    assert.equal(claim1.attemptCount, 1);
+
+    // Expire lease
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [job.id],
+    );
+
+    // Claim next: attempt 2 reclaimed
+    const claim2 = await claimNextJob("worker-2", 60, pool);
+    assert.ok(claim2 !== null);
+    assert.equal(claim2.id, job.id);
+    assert.equal(claim2.attemptCount, 2);
+    assert.equal(claim2.lockedBy, "worker-2");
+
+    // Clean completion
+    await completeJob(job.id, "worker-2", pool);
+  });
+
+  it("crash recovery (exhausted pending row): a pending row already at or above max_attempts is not claimed and safely dead-lettered", async () => {
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `exhausted-pending-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+
+    // Artificially simulate inconsistent legacy or manually modified pending row at max_attempts
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 3, status = 'pending' WHERE id = $1`,
+      [job.id],
+    );
+
+    // Claim: must not claim this row and must dead-letter it
+    const claimed = await claimNextJob("worker-1", 60, pool);
+    assert.equal(claimed, null, "Exhausted pending row must never be returned to worker");
+
+    const rowRes = await pool.query<{
+      status: string;
+      attempt_count: number;
+      failed_at: Date | null;
+      last_error: string | null;
+    }>(
+      `SELECT status, attempt_count, failed_at, last_error FROM jobs WHERE id = $1`,
+      [job.id],
+    );
+    const row = rowRes.rows[0];
+    assert.ok(row !== undefined);
+    assert.equal(row.status, "dead_letter");
+    assert.equal(row.attempt_count, 3, "attempt_count must not be incremented past limit");
+    assert.ok(row.failed_at !== null);
+    assert.match(row.last_error ?? "", /exceeded retry limit while pending/i);
+  });
+
+  it("crash recovery (active lease): a running job with an unexpired lease and exhausted attempts is not recovered or stolen", async () => {
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `active-lease-exhausted-${suffix}`,
+        maxAttempts: 1,
+      },
+      pool,
+    );
+
+    // Worker claims initial attempt (lease expires in 60 seconds)
+    const claimed = await claimNextJob("worker-owner", 60, pool);
+    assert.ok(claimed !== null);
+    assert.equal(claimed.id, job.id);
+    assert.equal(claimed.attemptCount, 1);
+
+    // Another worker calls claim while the lease is still active
+    const otherClaim = await claimNextJob("worker-intruder", 60, pool);
+    assert.equal(otherClaim, null, "Job with active lease must not be claimed or dead-lettered");
+
+    // Verify job is still running and owned by worker-owner
+    const rowRes = await pool.query<{ status: string; locked_by: string; attempt_count: number }>(
+      `SELECT status, locked_by, attempt_count FROM jobs WHERE id = $1`,
+      [job.id],
+    );
+    const row = rowRes.rows[0];
+    assert.ok(row !== undefined);
+    assert.equal(row.status, "running");
+    assert.equal(row.locked_by, "worker-owner");
+    assert.equal(row.attempt_count, 1);
+
+    // Original owner can complete normally
+    await completeJob(job.id, "worker-owner", pool);
+  });
+
+  it("crash recovery (metadata cleanup): dead-lettered crashed jobs have all lock and lease fields cleared with terminal timestamps", async () => {
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `meta-cleanup-${suffix}`,
+        maxAttempts: 1,
+      },
+      pool,
+    );
+
+    await claimNextJob("worker-crash-cleanup", 60, pool);
+
+    // Expire lease
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '15 seconds' WHERE id = $1`,
+      [job.id],
+    );
+
+    // Trigger cleanup via claimNextJob
+    await claimNextJob("worker-sweeper", 60, pool);
+
+    const rowRes = await pool.query<{
+      status: string;
+      locked_at: Date | null;
+      locked_by: string | null;
+      lease_expires_at: Date | null;
+      failed_at: Date | null;
+      last_error: string | null;
+    }>(
+      `SELECT status, locked_at, locked_by, lease_expires_at, failed_at, last_error FROM jobs WHERE id = $1`,
+      [job.id],
+    );
+    const row = rowRes.rows[0];
+    assert.ok(row !== undefined);
+    assert.equal(row.status, "dead_letter");
+    assert.equal(row.locked_at, null);
+    assert.equal(row.locked_by, null);
+    assert.equal(row.lease_expires_at, null);
+    assert.ok(row.failed_at instanceof Date);
+    assert.ok(typeof row.last_error === "string" && row.last_error.length > 0);
+  });
+
+  it("crash recovery (retry path regression): standard failure, retry, and completion remain operational", async () => {
+    // 1. Permanent failure
+    const failJobItem = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `regression-fail-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+    await claimNextJob("worker-std", 60, pool);
+    const failed = await failJob(failJobItem.id, "worker-std", "explicit failure", pool);
+    assert.equal(failed.status, "failed");
+    assert.equal(failed.lastError, "explicit failure");
+
+    // 2. Normal retryable failure
+    const retryJobItem = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `regression-retry-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+    await claimNextJob("worker-std", 60, pool);
+    const retried = await retryFailedJob(retryJobItem.id, "worker-std", 0, "transient error", pool);
+    assert.equal(retried.status, "pending");
+    assert.equal(retried.attemptCount, 1);
+
+    // 3. Complete retried job on next claim
+    const reclaimed = await claimNextJob("worker-std-2", 60, pool);
+    assert.ok(reclaimed !== null);
+    assert.equal(reclaimed.id, retryJobItem.id);
+    assert.equal(reclaimed.attemptCount, 2);
+    const completed = await completeJob(retryJobItem.id, "worker-std-2", pool);
+    assert.equal(completed.status, "completed");
+  });
+
+  it("crash recovery (concurrency): concurrent claimers never both receive the same valid claim or an exhausted job", async () => {
+    // Job 1: exhausted expired job
+    const jobExhausted = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `concur-exhausted-${suffix}`,
+        maxAttempts: 1,
+      },
+      pool,
+    );
+    await claimNextJob("worker-init-1", 60, pool);
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [jobExhausted.id],
+    );
+
+    // Job 2: valid pending job
+    const jobValid = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `concur-valid-${suffix}`,
+        maxAttempts: 2,
+      },
+      pool,
+    );
+
+    // Run 3 concurrent claim operations
+    const results = await Promise.all([
+      claimNextJob("concurrent-w1", 60, pool),
+      claimNextJob("concurrent-w2", 60, pool),
+      claimNextJob("concurrent-w3", 60, pool),
+    ]);
+
+    const nonNullClaims = results.filter((j) => j !== null);
+    assert.equal(nonNullClaims.length, 1, "Exactly one worker must claim the valid job");
+    const claimedValid = nonNullClaims[0];
+    assert.ok(claimedValid !== undefined && claimedValid.lockedBy !== null);
+    assert.equal(claimedValid.id, jobValid.id);
+    assert.equal(claimedValid.attemptCount, 1);
+
+    // Verify exhausted job was dead-lettered and never returned to any worker
+    const deadLetterRes = await pool.query<{ status: string; attempt_count: number }>(
+      `SELECT status, attempt_count FROM jobs WHERE id = $1`,
+      [jobExhausted.id],
+    );
+    assert.equal(deadLetterRes.rows[0]?.status, "dead_letter");
+    assert.equal(deadLetterRes.rows[0]?.attempt_count, 1);
+
+    await completeJob(jobValid.id, claimedValid.lockedBy, pool);
+  });
+
+  it("crash recovery (tenant and role security): cross-tenant queue claims work under non-superuser role while tenant boundaries are enforced", async () => {
+    const jobA = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `cross-tenant-crash-a-${suffix}`,
+        maxAttempts: 1,
+      },
+      pool,
+    );
+
+    // Claim under non-superuser RLS_TEST_ROLE without tenant context
+    const claimedA = await claimNextJob("worker-cross-1", 60, pool);
+    assert.ok(claimedA !== null);
+    assert.equal(claimedA.organizationId, orgA.id);
+
+    // Expire lease
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [jobA.id],
+    );
+
+    // Next worker claims under non-superuser role -> dead-letters expired job across tenant boundary safely
+    const claimNothing = await claimNextJob("worker-cross-2", 60, pool);
+    assert.equal(claimNothing, null);
+
+    const rowRes = await pool.query<{ status: string }>(
+      `SELECT status FROM jobs WHERE id = $1`,
+      [jobA.id],
+    );
+    assert.equal(rowRes.rows[0]?.status, "dead_letter");
+  });
+
+  it("crash recovery (invariant enforcement): attempt_count never exceeds max_attempts across any crash and recovery cycle", async () => {
+    for (const maxAttempts of [1, 2, 3]) {
+      const job = await enqueueJob(
+        {
+          organizationId: orgA.id,
+          type: "repository.ingest",
+          idempotencyKey: `overflow-check-${maxAttempts}-${suffix}`,
+          maxAttempts,
+        },
+        pool,
+      );
+
+      // Perform maxAttempts claims with simulated crashes
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        const claimed = await claimNextJob(`worker-inv-${maxAttempts}-${attempt}`, 60, pool);
+        assert.ok(claimed !== null, `Claim at attempt ${attempt} of ${maxAttempts} must succeed`);
+        assert.equal(claimed.attemptCount, attempt, `attemptCount must equal ${attempt}`);
+        assert.ok(
+          claimed.attemptCount <= claimed.maxAttempts,
+          `attemptCount (${claimed.attemptCount}) must not exceed maxAttempts (${claimed.maxAttempts})`,
+        );
+
+        // Expire lease
+        await pool.query(
+          `UPDATE jobs SET lease_expires_at = now() - interval '5 seconds' WHERE id = $1`,
+          [job.id],
+        );
+      }
+
+      // Next claim after all attempts exhausted: MUST return null and dead-letter
+      const overflowClaim = await claimNextJob(`worker-inv-${maxAttempts}-overflow`, 60, pool);
+      assert.equal(overflowClaim, null, "Exhausted job must not be claimed after limit reached");
+
+      // Check database row
+      const rowRes = await pool.query<{ status: string; attempt_count: number; max_attempts: number }>(
+        `SELECT status, attempt_count, max_attempts FROM jobs WHERE id = $1`,
+        [job.id],
+      );
+      const row = rowRes.rows[0];
+      assert.ok(row !== undefined);
+      assert.equal(row.status, "dead_letter");
+      assert.equal(
+        row.attempt_count,
+        maxAttempts,
+        `Final attempt_count must be exactly ${maxAttempts}`,
+      );
+      assert.ok(
+        row.attempt_count <= row.max_attempts,
+        `Invariant 0 <= attempt_count <= max_attempts violated! attempt_count=${row.attempt_count}, max_attempts=${row.max_attempts}`,
+      );
+    }
+  });
+
+  it("claim parameter validation: rejects invalid worker_id and lease_seconds in PostgreSQL without mutating any rows or attempt counts", async () => {
+    // 1. Create and claim running job, then expire its lease
+    const runningJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `param-running-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+    const claimedRunning = await claimNextJob("worker-initial", 60, pool);
+    assert.ok(claimedRunning !== null);
+    assert.equal(claimedRunning.id, runningJob.id);
+    assert.equal(claimedRunning.attemptCount, 1);
+
+    // Expire the lease on runningJob so that a claim call without parameter validation would attempt cleanup
+    await pool.query(
+      `UPDATE jobs SET lease_expires_at = now() - interval '10 seconds' WHERE id = $1`,
+      [runningJob.id],
+    );
+
+    // 2. Create a valid pending job
+    const pendingJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `param-pending-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+
+    // Helper to verify both jobs are completely unchanged
+    const assertNoMutations = async () => {
+      const pRes = await pool.query<{ status: string; attempt_count: number; locked_by: string | null }>(
+        `SELECT status, attempt_count, locked_by FROM jobs WHERE id = $1`,
+        [pendingJob.id],
+      );
+      assert.equal(pRes.rows[0]?.status, "pending");
+      assert.equal(pRes.rows[0]?.attempt_count, 0);
+      assert.equal(pRes.rows[0]?.locked_by, null);
+
+      const rRes = await pool.query<{ status: string; attempt_count: number; locked_by: string | null }>(
+        `SELECT status, attempt_count, locked_by FROM jobs WHERE id = $1`,
+        [runningJob.id],
+      );
+      assert.equal(rRes.rows[0]?.status, "running");
+      assert.equal(rRes.rows[0]?.attempt_count, 1);
+      assert.equal(rRes.rows[0]?.locked_by, "worker-initial");
+    };
+
+    // Test rejection for invalid worker_id
+    const invalidWorkers = ["", "   ", "\t  \n"];
+    for (const invalidWorker of invalidWorkers) {
+      await assert.rejects(
+        () => pool.query(`SELECT * FROM public.fluxora_claim_next_job($1, 60)`, [invalidWorker]),
+        (err: Error) => {
+          assert.match(err.message, /p_worker_id must be a non-empty, non-whitespace string/);
+          return true;
+        },
+      );
+      await assertNoMutations();
+    }
+
+    await assert.rejects(
+      () => pool.query(`SELECT * FROM public.fluxora_claim_next_job(NULL, 60)`),
+      (err: Error) => {
+        assert.match(err.message, /p_worker_id must be a non-empty, non-whitespace string/);
+        return true;
+      },
+    );
+    await assertNoMutations();
+
+    // Test rejection for invalid lease_seconds
+    const invalidLeases = [0, -1, -60];
+    for (const invalidLease of invalidLeases) {
+      await assert.rejects(
+        () => pool.query(`SELECT * FROM public.fluxora_claim_next_job('valid-worker', $1)`, [invalidLease]),
+        (err: Error) => {
+          assert.match(err.message, /p_lease_seconds must be a positive integer/);
+          return true;
+        },
+      );
+      await assertNoMutations();
+    }
+
+    await assert.rejects(
+      () => pool.query(`SELECT * FROM public.fluxora_claim_next_job('valid-worker', NULL)`),
+      (err: Error) => {
+        assert.match(err.message, /p_lease_seconds must be a positive integer/);
+        return true;
+      },
+    );
+    await assertNoMutations();
+  });
+
+  it("attempt-count upper-bound invariant: CHECK constraint prevents writing or updating rows where attempt_count > max_attempts", async () => {
+    // 1. Direct INSERT with attempt_count > max_attempts must fail with CHECK constraint violation
+    await assert.rejects(
+      () =>
+        pool.query(
+          `INSERT INTO jobs (organization_id, type, idempotency_key, attempt_count, max_attempts)
+           VALUES ($1, 'repository.ingest', 'over-limit-insert-${suffix}', 4, 3)`,
+          [orgA.id],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /jobs_attempt_count_le_max_attempts/);
+        return true;
+      },
+    );
+
+    // 2. Normal enqueue succeeds
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `over-limit-update-${suffix}`,
+        maxAttempts: 3,
+      },
+      pool,
+    );
+
+    // 3. Direct UPDATE attempting to exceed max_attempts must fail
+    await assert.rejects(
+      () =>
+        pool.query(
+          `UPDATE jobs SET attempt_count = 5 WHERE id = $1`,
+          [job.id],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /jobs_attempt_count_le_max_attempts/);
+        return true;
+      },
+    );
+
+    // 4. Updating attempt_count within limits succeeds
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 3 WHERE id = $1`,
+      [job.id],
+    );
+    const updated = await pool.query<{ attempt_count: number }>(
+      `SELECT attempt_count FROM jobs WHERE id = $1`,
+      [job.id],
+    );
+    assert.equal(updated.rows[0]?.attempt_count, 3);
+  });
+
+  it("attempt-count bounds: existing non-negative and positive-limit constraints remain intact", async () => {
+    // Non-negative constraint: attempt_count < 0 must fail
+    await assert.rejects(
+      () =>
+        pool.query(
+          `INSERT INTO jobs (organization_id, type, idempotency_key, attempt_count, max_attempts)
+           VALUES ($1, 'repository.ingest', 'negative-attempt-${suffix}', -1, 3)`,
+          [orgA.id],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /jobs_attempt_count_check/);
+        return true;
+      },
+    );
+
+    // Positive-limit constraint: max_attempts <= 0 must fail
+    await assert.rejects(
+      () =>
+        pool.query(
+          `INSERT INTO jobs (organization_id, type, idempotency_key, attempt_count, max_attempts)
+           VALUES ($1, 'repository.ingest', 'zero-max-attempts-${suffix}', 0, 0)`,
+          [orgA.id],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /jobs_max_attempts_check/);
+        return true;
+      },
+    );
+  });
+
+  it("queue lifecycle operations under invariant: claim, retry, completion, and crash-recovery preserve 0 <= attempt_count <= max_attempts", async () => {
+    // 1. Enqueue job with maxAttempts = 2
+    const job = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `lifecycle-inv-${suffix}`,
+        maxAttempts: 2,
+      },
+      pool,
+    );
+    assert.equal(job.attemptCount, 0);
+    assert.ok(job.attemptCount <= job.maxAttempts);
+
+    // 2. Claim attempt 1
+    const claimed1 = await claimNextJob("worker-life-1", 60, pool);
+    assert.ok(claimed1 !== null && claimed1.id === job.id);
+    assert.equal(claimed1.attemptCount, 1);
+    assert.ok(claimed1.attemptCount <= claimed1.maxAttempts);
+
+    // 3. Fail and retry
+    const retried = await retryFailedJob(job.id, "worker-life-1", 0, "Transient error", pool);
+    assert.equal(retried.status, "pending");
+    assert.equal(retried.attemptCount, 1);
+    assert.ok(retried.attemptCount <= retried.maxAttempts);
+
+    // 4. Claim attempt 2 (final attempt)
+    const claimed2 = await claimNextJob("worker-life-2", 60, pool);
+    assert.ok(claimed2 !== null && claimed2.id === job.id);
+    assert.equal(claimed2.attemptCount, 2);
+    assert.ok(claimed2.attemptCount <= claimed2.maxAttempts);
+
+    // 5. Complete job
+    const completed = await completeJob(job.id, "worker-life-2", pool);
+    assert.equal(completed.status, "completed");
+    assert.equal(completed.attemptCount, 2);
+    assert.ok(completed.attemptCount <= completed.maxAttempts);
+  });
+  it("configured-max-attempts: normal enqueue stores requested configured limit and maps correctly", async () => {
+    // 1. Default limits
+    const defaultJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `cfg-default-${suffix}`,
+      },
+      pool,
+    );
+    assert.equal(defaultJob.maxAttempts, 3);
+    assert.equal(defaultJob.configuredMaxAttempts, 3);
+
+    const defaultRow = (
+      await pool.query<{ max_attempts: number; configured_max_attempts: number }>(
+        "SELECT max_attempts, configured_max_attempts FROM jobs WHERE id = $1",
+        [defaultJob.id],
+      )
+    ).rows[0];
+    assert.equal(defaultRow?.max_attempts, 3);
+    assert.equal(defaultRow?.configured_max_attempts, 3);
+
+    // 2. Explicit maxAttempts
+    const customJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `cfg-custom-${suffix}`,
+        maxAttempts: 5,
+      },
+      pool,
+    );
+    assert.equal(customJob.maxAttempts, 5);
+    assert.equal(customJob.configuredMaxAttempts, 5);
+
+    // 3. Explicit configuredMaxAttempts
+    const explicitCfgJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `cfg-explicit-${suffix}`,
+        configuredMaxAttempts: 4,
+      },
+      pool,
+    );
+    assert.equal(explicitCfgJob.maxAttempts, 4);
+    assert.equal(explicitCfgJob.configuredMaxAttempts, 4);
+
+    // 4. getJobById maps configuredMaxAttempts
+    const fetched = await getJobById(orgA.id, explicitCfgJob.id, pool);
+    assert.ok(fetched !== null);
+    assert.equal(fetched.maxAttempts, 4);
+    assert.equal(fetched.configuredMaxAttempts, 4);
+
+    // 5. claimNextJob returns configuredMaxAttempts
+    const claimed = await claimNextJob("worker-cfg-test", 60, pool);
+    assert.ok(claimed !== null);
+    assert.equal(claimed.configuredMaxAttempts, claimed.maxAttempts);
+
+    // 6. CHECK constraint rejects configured_max_attempts <= 0
+    await assert.rejects(
+      () =>
+        pool.query(
+          `INSERT INTO jobs (organization_id, type, idempotency_key, attempt_count, max_attempts, configured_max_attempts)
+           VALUES ($1, 'repository.ingest', 'zero-cfg-attempts-${suffix}', 0, 3, 0)`,
+          [orgA.id],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /jobs_configured_max_attempts_check/);
+        return true;
+      },
+    );
+  });
+  it("configured-max-attempts: input validation handles matching, conflicting, invalid, and backward-compatible parameters", async () => {
+    const testSuffix = `val-${Date.now()}`;
+
+    // 1. Matching values are accepted
+    const matchingJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `match-${testSuffix}`,
+        maxAttempts: 4,
+        configuredMaxAttempts: 4,
+      },
+      pool,
+    );
+    assert.equal(matchingJob.maxAttempts, 4);
+    assert.equal(matchingJob.configuredMaxAttempts, 4);
+
+    // 2. Conflicting values are rejected
+    await assert.rejects(
+      () =>
+        enqueueJob(
+          {
+            organizationId: orgA.id,
+            type: "repository.ingest",
+            idempotencyKey: `conflict-${testSuffix}`,
+            maxAttempts: 5,
+            configuredMaxAttempts: 2,
+          },
+          pool,
+        ),
+      (err: Error) => {
+        assert.match(err.message, /job maxAttempts and configuredMaxAttempts must match when both are provided/);
+        return true;
+      },
+    );
+
+    // 3. Invalid maxAttempts rejected
+    for (const invalidVal of [0, -1, 1.5]) {
+      await assert.rejects(
+        () =>
+          enqueueJob(
+            {
+              organizationId: orgA.id,
+              type: "repository.ingest",
+              idempotencyKey: `inv-max-${invalidVal}-${testSuffix}`,
+              maxAttempts: invalidVal,
+            },
+            pool,
+          ),
+        (err: Error) => {
+          assert.match(err.message, /job maxAttempts must be a positive integer/);
+          return true;
+        },
+      );
+    }
+
+    // 4. Invalid configuredMaxAttempts rejected
+    for (const invalidVal of [0, -2, 2.5]) {
+      await assert.rejects(
+        () =>
+          enqueueJob(
+            {
+              organizationId: orgA.id,
+              type: "repository.ingest",
+              idempotencyKey: `inv-cfg-${invalidVal}-${testSuffix}`,
+              configuredMaxAttempts: invalidVal,
+            },
+            pool,
+          ),
+        (err: Error) => {
+          assert.match(err.message, /job configuredMaxAttempts must be a positive integer/);
+          return true;
+        },
+      );
+    }
+
+    // 5. Backward compatibility: caller provides only maxAttempts
+    const onlyMaxJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `only-max-${testSuffix}`,
+        maxAttempts: 6,
+      },
+      pool,
+    );
+    assert.equal(onlyMaxJob.maxAttempts, 6);
+    assert.equal(onlyMaxJob.configuredMaxAttempts, 6);
+
+    // 6. Caller provides only configuredMaxAttempts
+    const onlyCfgJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `only-cfg-${testSuffix}`,
+        configuredMaxAttempts: 6,
+      },
+      pool,
+    );
+    assert.equal(onlyCfgJob.maxAttempts, 6);
+    assert.equal(onlyCfgJob.configuredMaxAttempts, 6);
+
+    // 7. Default behavior: neither provided
+    const defaultJob = await enqueueJob(
+      {
+        organizationId: orgA.id,
+        type: "repository.ingest",
+        idempotencyKey: `neither-${testSuffix}`,
+      },
+      pool,
+    );
+    assert.equal(defaultJob.maxAttempts, 3);
+    assert.equal(defaultJob.configuredMaxAttempts, 3);
+  });
+
+  it("configured-max-attempts: direct SQL inserts and immutability guard trigger", async () => {
+    const testSuffix = `trig-${Date.now()}`;
+
+    // 1. Direct SQL insert with only max_attempts sets configured_max_attempts to same value (not silent 3)
+    const singleMaxRes = await pool.query<{ max_attempts: number; configured_max_attempts: number }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, max_attempts)
+       VALUES ($1, 'repository.ingest', 'direct-only-max-${testSuffix}', 5)
+       RETURNING max_attempts, configured_max_attempts`,
+      [orgA.id],
+    );
+    assert.equal(singleMaxRes.rows[0]?.max_attempts, 5);
+    assert.equal(singleMaxRes.rows[0]?.configured_max_attempts, 5);
+
+    // 2. Direct SQL insert with only configured_max_attempts sets max_attempts to same value (not silent 3)
+    const singleCfgRes = await pool.query<{ max_attempts: number; configured_max_attempts: number }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, configured_max_attempts)
+       VALUES ($1, 'repository.ingest', 'direct-only-cfg-${testSuffix}', 4)
+       RETURNING max_attempts, configured_max_attempts`,
+      [orgA.id],
+    );
+    assert.equal(singleCfgRes.rows[0]?.max_attempts, 4);
+    assert.equal(singleCfgRes.rows[0]?.configured_max_attempts, 4);
+
+    // 3. Direct SQL insert with neither sets both to 3
+    const neitherRes = await pool.query<{ max_attempts: number; configured_max_attempts: number }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key)
+       VALUES ($1, 'repository.ingest', 'direct-neither-${testSuffix}')
+       RETURNING max_attempts, configured_max_attempts`,
+      [orgA.id],
+    );
+    assert.equal(neitherRes.rows[0]?.max_attempts, 3);
+    assert.equal(neitherRes.rows[0]?.configured_max_attempts, 3);
+
+    // 4. Direct SQL insert with conflicting limits is rejected by trigger
+    await assert.rejects(
+      () =>
+        pool.query(
+          `INSERT INTO jobs (organization_id, type, idempotency_key, max_attempts, configured_max_attempts)
+           VALUES ($1, 'repository.ingest', 'direct-conflict-${testSuffix}', 5, 2)`,
+          [orgA.id],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /must match on new jobs/);
+        return true;
+      },
+    );
+
+    // 5. Direct SQL update trying to mutate configured_max_attempts is rejected
+    const updateTargetRes = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, max_attempts, configured_max_attempts)
+       VALUES ($1, 'repository.ingest', 'direct-immutable-${testSuffix}', 3, 3)
+       RETURNING id`,
+      [orgA.id],
+    );
+    const targetId = updateTargetRes.rows[0]?.id;
+
+    await assert.rejects(
+      () =>
+        pool.query(
+          `UPDATE jobs SET configured_max_attempts = 10 WHERE id = $1`,
+          [targetId],
+        ),
+      (err: Error) => {
+        assert.match(err.message, /configured_max_attempts is immutable/);
+        return true;
+      },
+    );
+  });
+
+  it("configured-max-attempts: reconciled legacy fixtures preserve configured limit across complete, fail, and retry", async () => {
+    const testSuffix = `rec-${Date.now()}`;
+
+    // Fixture 1: Active running job with elevated operational limit (configured_max_attempts = 2, max_attempts = 5, attempt_count = 5)
+    // Created via standard insert, then operational max_attempts elevated (simulating migration 0023 legacy reconciliation)
+    const fix1Res = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-complete-${testSuffix}', 'running', 2, 2, 2, 'worker-rec-1', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    const fix1Id = fix1Res.rows[0]?.id;
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 5, max_attempts = 5 WHERE id = $1`,
+      [fix1Id],
+    );
+
+    // Complete job returns original configured limit
+    const completedJob = await completeJob(fix1Id!, "worker-rec-1", pool);
+    assert.equal(completedJob.status, "completed");
+    assert.equal(completedJob.attemptCount, 5);
+    assert.equal(completedJob.maxAttempts, 5);
+    assert.equal(completedJob.configuredMaxAttempts, 2, "completeJob must return original configured_max_attempts");
+
+    // Fixture 2: Running job with elevated operational limit failing past limit -> dead_letter
+    const fix2Res = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-fail-dl-${testSuffix}', 'running', 2, 2, 2, 'worker-rec-2', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    const fix2Id = fix2Res.rows[0]?.id;
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 4, max_attempts = 4 WHERE id = $1`,
+      [fix2Id],
+    );
+
+    const deadLetterJob = await failJob(fix2Id!, "worker-rec-2", "terminal crash", pool);
+    assert.equal(deadLetterJob.status, "dead_letter");
+    assert.equal(deadLetterJob.attemptCount, 4);
+    assert.equal(deadLetterJob.maxAttempts, 4);
+    assert.equal(deadLetterJob.configuredMaxAttempts, 2, "failJob must return original configured_max_attempts on dead-letter transition");
+
+    // Fixture 3: Running job with elevated operational limit failing with attempts remaining -> failed
+    const fix3Res = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-fail-transient-${testSuffix}', 'running', 1, 1, 1, 'worker-rec-3', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    const fix3Id = fix3Res.rows[0]?.id;
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 2, max_attempts = 4 WHERE id = $1`,
+      [fix3Id],
+    );
+
+    const failedJob = await failJob(fix3Id!, "worker-rec-3", "transient failure", pool);
+    assert.equal(failedJob.status, "failed");
+    assert.equal(failedJob.attemptCount, 2);
+    assert.equal(failedJob.maxAttempts, 4);
+    assert.equal(failedJob.configuredMaxAttempts, 1, "failJob must return original configured_max_attempts on failed transition");
+
+    // Fixture 4: Running job with elevated operational limit that is retried -> pending
+    const fix4Res = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-retry-pending-${testSuffix}', 'running', 1, 1, 1, 'worker-rec-4', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    const fix4Id = fix4Res.rows[0]?.id;
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 2, max_attempts = 4 WHERE id = $1`,
+      [fix4Id],
+    );
+
+    const retriedJob = await retryFailedJob(fix4Id!, "worker-rec-4", 15, "retry reason", pool);
+    assert.equal(retriedJob.status, "pending");
+    assert.equal(retriedJob.attemptCount, 2);
+    assert.equal(retriedJob.maxAttempts, 4);
+    assert.equal(retriedJob.configuredMaxAttempts, 1, "retryFailedJob must return original configured_max_attempts on pending transition");
+
+    // Fixture 5: Running job with elevated operational limit that is retried at or above limit -> dead_letter
+    const fix5Res = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-retry-dl-${testSuffix}', 'running', 2, 2, 2, 'worker-rec-5', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    const fix5Id = fix5Res.rows[0]?.id;
+    await pool.query(
+      `UPDATE jobs SET attempt_count = 5, max_attempts = 5 WHERE id = $1`,
+      [fix5Id],
+    );
+
+    const retriedDlJob = await retryFailedJob(fix5Id!, "worker-rec-5", 15, "retry at limit", pool);
+    assert.equal(retriedDlJob.status, "dead_letter");
+    assert.equal(retriedDlJob.attemptCount, 5);
+    assert.equal(retriedDlJob.maxAttempts, 5);
+    assert.equal(retriedDlJob.configuredMaxAttempts, 2, "retryFailedJob must return original configured_max_attempts on dead-letter transition");
+
+    // Fixture 6: Legacy historical job with unknown configured limit (configured_max_attempts IS NULL)
+    // Simulates legacy row backfilled with NULL by migration 0024
+    await pool.query("ALTER TABLE jobs DISABLE TRIGGER jobs_retry_limits_guard_trigger");
+    const fixNullRes = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-null-${testSuffix}', 'running', 3, 3, NULL, 'worker-rec-null', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    await pool.query("ALTER TABLE jobs ENABLE TRIGGER jobs_retry_limits_guard_trigger");
+    const fixNullId = fixNullRes.rows[0]?.id;
+
+    // 1. getJobById preserves configuredMaxAttempts = null (does not silently substitute operational limit)
+    const fetchedNull = await getJobById(orgA.id, fixNullId!, pool);
+    assert.equal(fetchedNull?.configuredMaxAttempts, null, "getJobById must preserve null configuredMaxAttempts");
+    assert.equal(fetchedNull?.maxAttempts, 3, "operational maxAttempts must remain intact");
+
+    // 2. completeJob preserves configuredMaxAttempts = null
+    const completedNull = await completeJob(fixNullId!, "worker-rec-null", pool);
+    assert.equal(completedNull.configuredMaxAttempts, null, "completeJob must preserve null configuredMaxAttempts");
+    assert.equal(completedNull.maxAttempts, 3);
+
+    // 3. Normal update cannot replace an unknown historical value (NULL) with a non-null limit
+    await assert.rejects(
+      () => pool.query(`UPDATE jobs SET configured_max_attempts = 5 WHERE id = $1`, [fixNullId]),
+      (err: Error) => {
+        assert.match(err.message, /configured_max_attempts is immutable/);
+        return true;
+      },
+    );
+
+    // Fixture 7: Legacy historical job with configured_max_attempts IS NULL failing and retried
+    await pool.query("ALTER TABLE jobs DISABLE TRIGGER jobs_retry_limits_guard_trigger");
+    const fixFailNullRes = await pool.query<{ id: string }>(
+      `INSERT INTO jobs (organization_id, type, idempotency_key, status, attempt_count, max_attempts, configured_max_attempts, locked_by, lease_expires_at)
+       VALUES ($1, 'repository.ingest', 'rec-fail-null-${testSuffix}', 'running', 1, 3, NULL, 'worker-rec-fail-null', now() + interval '300 seconds')
+       RETURNING id`,
+      [orgA.id],
+    );
+    await pool.query("ALTER TABLE jobs ENABLE TRIGGER jobs_retry_limits_guard_trigger");
+    const fixFailNullId = fixFailNullRes.rows[0]?.id;
+
+    // 4. failJob preserves configuredMaxAttempts = null
+    const failedNull = await failJob(fixFailNullId!, "worker-rec-fail-null", "test error", pool);
+    assert.equal(failedNull.configuredMaxAttempts, null, "failJob must preserve null configuredMaxAttempts");
+    assert.equal(failedNull.maxAttempts, 3);
+
+    // 5. retryFailedJob preserves configuredMaxAttempts = null
+    // Reset to running to test retryFailedJob
+    await pool.query(
+      `UPDATE jobs SET status = 'running', locked_by = 'worker-rec-fail-null', lease_expires_at = now() + interval '300 seconds' WHERE id = $1`,
+      [fixFailNullId],
+    );
+    const retriedNull = await retryFailedJob(fixFailNullId!, "worker-rec-fail-null", 10, "transient error", pool);
+    assert.equal(retriedNull.configuredMaxAttempts, null, "retryFailedJob must preserve null configuredMaxAttempts");
+    assert.equal(retriedNull.maxAttempts, 3);
   });
 });
