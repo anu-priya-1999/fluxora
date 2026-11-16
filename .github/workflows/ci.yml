@@ -21,6 +21,7 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fluxora_ci
       FLUXORA_QUEUE_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fluxora_queue_ci
+      FLUXORA_CLUSTER_LOCK_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
       FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS: "true"
 
     services:

@@ -12841,3 +12841,560 @@ Because the precise SQL text executed in `fluxora_dev` on October 26, 2026 has n
 - `pnpm lint:evidence`: 0 errors across 5 conclusion-producing targets.
 - `pnpm build`: Clean workspace build.
 - `fluxora_dev`: Strictly untouched (0 rows in `public.jobs`, migrations 0001–0023 unchanged).
+
+---
+
+## Production Hardening — Fix 3: PostgreSQL SECURITY DEFINER Security Hardening
+
+> **Status:** Implementation and non-destructive verification completed; live destructive PostgreSQL integration verification pending.
+
+### 1. Context & Objectives
+
+In PostgreSQL, functions marked `SECURITY DEFINER` execute with the privileges of the role that owns them rather than the calling role. If not rigorously secured, `SECURITY DEFINER` functions introduce critical privilege escalation vectors:
+1. **Search-Path Shadowing (CVE-2018-1058 / Hijacking)**: If `search_path` is unset or omits `pg_temp` from an explicit trailing position, PostgreSQL searches temporary schemas (`pg_temp`) first. An untrusted caller can create a malicious object (table, function, operator) with the same name in `pg_temp` and trigger arbitrary code execution under the function owner's privileges.
+2. **Superuser Ownership**: Functions owned by a superuser or the default migration runner break the principle of least privilege, allowing any caller to execute privileged actions across the entire cluster.
+3. **Public Execution**: Functions created without `REVOKE ALL ON FUNCTION ... FROM PUBLIC` allow any connected database user (including untrusted or compromised accounts) to invoke them.
+4. **Tenant Isolation Bypasses**: Functions that operate across tenants or provide cross-tenant lookups without strict validation or parameter sanitization can leak or corrupt tenant boundaries.
+5. **FORCE ROW LEVEL SECURITY Interplay**: Table owners bypass RLS by default unless `FORCE ROW LEVEL SECURITY` is applied. Even with `FORCE ROW LEVEL SECURITY`, dedicated policies must exist for non-superuser owners without `BYPASSRLS`.
+
+**Fix 3 Objectives**:
+- Perform a complete, exhaustive inventory of all 20 `SECURITY DEFINER` functions in the Fluxora schema across migrations `0001` through `0024`.
+- Validate confirmed vulnerabilities vs. pre-hardened / informational findings.
+- Design and execute forward-only migration `0025_security_definer_hardening.sql` without altering historical migrations (`0001`–`0024`) or touching `fluxora_dev`.
+- Provision dedicated, least-privilege, `NOLOGIN` service roles: `fluxora_auth` and `fluxora_tenant_guard`.
+- Pin safe search paths (`search_path = pg_catalog, public, pg_temp`) and fully schema-qualify all table and function references.
+- Revoke `CREATE` on schema `public` from `PUBLIC`.
+- Revoke `PUBLIC` `EXECUTE` privileges and grant execution strictly to designated runtime/migration roles.
+- Establish comprehensive regression tests in `packages/db/src/migrate/security-definer-hardening.test.ts`.
+
+**Fix 3 Engineering Documentation**:
+- Implementation Report: [`learning/implementations/production-hardening/fix-03-security-definer-hardening.md`](../learning/implementations/production-hardening/fix-03-security-definer-hardening.md)
+- Technical Learning Notes: [`learning/notes/Fix-03-PostgreSQL-Security-Definer-Hardening.md`](../learning/notes/Fix-03-PostgreSQL-Security-Definer-Hardening.md)
+- Interview Preparation Guide: [`learning/interviews/Fix 3 PostgreSQL SECURITY DEFINER Hardening Interview CheatSheet.md`](../learning/interviews/Fix%203%20PostgreSQL%20SECURITY%20DEFINER%20Hardening%20Interview%20CheatSheet.md)
+
+---
+
+### 2. Complete SECURITY DEFINER Function Inventory (20 Functions)
+
+| # | Function Signature | Source Migration | Pre-0025 Owner | Pinned search_path | Schema-Qualified | PUBLIC EXECUTE | Tables / Relations Accessed | RLS Interaction | Dynamic SQL | Status in Fix 3 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | `fluxora_create_organization(text, public.plan_tier, bigint)` | `0001` / `0007` | `fluxora_bootstrap` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `organizations`, `subscriptions` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 1) |
+| 2 | `fluxora_create_user(uuid, text, public.user_role, bigint)` | `0001` / `0003` | `fluxora_bootstrap` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `users`, `organization_memberships` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 1) |
+| 3 | `fluxora_provision_github_user(bigint, text, text)` | `0003` | `fluxora_bootstrap` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `users`, `github_user_mappings` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 1) |
+| 4 | `fluxora_claim_next_job(text, integer)` | `0005` / `0024` | `fluxora_queue` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `jobs` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 2) |
+| 5 | `fluxora_complete_job(uuid, text)` | `0005` / `0024` | `fluxora_queue` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `jobs` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 2) |
+| 6 | `fluxora_fail_job(uuid, text, text)` | `0005` / `0024` | `fluxora_queue` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `jobs` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 2) |
+| 7 | `fluxora_retry_failed_job(uuid, text, integer, text)` | `0005` / `0024` | `fluxora_queue` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `jobs` | `FORCE RLS` (Owner policy) | None | Pre-Hardened (Fix 2) |
+| 8 | `fluxora_jobs_retry_limits_guard()` | `0024` | `fluxora_queue` | `pg_catalog, public, pg_temp` | Yes (`public.*`) | Revoked | `jobs` | `FORCE RLS` (Trigger) | None | Pre-Hardened (Fix 2) |
+| 9 | `fluxora_store_oauth_login_state(text, text, timestamptz)` | `0002` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | No (unqualified) | Explicitly Granted | `oauth_login_states` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 10 | `fluxora_consume_oauth_login_state(text)` | `0002` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | No (unqualified) | Explicitly Granted | `oauth_login_states` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 11 | `fluxora_insert_refresh_session(uuid, uuid, uuid, text, timestamptz)` | `0002` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | No (unqualified) | Explicitly Granted | `refresh_sessions`, `users` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 12 | `fluxora_rotate_refresh_session(text, text, timestamptz)` | `0002` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | No (unqualified) | Explicitly Granted | `refresh_sessions` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 13 | `fluxora_revoke_refresh_family(text)` | `0002` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | No (unqualified) | Explicitly Granted | `refresh_sessions` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 14 | `fluxora_revoke_user_refresh_sessions(uuid)` | `0002` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | No (unqualified) | Explicitly Granted | `refresh_sessions` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 15 | `fluxora_snapshot_in_current_tenant(uuid)` | `0014` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | Partial | Explicitly Granted | `repository_snapshots`, `repositories` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 16 | `fluxora_analysis_run_in_current_tenant(uuid)` | `0014` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | Partial | Explicitly Granted | `analysis_runs`, `repositories` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 17 | `fluxora_pull_request_in_current_tenant(uuid)` | `0017` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | Partial | Explicitly Granted | `pull_requests`, `repositories` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 18 | `fluxora_impact_analysis_in_current_tenant(uuid)` | `0018` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | Partial | Explicitly Granted | `impact_analyses`, `repositories` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 19 | `fluxora_scenario_in_current_tenant(uuid)` | `0019` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | Partial | Explicitly Granted | `scenarios`, `repositories` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+| 20 | `fluxora_simulation_in_current_tenant(uuid)` | `0019` | Migrator / Superuser | `pg_catalog, public` (no `pg_temp`) | Partial | Explicitly Granted | `simulations`, `repositories` | `FORCE RLS` | None | **Hardened (Fix 3)** |
+
+---
+
+### 3. Vulnerability Findings vs. Informational Findings
+
+#### Confirmed Vulnerabilities
+1. **Search Path Hijacking Vulnerability (`0002`, `0014`, `0017`, `0018`, `0019`)**:
+   - The 12 functions lacked `pg_temp` at the end of `search_path`. In PostgreSQL, when `pg_temp` is not explicitly placed in `search_path`, PostgreSQL places it *first* for relation lookup.
+   - Combined with unqualified relation names (e.g. `FROM refresh_sessions` instead of `FROM public.refresh_sessions`), any user with temporary table creation privileges could shadow `refresh_sessions` or `oauth_login_states` in `pg_temp`, hijacking the `SECURITY DEFINER` function execution.
+2. **Superuser / Migrator Function Ownership (`0002`, `0014`, `0017`, `0018`, `0019`)**:
+   - All 12 functions defaulted to being owned by the role that ran the initial migration (typically a superuser or administrative migrator with wide database privileges).
+3. **Overly Broad `PUBLIC EXECUTE` Permissions (`0002`, `0014`, `0017`, `0018`, `0019`)**:
+   - Every function was explicitly granted `EXECUTE` to `PUBLIC` (`GRANT EXECUTE ON FUNCTION ... TO PUBLIC;`). Untrusted roles could invoke refresh token rotations, session revokations, or probe tenant boundaries.
+4. **Public Schema Write Permissions (CVE-2018-1058)**:
+   - Schema `public` retained `CREATE` privileges granted to `PUBLIC`, allowing unprivileged database users to define rogue functions or operators.
+
+#### Informational Findings
+1. **Bootstrap Functions (`0001`, `0003`, `0007`)**:
+   - Functions 1–3 were already hardened during Fix 1 (`fluxora_bootstrap` ownership, pinned `search_path = pg_catalog, public, pg_temp`, `PUBLIC` execute revoked).
+2. **Job Queue Functions (`0005`, `0006`, `0021`–`0024`)**:
+   - Functions 4–8 were already hardened during Fix 2 (`fluxora_queue` ownership, pinned `search_path = pg_catalog, public, pg_temp`, `PUBLIC` execute revoked).
+3. **Dynamic SQL**:
+   - Zero functions in Fluxora utilize dynamic SQL (`EXECUTE format(...)`), eliminating SQL injection via dynamic query concatenation.
+
+---
+
+### 4. Implementation Architecture: Forward-Only Migration 0025 & Fix 3 Hardening
+
+Implemented in `packages/db/migrations/0025_security_definer_hardening.sql`:
+
+1. **Service Role Pre-Provisioning & PostgreSQL 16+ `CREATEROLE` Automatic `ADMIN OPTION` Mitigation**:
+   - In PostgreSQL 16+, when a non-superuser role possessing `CREATEROLE` creates a role, PostgreSQL automatically grants `ADMIN OPTION` on the created role to the creator with `INHERIT FALSE` and `SET FALSE`. A non-superuser creator *cannot* revoke `ADMIN OPTION` from itself.
+   - If migration scripts dynamically create service roles under a non-superuser `CREATEROLE` identity, the migration role retains permanent administrative power over those service roles (allowing it to grant membership in privileged service roles to arbitrary users).
+   - **Fix 3 Resolution**:
+     - Service roles (`fluxora_auth` and `fluxora_tenant_guard`) are required to be pre-provisioned by a trusted cluster administrator (superuser) prior to migration execution.
+     - Migration 0025 validates role existence and asserts strict least-privilege attributes (`NOLOGIN, NOSUPERUSER, NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, NOINHERIT, NOREPLICATION`). If running under a superuser, it provisions them safely; if running under a non-superuser and the roles are missing, it raises an explicit exception requiring administrator pre-provisioning.
+     - To transfer function ownership, the administrator pre-grants temporary membership in `fluxora_auth` and `fluxora_tenant_guard` to the migration executor with `WITH SET TRUE, INHERIT FALSE, ADMIN FALSE` (in PostgreSQL 16+) or ordinary membership (in PostgreSQL < 16).
+     - Post-migration cleanup by an administrator explicitly revokes this temporary membership, ensuring zero lingering rows in `pg_auth_members`.
+
+2. **CVE-2018-1058 Defense**:
+   - `REVOKE CREATE ON SCHEMA public FROM PUBLIC;` prevents unprivileged users from creating objects in `public` to shadow system functions or operators.
+
+3. **Least-Privilege Table and Helper Grants**:
+   - `fluxora_auth`: Granted `SELECT, INSERT, DELETE` on `public.oauth_login_states`, `SELECT, INSERT, UPDATE` on `public.refresh_sessions`, and `SELECT` on `public.users`.
+   - `fluxora_tenant_guard`: Granted `SELECT` on `public.repositories`, `public.repository_snapshots`, `public.analysis_runs`, `public.pull_requests`, `public.impact_analyses`, `public.scenarios`, `public.simulations`, and `EXECUTE` on `public.fluxora_current_org_id()`.
+
+4. **Dedicated RLS Policies for Service Roles under FORCE ROW LEVEL SECURITY**:
+   - Because `FORCE ROW LEVEL SECURITY` is enforced across all Fluxora tables, non-superuser function owners without `BYPASSRLS` must have explicit RLS policies to access required rows:
+     - `oauth_login_states_auth_all`: `FOR ALL TO fluxora_auth USING (true) WITH CHECK (true)`
+     - `refresh_sessions_auth_all`: `FOR ALL TO fluxora_auth USING (true) WITH CHECK (true)`
+     - `users_auth_select`: `FOR SELECT TO fluxora_auth USING (true)`
+     - Tenant guard select policies: `FOR SELECT TO fluxora_tenant_guard USING (true)` on all 7 target tables.
+
+5. **Function Recreation with Safe search_path and Full Schema Qualification**:
+   - Recreated all 6 Auth functions with `SET search_path = pg_catalog, public, pg_temp`, schema-qualified tables (`public.oauth_login_states`, `public.refresh_sessions`, `public.users`), qualified functions (`pg_catalog.coalesce`, `pg_catalog.now`), and strict input validation.
+   - Recreated all 6 Tenant RLS helper functions with `SET search_path = pg_catalog, public, pg_temp`, qualified function call `public.fluxora_current_org_id()`, and schema-qualified tables.
+
+6. **Ownership Transfer & Permission Lifecycle (Fix 3 Ordering & Isolation)**:
+   - *Removal of Test Grants*: Production migration 0025 contains zero grants to `fluxora_rls_test`. All test grants are isolated to test harness setup.
+   - *Removal of Persistent Migration Execution Grants*: Migration 0025 grants `EXECUTE` only to runtime roles (`fluxora_app` and `fluxora_worker`), not leaving persistent execution grants on auth functions for `CURRENT_USER`.
+   - *Ordering Invariant*:
+     1. Grant temporary `CREATE ON SCHEMA public` to `fluxora_auth` and `fluxora_tenant_guard` (required for function ownership).
+     2. `REVOKE ALL ON FUNCTION ... FROM PUBLIC` across all 12 functions while the migration executor is the function creator and owner.
+     3. Conditionally grant `EXECUTE` to `fluxora_app` (all 12 functions) and `fluxora_worker` (6 tenant helper functions) while the migration executor is still the function owner.
+     4. `ALTER FUNCTION ... OWNER TO fluxora_auth` (6 auth functions) and `ALTER FUNCTION ... OWNER TO fluxora_tenant_guard` (6 tenant helper functions).
+     5. Revoke temporary `CREATE ON SCHEMA public` from `fluxora_auth` and `fluxora_tenant_guard`.
+   - This exact sequence prevents `permission denied for function` errors because the non-inheriting migration executor sets all required execution ACLs prior to transferring ownership.
+
+7. **Post-Migration Verification Block**:
+   - An inline `DO $$` block validates that:
+     - All 20 `SECURITY DEFINER` functions in `public` are owned by their respective service roles (`fluxora_bootstrap`, `fluxora_queue`, `fluxora_auth`, `fluxora_tenant_guard`) with 0 owned by superusers or default migrators.
+     - `search_path` strictly matches `pg_catalog, public, pg_temp`.
+     - Zero functions retain `PUBLIC EXECUTE`.
+     - `fluxora_app` holds execute on all 12 functions; `fluxora_worker` holds execute only on tenant helpers and is denied auth functions.
+     - `CURRENT_USER` holds NO unauthorized administrative (`ADMIN OPTION`) or inheriting membership in service roles (checked via `m.admin_option` and `m.inherit_option` in `pg_auth_members`).
+
+---
+
+### 5. Exact Administrator Deployment Procedure & Membership Lifecycle
+
+Because migration `0025` runs under a constrained, non-superuser migration identity without elevated cluster administrative permissions, applying migration 0025 is **not fully automated**; it requires explicit pre-migration provisioning and post-migration cleanup actions by a cluster administrator.
+
+#### Schema Privileges & Database Ownership Prerequisites (Fix 3C)
+
+Migration `0025` performs 5 distinct operations with specific PostgreSQL privilege requirements:
+
+1. **Revoking `CREATE` from `PUBLIC` on schema `public`**:
+   - `REVOKE CREATE ON SCHEMA public FROM PUBLIC;`
+   - Under PostgreSQL privilege semantics, revoking existing privileges on an object requires that the revoking role is the **owner of the object** (`ALTER SCHEMA public OWNER TO fluxora_migrator;`) or a superuser, or the grantor who originally granted the privilege.
+   - The initial grant of `CREATE` on schema `public` to `PUBLIC` is established at database initialization by the system/template owner.
+   - A non-owner role holding `CREATE ON SCHEMA public WITH GRANT OPTION` can only grant or revoke privileges that *it* personally granted; it does **not** possess the authority to revoke privileges granted by another grantor or default system grants to `PUBLIC`.
+   - Therefore, ordinary non-owners cannot revoke `CREATE` from `PUBLIC` even if they possess `CREATE ... WITH GRANT OPTION`. Schema ownership is strictly required.
+
+2. **Ordinary `REVOKE` vs. `ALTER DEFAULT PRIVILEGES`**:
+   - `REVOKE CREATE ON SCHEMA public FROM PUBLIC;` is an **ordinary REVOKE** statement that modifies the existing Access Control List (`nspacl`) on the existing `public` schema object.
+   - In contrast, `ALTER DEFAULT PRIVILEGES [FOR ROLE ...] REVOKE/GRANT ...` alters default privilege templates in `pg_default_acl` that PostgreSQL will apply to *future* objects created by a specific role; it does **not** alter permissions on objects that already exist.
+   - Defending against CVE-2018-1058 (preventing untrusted users from placing malicious functions or tables in `public` that might shadow system objects) requires the ordinary `REVOKE` directly on the existing `public` schema.
+
+3. **Authority of a Non-Owner Holding Schema Privilege With Grant Option**:
+   - If a non-owner is granted `CREATE ON SCHEMA public WITH GRANT OPTION`, that role is authorized only to grant `CREATE` on `public` to other roles and to revoke grants that it issued.
+   - It cannot revoke privileges granted by other grantors or system defaults to `PUBLIC`.
+   - It cannot alter schema properties, rename the schema, or drop it.
+   - It does not possess object ownership and cannot satisfy operations that require ownership.
+
+4. **Authority Conferred by Schema Ownership**:
+   - Schema ownership is substantially broader than merely possessing `CREATE` and `USAGE` privileges:
+     - The schema owner inherently possesses all privileges (`CREATE`, `USAGE`) on the schema and the grant option over those privileges without requiring explicit grant statements.
+     - The schema owner possesses authority to alter the schema (`ALTER SCHEMA`), rename it, or drop it (`DROP SCHEMA`).
+     - The schema owner can manage the schema's ACL, including revoking system-level grants to `PUBLIC` (`REVOKE CREATE ON SCHEMA public FROM PUBLIC;`) and issuing temporary `CREATE` grants to service roles during function ownership transfers.
+     - Fluxora deliberately chooses schema ownership for the migration identity (`ALTER SCHEMA public OWNER TO fluxora_migrator;`).
+     - To satisfy PostgreSQL's prerequisite for `ALTER SCHEMA public OWNER TO fluxora_migrator`, PostgreSQL requires the new schema owner to possess `CREATE` on the database at the time of the transfer (`AlterSchemaOwner` checks database `ACL_CREATE`). The administrator grants `CONNECT, CREATE ON DATABASE`, transfers schema ownership, and immediately revokes the database-level `CREATE` privilege.
+     - This leaves `fluxora_migrator` with only `CONNECT` on the database and ownership of `schema public`. Database-level `CREATE` (which authorizes creating new schemas) is not retained, and `fluxora_migrator` strictly remains `NOSUPERUSER`, `NOBYPASSRLS`, `NOCREATEDB`, and `NOCREATEROLE`.
+
+5. **Transferring Function Ownership**:
+   - `ALTER FUNCTION <fn> OWNER TO fluxora_auth;`
+   - In PostgreSQL, altering function ownership requires:
+     a) Current ownership of the function (held by `fluxora_migrator` as function creator in earlier migrations).
+     b) Direct or indirect membership in the target role (`fluxora_auth`), pre-granted by the administrator via `WITH SET TRUE, INHERIT FALSE, ADMIN FALSE` on PostgreSQL 16+.
+     c) The target role (`fluxora_auth`) must hold `CREATE` privilege on the function's schema (`public`). This is why migration 0025 temporarily grants `CREATE ON SCHEMA public TO fluxora_auth` before the `ALTER FUNCTION ... OWNER TO` statements and revokes it afterwards.
+     *Important Invariant*: Membership in `fluxora_auth` or `fluxora_tenant_guard` does **NOT** confer schema ownership or schema grant authority.
+
+6. **Creating or Changing RLS Policies & Table RLS Settings**:
+   - `CREATE POLICY <name> ON <table> FOR ... TO ...;`
+   - `ALTER TABLE <table> ENABLE/FORCE ROW LEVEL SECURITY;`
+   - In PostgreSQL, creating or modifying policies on a table and altering RLS enforcement requires **table ownership** (`relowner`), which `fluxora_migrator` holds by virtue of creating the tables during migrations. Table ownership, not schema ownership, governs RLS policy creation and enforcement.
+
+#### Full ALTER SCHEMA OWNER Prerequisites & Administrator Privileges (Fix 3C)
+
+Executing `ALTER SCHEMA public OWNER TO fluxora_migrator;` requires satisfying four distinct PostgreSQL kernel privilege prerequisites:
+
+1. **Schema Ownership or Superuser Status of the Executing Administrator**:
+   - The executing role must own the schema or be a superuser.
+   - An administrator holding only `CREATE` or `USAGE` on the schema cannot alter the schema's owner; attempting to do so results in `ERROR: must be owner of schema <name>`.
+2. **SET ROLE Authority to the Target Owner Role**:
+   - The executing role must be able to `SET ROLE` to the new owner (`fluxora_migrator`), unless the executing role is a superuser.
+   - Specifically, a non-superuser administrator must be an immediate or indirect member of `fluxora_migrator` (or hold membership with `SET TRUE` on PG 16+). Superusers bypass this requirement.
+3. **Database CREATE Privilege for the New Owner**:
+   - The new owner (`fluxora_migrator`) must possess `CREATE` privilege on the database in which the schema resides.
+   - PostgreSQL's `AlterSchemaOwner()` kernel function explicitly validates that the destination owner holds `ACL_CREATE` on the database (`ERROR: permission denied for database <dbname>`). This is why the administrator executes `GRANT CONNECT, CREATE ON DATABASE <dbname> TO fluxora_migrator;` prior to transferring schema ownership.
+4. **Immediate Revocation of Temporary Database CREATE**:
+   - The temporary database `CREATE` privilege must be revoked immediately after ownership transfer (`REVOKE CREATE ON DATABASE <dbname> FROM fluxora_migrator;`).
+   - Revoking database `CREATE` ensures `fluxora_migrator` cannot create additional schemas in the database, confining its authority strictly to managing objects inside the pre-existing `public` schema.
+
+#### Administrator Privileges Required in Deployment Runbook
+
+The deployment runbook is unambiguous regarding administrator privileges for Step 2:
+- **Cluster Superuser Execution (Standard / Recommended)**:
+  - When executed as `postgres` or another cluster superuser, all 4 prerequisites are satisfied seamlessly:
+    - Superuser status inherently confers ownership authority over all schemas.
+    - Superusers can transfer schema ownership to any valid role without pre-existing membership in that role.
+    - Superusers can issue `GRANT CREATE ON DATABASE` and revoke it without grant-option restrictions.
+- **Delegated Non-Superuser Administrator Execution**:
+  - When executed by a delegated, non-superuser administrator role:
+    1. The administrator must currently own schema `public` (or have inherited ownership).
+    2. The administrator must hold membership in `fluxora_migrator` with `SET TRUE` (or possess `SET ROLE` authority to `fluxora_migrator`).
+    3. The administrator must possess `CREATE ON DATABASE ... WITH GRANT OPTION` (or own the database) to grant and revoke temporary `CREATE` on the database to `fluxora_migrator`.
+  - If any of these three conditions is missing, the schema ownership transfer will fail. Therefore, running Step 2 under the database owner or cluster superuser is the documented, tested standard.
+
+#### Minimum Required Privilege Provisioning
+
+The trusted administrator provisions database privileges, schema ownership, and temporary role memberships using the exact sequence:
+
+```sql
+-- Connect as postgres / cluster administrator to the target database (e.g. fluxora_prod):
+
+-- 1. Grant minimal database-level privileges required for connection and schema ownership transfer:
+GRANT CONNECT, CREATE ON DATABASE fluxora_prod TO fluxora_migrator;
+
+-- 2. Transfer schema public ownership to the migration identity:
+ALTER SCHEMA public OWNER TO fluxora_migrator;
+
+-- 3. Revoke temporary database-level CREATE immediately after schema ownership transfer:
+REVOKE CREATE ON DATABASE fluxora_prod FROM fluxora_migrator;
+```
+
+*Why this is the minimum required privilege*:
+- Granting temporary database `CREATE` satisfies PostgreSQL's `AlterSchemaOwner` prerequisite check while transferring `schema public` ownership.
+- Revoking database `CREATE` immediately afterwards ensures `fluxora_migrator` possesses no database-level creation rights (preventing accidental or unauthorized schema creation).
+- Transferring ownership of `schema public` to `fluxora_migrator` grants the exact authority required to manage schema ACLs (revoking `CREATE` from `PUBLIC` and temporarily granting/revoking `CREATE` to/from `fluxora_auth` and `fluxora_tenant_guard`).
+- Redundant grant statements such as `GRANT ALL ON SCHEMA public TO fluxora_migrator WITH GRANT OPTION;` or `GRANT ALL ON DATABASE ...` are avoided because schema owners inherently possess all privileges and the grant option over their schema.
+- Does **not** grant unnecessary or elevated privileges: `fluxora_migrator` remains `NOSUPERUSER`, `NOBYPASSRLS`, `NOCREATEDB`, and `NOCREATEROLE`.
+
+#### Why Administrator Cleanup Is Required (and Why 0025 Cannot Self-Revoke)
+
+1. **PostgreSQL Grantor/Admin Authority Rules**:
+   - In PostgreSQL, a role cannot revoke its own membership in another role unless it possesses `ADMIN OPTION` on that target role.
+   - Migration `0025` strictly enforces that the migration executor holds `ADMIN FALSE` (no `ADMIN OPTION`) on service roles to prevent privilege escalation.
+   - If migration `0025` attempted to execute `REVOKE fluxora_auth FROM CURRENT_USER`, PostgreSQL would immediately abort the migration with:
+     ```
+     ERROR: permission denied to grant role "fluxora_auth"
+     ```
+2. **Transaction Abort & Failure Containment**:
+   - PostgreSQL role memberships are cluster-wide metadata managed in `pg_auth_members`. While schema DDL changes inside a database roll back if a migration script fails, externally granted cluster role memberships persist.
+   - If a deployment failure occurs midway through migration `0025`, any transactional revoke placed at the end of the script would never execute.
+   - Therefore, the cluster administrator (or privileged CD pipeline) must explicitly execute the revocation cleanup step both on successful completion and upon failure.
+
+#### Step-by-Step Deployment Commands
+
+##### Step 1: Pre-provision Service Roles (Cluster Administrator)
+
+Run once per cluster prior to applying migration `0025`:
+
+```sql
+-- Connect as postgres / cluster superuser:
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'fluxora_auth') THEN
+    CREATE ROLE fluxora_auth
+      NOLOGIN
+      NOSUPERUSER
+      NOCREATEDB
+      NOCREATEROLE
+      NOINHERIT
+      NOREPLICATION
+      NOBYPASSRLS;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'fluxora_tenant_guard') THEN
+    CREATE ROLE fluxora_tenant_guard
+      NOLOGIN
+      NOSUPERUSER
+      NOCREATEDB
+      NOCREATEROLE
+      NOINHERIT
+      NOREPLICATION
+      NOBYPASSRLS;
+  END IF;
+END $$;
+```
+
+##### Step 2: Provision Database Privileges, Schema Ownership, and Temporary Service-Role Membership (Cluster Administrator)
+
+Connect as postgres / cluster administrator to the target database (e.g. `fluxora_prod`):
+
+```sql
+-- 1. Grant minimal database-level privileges required for connection and schema ownership transfer:
+GRANT CONNECT, CREATE ON DATABASE fluxora_prod TO fluxora_migrator;
+
+-- 2. Transfer schema public ownership to the migration identity:
+ALTER SCHEMA public OWNER TO fluxora_migrator;
+
+-- 3. Revoke temporary database-level CREATE immediately after schema ownership transfer:
+REVOKE CREATE ON DATABASE fluxora_prod FROM fluxora_migrator;
+
+-- 4. Grant temporary membership allowing SET ROLE without ADMIN OPTION:
+-- On PostgreSQL 16+, explicitly specify SET TRUE, INHERIT FALSE, ADMIN FALSE:
+DO $$
+BEGIN
+  IF pg_catalog.current_setting('server_version_num')::int >= 160000 THEN
+    GRANT fluxora_auth, fluxora_tenant_guard TO fluxora_migrator
+      WITH SET TRUE, INHERIT FALSE, ADMIN FALSE;
+  ELSE
+    GRANT fluxora_auth, fluxora_tenant_guard TO fluxora_migrator;
+  END IF;
+END $$;
+```
+
+##### Step 3: Apply Migration 0025 (Constrained Migration Role)
+
+Execute migration `0025_security_definer_hardening.sql` under the constrained migration identity:
+
+```bash
+psql -U fluxora_migrator -d fluxora_prod -v ON_ERROR_STOP=1 -f packages/db/migrations/0025_security_definer_hardening.sql
+```
+
+##### Step 4: Administrator Post-Migration Revocation Cleanup (Success)
+
+Immediately after successful migration completion, revoke the temporary membership:
+
+```sql
+-- Connect as postgres / cluster administrator:
+REVOKE fluxora_auth, fluxora_tenant_guard FROM fluxora_migrator;
+
+-- Verify complete revocation (must return 0 rows):
+SELECT gr.rolname AS service_role, mr.rolname AS member_role
+FROM pg_catalog.pg_auth_members m
+JOIN pg_catalog.pg_roles gr ON gr.oid = m.roleid
+JOIN pg_catalog.pg_roles mr ON mr.oid = m.member
+WHERE gr.rolname IN ('fluxora_auth', 'fluxora_tenant_guard')
+  AND mr.rolname = 'fluxora_migrator';
+```
+
+##### Step 5: Administrator Cleanup on Migration Failure
+
+If migration `0025` encounters an error, the deployment harness / administrator must execute the identical revocation cleanup command in the failure trap:
+
+```sql
+-- Connect as postgres / cluster administrator:
+REVOKE fluxora_auth, fluxora_tenant_guard FROM fluxora_migrator;
+```
+
+This guarantees that a failed deployment never leaves the migration runner with lingering administrative or ownership-transfer capabilities.
+
+---
+
+### 6. Verification & Regression Tests (Fix 3A, Fix 3B, Fix 3C)
+
+- **Integration Test Suite**: `packages/db/src/migrate/security-definer-hardening.test.ts`:
+  1. *Static SQL File Analysis*:
+     - Verifies pre-provisioning checks, least-privilege role definitions, RLS policies, pinned search_path count (12), ownership transfers, and privilege revocations.
+     - Asserts absence of test role grants (`fluxora_rls_test`) in production migration.
+     - Asserts absence of persistent `GRANT EXECUTE ... TO CURRENT_USER` on auth functions.
+     - Asserts absence of `GRANT/REVOKE fluxora_auth TO CURRENT_USER` within production migration.
+     - Confirms inventory sizes: 6 auth, 6 tenant helpers, 12 hardened in 0025, 19 callable functions, 1 trigger-only function, 20 total `SECURITY DEFINER` functions.
+  2. *Concurrent Test Execution Serialization & Canonical Lock Database (Fix 3C)*:
+     - PostgreSQL advisory locks are database-local, not cluster-global. They only serialize connections attached to the exact same database.
+     - To serialize concurrent test runs executing against the same PostgreSQL cluster and prevent race conditions over cluster-wide shared roles (`fluxora_auth`, `fluxora_tenant_guard`, `fluxora_app`, `fluxora_worker`), all test executions targeting a cluster must connect to a single canonical lock database.
+     - `FLUXORA_CLUSTER_LOCK_DATABASE_URL` must be explicitly configured. There is **no fallback** to `FLUXORA_QUEUE_TEST_DATABASE_URL` or disposable databases.
+     - If `FLUXORA_CLUSTER_LOCK_DATABASE_URL` is omitted, empty, invalid, targeting an unapproved host, targeting `fluxora_dev`, or targeting a disposable test database (including the queue test database), the suite fails immediately with an actionable error before connecting or executing any database or cluster-role mutation.
+     - All test executions targeting the same PostgreSQL cluster (such as parallel CI workers or local test runners running against different `FLUXORA_QUEUE_TEST_DATABASE_URL` databases) must use the same stable, existing database (typically `postgres` or the primary maintenance database).
+     - Never use a disposable database as the canonical lock database. Disposable test databases are dropped, recreated, or worker-local, which would defeat cross-execution mutual exclusion.
+     - **PostgreSQL Endpoint Preflight Validation (Fix 3C Final)**:
+       - The canonical lock URL (`FLUXORA_CLUSTER_LOCK_DATABASE_URL`) and destructive test URL (`FLUXORA_QUEUE_TEST_DATABASE_URL`) are validated against each other before connecting either client and before any database or cluster-role mutation.
+       - Preflight assertion requires:
+         1. Same normalized hostname (`normalizeHost`).
+         2. Same effective port (`getEffectivePort`, defaulting to PostgreSQL standard port 5432 when omitted).
+         3. Different database names (`lockDb !== adminDb`).
+         4. Lock database must not be a disposable test database (`fluxora_secdef_`, `fluxora_inc_`, `fluxora_clean_`, `fluxora_historical_`, `fluxora_queue_`, `_upg_`, `_clean_`) or a development database (`fluxora_dev` or `*_dev`).
+       - If hostnames differ (even if both are approved hosts, such as `localhost` vs `127.0.0.1`), or ports differ, the preflight check fails immediately with an actionable error explaining that both URLs must target the same PostgreSQL server endpoint so that advisory locks serialize cluster operations.
+       - A comprehensive test suite verifies: matching endpoints accepted, mismatched ports rejected, mismatched approved hosts rejected, missing/invalid URLs rejected, and that no client connection or mutation occurs when endpoint validation fails.
+     - **Single Canonical Environment Variable (Fix 3C Final)**:
+       - Requires strictly `FLUXORA_CLUSTER_LOCK_DATABASE_URL`. The legacy `CLUSTER_LOCK_DATABASE_URL` alias is removed.
+       - Fail-fast behavior is maintained when the variable is missing or empty.
+     - **Independent Lock Cleanup (Fix 3C Final)**:
+       - In `afterAll`, database and role cleanup remains conditional on `adminClient` being available.
+       - Lock cleanup is executed in an **unconditional outer `finally`** block, completely independent of `adminClient`.
+       - An explicit `pg_advisory_unlock` is attempted when `lockClient` exists.
+       - `lockClient.end()` is always executed in an inner `finally`, guaranteeing session termination and lock release even if explicit unlock fails.
+       - `adminClient.end()` is wrapped in its own error handler so admin client errors cannot prevent `lockClient` closure.
+     - A dedicated `lockClient` connects to this canonical lock database and acquires a stable session-level advisory lock (`pg_advisory_lock(748920173849102837)`) before any destructive database or cluster-role operations begin.
+     - `adminClient` remains responsible for disposable test database creation and cluster-role management on `FLUXORA_QUEUE_TEST_DATABASE_URL`.
+     - The advisory lock is held continuously on `lockClient` throughout setup, test execution, and all cleanup operations. It is released in an unconditional outer `finally` block on `lockClient` and the session is closed, or released automatically by PostgreSQL if the session terminates.
+     - An explicit concurrency assertion proves that two concurrent test executions with different `FLUXORA_QUEUE_TEST_DATABASE_URL` values sharing the same `FLUXORA_CLUSTER_LOCK_DATABASE_URL` serialize correctly: a second worker attempting `pg_try_advisory_lock` on the canonical lock database returns `false`.
+     - **Configuration Instructions**:
+       - Local testing: Add to your test environment:
+         ```bash
+         FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS=true
+         FLUXORA_QUEUE_TEST_DATABASE_URL=postgresql://<user>:<password>@localhost:5432/fluxora_queue_test
+         FLUXORA_CLUSTER_LOCK_DATABASE_URL=postgresql://<user>:<password>@localhost:5432/postgres
+         ```
+       - CI testing: Configured in `.github/workflows/ci.yml` under `env`:
+         ```yaml
+         FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS: "true"
+         FLUXORA_QUEUE_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/fluxora_queue_ci
+         FLUXORA_CLUSTER_LOCK_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+         ```
+  3. *Complete Pre-Existing Role Membership Snapshot Verification (Fix 3C)*:
+     - Replaces basic `(role_name, member_name)` tracking with a comprehensive `MembershipSnapshot`:
+       - Granted role name (`role_name`)
+       - Member role name (`member_name`)
+       - Grantor role name (`grantor_name`)
+       - Administrative option (`admin_option`)
+       - Inherit option (`inherit_option`, PG16+)
+       - Set option (`set_option`, PG16+)
+     - For PostgreSQL 16+, queries `pg_auth_members` directly for all three membership options (`admin_option`, `inherit_option`, `set_option`).
+     - For PostgreSQL < 16, queries available catalog columns (`admin_option`) without making unsupported column references, recording `null` for options not present in older catalogs.
+     - Captured before any test changes begin and compared after cleanup using `assert.deepEqual(sortMembershipSnapshots(current), sortMembershipSnapshots(initial))`.
+     - The comparator detects any modifications to membership options (e.g., unintended privilege escalation or `ADMIN OPTION` additions) even when the role and member identity remains identical.
+  4. *Non-Superuser Incremental Upgrade (0024 -> 0025) with Strict Membership Audits*:
+     - Evaluates baseline vulnerabilities prior to 0025 (confirming misconfigurations in 0002/0014/0017/0018/0019).
+     - Pre-grants constrained migration role `fluxora_mig_<suffix>` temporary membership `WITH SET TRUE, INHERIT FALSE, ADMIN FALSE` (PG16+).
+     - Satisfies PostgreSQL database privilege prerequisite: grants `CONNECT, CREATE ON DATABASE`, transfers schema ownership, and immediately revokes `CREATE ON DATABASE`.
+     - Applies migration 0025 under constrained non-superuser role `fluxora_mig_<suffix>`.
+     - Directly queries `pg_auth_members` to verify `admin_option = false`, `inherit_option = false`, and `set_option = true`.
+     - Proves migration role CANNOT grant service-role membership (`fluxora_auth`, `fluxora_tenant_guard`, `fluxora_queue`, `fluxora_bootstrap`) to unauthorized roles (`permission denied to grant role ...`).
+     - Audits all 20 functions: owners, search_path, zero public execute.
+     - **Complete Unauthorized Function Execution Coverage (Fix 3B)**:
+       - Tests all 19 directly callable `SECURITY DEFINER` functions under an unauthorized role:
+         - Bootstrap (Fix 1): `fluxora_create_organization`, `fluxora_create_user`, `fluxora_provision_github_user`.
+         - Job Queue (Fix 2): `fluxora_claim_next_job`, `fluxora_complete_job`, `fluxora_fail_job`, `fluxora_retry_failed_job`.
+         - Auth & Sessions (Fix 3): `fluxora_store_oauth_login_state`, `fluxora_consume_oauth_login_state`, `fluxora_insert_refresh_session`, `fluxora_rotate_refresh_session`, `fluxora_revoke_refresh_family`, `fluxora_revoke_user_refresh_sessions`.
+         - Tenant RLS Helpers (Fix 3): `fluxora_snapshot_in_current_tenant`, `fluxora_analysis_run_in_current_tenant`, `fluxora_pull_request_in_current_tenant`, `fluxora_impact_analysis_in_current_tenant`, `fluxora_scenario_in_current_tenant`, `fluxora_simulation_in_current_tenant`.
+       - Verifies that all 19 reject execution with `permission denied for function`.
+       - Separately accounts for the 20th function (`public.fluxora_jobs_retry_limits_guard()`), verifying its return type is `trigger` and that direct execution fails.
+     - **Runtime Role Isolation & Non-Mutation (Fix 3B)**:
+       - Zero mutation of existing cluster runtime roles (`fluxora_app`, `fluxora_worker`, `fluxora_rls_test`).
+       - Never resets passwords or alters role attributes of pre-existing roles.
+       - Connects via the disposable database administrator and uses `SET ROLE` to execute test operations as `fluxora_app`, `fluxora_worker`, and `fluxora_rls_test`, with `RESET ROLE` guaranteed in `finally` blocks.
+       - Validates that `fluxora_rls_test` receives no auth function privileges from migration 0025.
+       - Validates that `fluxora_worker` can execute tenant helpers but is denied auth functions.
+       - Validates that `fluxora_app` can execute OAuth state management and refresh session rotation.
+       - Validates search-path shadowing defense: creating a temporary table `pg_temp.oauth_login_states` fails to hijack execution.
+       - Validates tenant RLS helpers: Org 1 returns true, Org 2 returns false, NULL org returns false.
+       - Validates job queue continuity: claim and complete continue operating seamlessly.
+     - Tests real role cleanup: administrator revokes temporary membership; asserts 0 rows in `pg_auth_members` for the migration role across all service roles.
+  5. *Non-Superuser Clean Installation (0001 -> 0025)*:
+     - Runs full migration chain from scratch under a constrained non-superuser role, proving clean bootstrap without superuser or BYPASSRLS prerequisites.
+     - Satisfies PostgreSQL database privilege prerequisite: grants `CONNECT, CREATE ON DATABASE`, transfers schema ownership, and immediately revokes `CREATE ON DATABASE`.
+     - Verifies all 20 `SECURITY DEFINER` functions and revokes temporary membership, verifying complete cleanup.
+  6. *Cluster Role Test Isolation & Safe Cleanup (Fix 3B & Fix 3C)*:
+     - Tests remove unsafe legacy role deletion: never drop `fluxora_migrator_secdef_test` or `fluxora_unauthorized_secdef_test` at startup.
+     - Tests positively track unique execution roles (`fluxora_mig_<suffix>`, `fluxora_unauth_<suffix>`) and test-created service/runtime roles (`TEST_SCOPED_SVC_ROLE`, `TEST_SCOPED_RT_ROLE`) only after successful creation.
+     - Cleanup drops only roles positively identified as created by the current execution. Never uses `DROP ROLE CASCADE`.
+     - Explicitly asserts that after cleanup:
+       - The current execution's migrator role is absent.
+       - The current execution's unauthorized role is absent.
+       - Every test-created service/runtime role is absent.
+       - No test-created memberships remain in `pg_auth_members`.
+     - An explicit regression test asserts that all pre-existing cluster roles (`fluxora_app`, `fluxora_worker`, `fluxora_rls_test`, `fluxora_auth`, etc.) maintain unchanged existence, security boolean attributes, and mutable attributes (`rolconnlimit`, `rolvaliduntil`, `rolconfig`).
+     - Passwords are verified when `pg_authid` access is available, without printing password hashes in test logs. If `pg_authid` access is unavailable, the limitation is explicitly reported rather than silently claiming verification.
+     - Preserves `fluxora_dev` and all cluster-level dependencies strictly untouched.
+  7. *Constrained Migration Role Schema Privilege Verification (Fix 3C)*:
+     - Verifies that `fluxora_mig_<suffix>` is non-superuser (`rolsuper === false`) and has no `BYPASSRLS` (`rolbypassrls === false`).
+     - Verifies that `fluxora_mig_<suffix>` holds `CONNECT` on the database, but does NOT retain `CREATE` on the database.
+     - Verifies that `fluxora_mig_<suffix>` owns schema `public`.
+     - Verifies that neither `fluxora_auth` nor `fluxora_tenant_guard` owns schema `public` (proving membership does not confer schema ownership).
+     - Verifies that the migration role possesses exact required `CREATE` and `USAGE` privileges on schema `public`.
+     - Verifies successful execution of all 5 operations: revoking `CREATE` from `PUBLIC`, temporarily granting and revoking `CREATE` to/from service roles, transferring function ownership, creating RLS policies, and setting `FORCE ROW LEVEL SECURITY`.
+
+- **Test Execution Results (Fix 3 Reconciled Verification)**:
+  - **Status Statement**: **Implementation and non-destructive verification completed; live destructive PostgreSQL integration verification pending.**
+  - **Operational Safety & Environment Constraints**:
+    - `FLUXORA_QUEUE_TEST_DATABASE_URL` is not configured locally.
+    - `QUEUE_TEST_DATABASE_URL` is not configured locally.
+    - `FLUXORA_CLUSTER_LOCK_DATABASE_URL` is not configured locally.
+    - `FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS=true` is not configured locally.
+    - Live integration verification remains pending execution against a dedicated disposable PostgreSQL test database and a separate canonical advisory-lock database (both targeting the same PostgreSQL server with validated host and port consistency).
+    - **`fluxora_dev` must never be used for destructive tests.** No credentials or database URLs are exposed in tests or documentation.
+  - **Reconciled Verification Table**:
+    | Test Scope / Target | Command Executed | Test File(s) Evaluated | Result | Scope Type | Scope Explanation |
+    |---|---|---|---|---|---|
+    | **Fix 3 security-definer suite** | `pnpm --filter @fluxora/db test src/migrate/security-definer-hardening.test.ts` | `packages/db/src/migrate/security-definer-hardening.test.ts` | **32 passed, 5 skipped** (37 total) | Single test file | All 32 unit/static SQL and driver tests passed. 5 live integration tests skipped due to unconfigured destructive environment. |
+    | **Fix 1 `job-worker-client.test.ts`** | `pnpm --filter @fluxora/db test src/repositories/job-worker-client.test.ts` | `packages/db/src/repositories/job-worker-client.test.ts` | **16 passed, 0 failed** (16 total) | Single test file | Worker client lease renewal, connection hygiene, and role validation. |
+    | **Fix 2 `job-queue-rls-migration.test.ts`** | `pnpm --filter @fluxora/db test src/migrate/job-queue-rls-migration.test.ts` | `packages/db/src/migrate/job-queue-rls-migration.test.ts` | **9 passed, 3 skipped** (12 total) | Single test file | Migration invariants, check constraints, and historical candidate checks. 3 destructive live migration tests skipped. |
+    | **Fix 1 regression suite (bootstrap check)** | `pnpm --filter @fluxora/db test src/migrate/bootstrap-function-execute.test.ts` | `packages/db/src/migrate/bootstrap-function-execute.test.ts` | **1 passed, 0 failed** (1 total) | Single test file | Validates bootstrap function execution and migration 0001/0003 privilege boundaries. Distinct from the 16-test client suite. |
+    | **Fix 2 regression suites (combined)** | `pnpm --filter @fluxora/db test src/migrate/job-queue-rls-migration.test.ts src/repositories/job-queue-rls.test.ts` | `src/migrate/job-queue-rls-migration.test.ts` (9 passed, 3 skipped) + `src/repositories/job-queue-rls.test.ts` (5 passed, 31 skipped) | **14 passed, 34 skipped** (48 total) | Aggregate suite | Evaluates both Fix 2 test files together: 14 total passed (9 + 5) and 34 total skipped (3 + 31) when live queue DB is unconfigured. |
+    | **Full `@fluxora/db` suite** | `pnpm --filter @fluxora/db test` | 21 test files across `packages/db` | **292 passed, 44 skipped** (336 total) | Aggregate package suite | Complete package test execution across all 21 test files. The 44 skipped tests are accounted for by: Fix 3 (5 skipped), Fix 2 migration (3 skipped), Fix 2 queue RLS (31 skipped), and graph diff (5 skipped). Zero failures. |
+  - **Apparent Difference Reconciliations**:
+    1. *Fix 1 (16 passed vs 1 passed)*: `16 passed` is `src/repositories/job-worker-client.test.ts`; `1 passed` is `src/migrate/bootstrap-function-execute.test.ts`. Both are individual test files.
+    2. *Fix 2 (9 passed, 3 skipped vs 14 passed, 34 skipped)*: `9 passed, 3 skipped` is `src/migrate/job-queue-rls-migration.test.ts` alone; `14 passed, 34 skipped` is the aggregate of `src/migrate/job-queue-rls-migration.test.ts` (9 passed, 3 skipped) and `src/repositories/job-queue-rls.test.ts` (5 passed, 31 skipped).
+    3. *Full `@fluxora/db` suite (292 passed, 44 skipped)*: 21 test files executed. The 44 skipped tests are: Fix 3 (5), Fix 2 migration (3), Fix 2 queue RLS (31), and graph diff (5).
+  - **The Five Skipped Fix 3 Live Integration Checks (Preserved as Unverified)**:
+    1. Live migration 0025 and service-role isolation (`applies migration 0025 without ADMIN OPTION and verifies strict service-role isolation`).
+    2. Clean migration bootstrap from 0001–0025 (`performs clean installation from 0001 through 0025 using a constrained non-superuser role`).
+    3. Advisory-lock contention (`serializes a second lock contender with a distinct validated queue database configuration sharing the canonical lock database`).
+    4. Preservation of pre-existing PostgreSQL role state (`leaves existing cluster runtime and service role passwords and attributes unchanged`).
+    5. Constrained migration schema privileges (`proves the constrained migration role possesses exact required schema privileges without superuser or BYPASSRLS`).
+    *Passing unit, mocked, or non-destructive tests does not establish that live PostgreSQL integration tests passed. These 5 checks remain unverified locally until executed against a dedicated disposable PostgreSQL test cluster.*
+- **Workspace Quality Verification**:
+  - `pnpm typecheck`: Exit code 0 across all 7 workspace projects.
+  - `pnpm lint`: Exit code 0 (ESLint clean across the workspace).
+  - `pnpm lint:evidence`: Exit code 0 (all 5 conclusion-producing target files verified).
+  - `pnpm build`: Exit code 0 (`apps/web` Turbopack production build succeeded).
+- **Database Safety Invariant**:
+  - `fluxora_dev` was strictly preserved and untouched (all 21 public tables intact). All test operations targeted disposable test databases.
+
+---
+
+### 7. Fix 3C: Final Connection-String Safety & Driver-Level Parser Correction
+
+#### 7.1 Identified Divergence Between URL Parser and pg Driver
+The PostgreSQL client (`pg.Client`) delegates connection string parsing to the `pg-connection-string` dependency rather than standard JavaScript `URL` properties:
+1. **Percent-Decoding Divergence**: The PostgreSQL driver decodes `%5F` to `_` in database pathnames. A connection string targeting `/fluxora%5Fdev` would bypass naive `URL.pathname === "/fluxora_dev"` checks while `pg.Client` connects directly to the development database.
+2. **Query Parameter Overrides**: The driver allows query parameters such as `host`, `port`, and `dbname` to override the URL authority and path. For example, `postgresql://localhost:5432/postgres?host=remote.evil.com` or `?dbname=fluxora_dev` causes `pg.Client` to target the overridden destination rather than `URL.hostname` or `URL.pathname`.
+
+#### 7.2 Resolution Architecture & Safety Guarantees
+1. **Installed Dependency Resolution**:
+   - `pg-connection-string` is resolved strictly through the installed `pg` package using `createRequire(import.meta.url)`:
+     ```ts
+     const nodeRequire = createRequire(import.meta.url);
+     const pgPackagePath = nodeRequire.resolve("pg");
+     const pgConnectionStringPath = nodeRequire.resolve("pg-connection-string", {
+       paths: [pgPackagePath],
+     });
+     const { parse: parsePgConnectionString } = nodeRequire(pgConnectionStringPath);
+     ```
+   - This ensures validation utilizes the exact same parser logic as `pg.Client` without modifying workspace dependencies.
+2. **Effective Configuration Validation**:
+   - Both lock (`FLUXORA_CLUSTER_LOCK_DATABASE_URL`) and admin (`FLUXORA_QUEUE_TEST_DATABASE_URL`) connection strings are evaluated for their effective driver destination.
+   - Protocols are restricted strictly to `postgres:` and `postgresql:`. Protocols such as `http:`, `mysql:`, and `socket:` are rejected.
+   - Malformed percent-encoding (`db%zz`, incomplete `%2`, etc.) is validated and rejected before opening any client.
+   - Effective host is normalized (IPv6 brackets stripped, lowercased, trimmed) and checked against `APPROVED_DESTRUCTIVE_HOSTS`. Multiple or ambiguous hosts (comma-separated) are rejected.
+   - Effective port is normalized to `5432` when omitted and validated within `1..65535`.
+   - Effective database name is decoded and evaluated for development (`fluxora_dev` / `*_dev`), disposable patterns, and collision checks.
+3. **Exact Client Configuration Dispatch**:
+   - Client instances (`lockClient`, `adminClient`, and contender clients) are constructed using explicit validated configuration objects (`pg.ClientConfig` with `host`, `port`, `database`, `user`, `password`, `ssl`) rather than raw URLs, preventing any subsequent driver-level re-parsing or override divergence.
+   - All secondary clients (`dbAdminClient`, `migratorClient`, `pre0025AdminClient`, `migratorClient2`, `testAdminClient`, `cleanupAdminClient`) use the pure `deriveClientConfig` helper to override only `database`, `user`, and `password` while preserving validated SSL configurations and connection options.
+   - The base configuration is frozen and never mutated. No client is constructed using reconstructed or raw connection strings.
+4. **Branded Configuration Protection**:
+   - `ValidatedPostgresConfig` is protected with an internal unique symbol brand (`VALIDATED_CONFIG_BRAND`).
+   - Arbitrary structural objects containing `clientConfig` are rejected at runtime and cannot bypass parser validation or preflight security checks.
+5. **Strict Port & Host Validation**:
+   - Port values are strictly validated to contain decimal digits only (`/^\d+$/`), rejecting non-decimal suffixes (`5432junk`), embedded letters (`54x2`), negative values, decimals, comma-separated lists, and array values.
+   - Default port 5432 is applied strictly when the port is genuinely absent from the URL, query parameters, and driver parser.
+   - Host values are validated against arrays, comma-separated values, and unsupported parser types without falling back to `URL.hostname`.
+6. **Clarified Concurrency Test**:
+   - Accurately named and commented to describe a second lock contender opening an independent PostgreSQL session with a distinct validated queue database configuration targeting the shared canonical lock database, verifying serialization via `pg_try_advisory_lock` returning `false`.
+7. **Credential Protection**:
+   - Passwords and complete credential-bearing URLs are never printed in error messages, assertions, or logs; only normalized endpoints (`host:port/database`) are displayed.
+
+---
+
+### 8. Remaining Security Limitations
+
+1. **Database Role Provisioning**:
+   - Creating PostgreSQL roles (`CREATE ROLE fluxora_auth`, etc.) requires `CREATEROLE` or superuser privileges on the PostgreSQL cluster. In shared managed database environments (e.g. AWS RDS or Supabase) without `CREATEROLE`, service roles must be provisioned during initial database provisioning by an administrator.
+2. **Dynamic Client Connection search_path**:
+   - While `SECURITY DEFINER` functions have their `search_path` pinned during function execution, regular client connections executing ad-hoc queries still depend on the connection string or role-level `search_path`.
+3. **Application Layer Token Handling**:
+   - The database guarantees cryptographic storage and rotation atomicity for refresh sessions and OAuth states, but client application servers remain responsible for validating transport security (HTTPS/TLS) and cookie HTTPOnly/SameSite attributes.

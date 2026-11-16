@@ -17,7 +17,7 @@ learning/
 │   ├── phase-06/             # PR Impact Analysis: webhook handling, diff storage, impact engine, change overlay
 │   ├── phase-07/             # Evidence Engine: completeness audit, clickable citations, confidence weighting, coverage view
 │   ├── phase-08/             # Simulation: persistence, deterministic rule-table, propagation engine, APIs, studio UI
-│   ├── production-hardening/ # Cross-cutting Production Hardening: Fix 1 (job queue RLS) & Fix 2 (worker crash recovery)
+│   ├── production-hardening/ # Cross-cutting Production Hardening: Fix 1 (job queue RLS), Fix 2 (worker crash recovery), Fix 3 (SECURITY DEFINER hardening)
 │   └── infrastructure/       # Cross-cutting infrastructure migrations (e.g. Vitest test runner migration)
 ├── notes/                    # In-depth technical learning notes and architectural concepts
 └── interviews/               # Senior/staff engineer interview cheat sheets, Q&A guides, and trade-off analyses
@@ -27,7 +27,7 @@ learning/
 
 ## 2. Cross-cutting Production Hardening
 
-Fix 1 and Fix 2 are completed engineering hardening tasks associated with the job queue and worker infrastructure. These cross-cutting engineering fixes harden multi-tenant security, least-privilege role boundaries, crash resilience, invariant enforcement, and migration backward-compatibility.
+Fix 1, Fix 2, and Fix 3 are completed engineering hardening tasks associated with the database security, job queue, and worker infrastructure. These cross-cutting engineering fixes harden multi-tenant security, least-privilege role boundaries, crash resilience, invariant enforcement, migration backward-compatibility, and `SECURITY DEFINER` privilege boundaries.
 
 > [!NOTE]
 > These production hardening tasks address critical database and worker infrastructure invariants discovered during production engineering reviews. They are tracked as cross-cutting infrastructure hardening and are kept separate from the numbered roadmap phases (and must not be confused with or labeled as Phase 11, which remains an independent future roadmap milestone).
@@ -36,27 +36,36 @@ Fix 1 and Fix 2 are completed engineering hardening tasks associated with the jo
 
 #### Implementation Reports
 - **Fix 1 — Job Queue Least-Privilege RLS & Worker Authorization:**<br>
-  [`learning/implementations/production-hardening/fix-01-job-queue-least-privilege-rls.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/learning/implementations/production-hardening/fix-01-job-queue-least-privilege-rls.md)<br>
+  [`learning/implementations/production-hardening/fix-01-job-queue-least-privilege-rls.md`](implementations/production-hardening/fix-01-job-queue-least-privilege-rls.md)<br>
   *Covers threat modeling, `fluxora_queue` role attribute verification, column-specific grants, `SECURITY DEFINER` function lifecycle, atomic 4-parameter retry authorization, `withWorkerClient` connection pool hygiene, and host allowlist validation.*
 - **Fix 2 — Worker Crash Recovery, Retry Limits & Migration Compatibility:**<br>
-  [`learning/implementations/production-hardening/fix-02-worker-crash-recovery.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/learning/implementations/production-hardening/fix-02-worker-crash-recovery.md)<br>
+  [`learning/implementations/production-hardening/fix-02-worker-crash-recovery.md`](implementations/production-hardening/fix-02-worker-crash-recovery.md)<br>
   *Covers silent worker crashes vs. reported failures, bounded batch sweeper (`FOR UPDATE SKIP LOCKED LIMIT 25`), table CHECK constraint `attempt_count <= max_attempts`, non-superuser legacy reconciliation under forced RLS, dual-limit architecture (`configured_max_attempts` vs `max_attempts`), trigger guard immutability, and historical 386-line candidate compatibility testing.*
+- **Fix 3 — PostgreSQL SECURITY DEFINER Hardening:**<br>
+  [`learning/implementations/production-hardening/fix-03-security-definer-hardening.md`](implementations/production-hardening/fix-03-security-definer-hardening.md)<br>
+  *Covers exhaustive audit of 20 SECURITY DEFINER functions, dedicated service roles (`fluxora_auth`, `fluxora_tenant_guard`), CVE-2018-1058 search-path defense, PostgreSQL 16+ `CREATEROLE` `ADMIN OPTION` mitigation, database-local advisory lock concurrency via a canonical lock database, driver-level connection string validation, and schema ownership prerequisites.*
 
 #### Technical Learning Notes
 - **Fix 1 Technical Notes:**<br>
-  [`learning/notes/Fix-01-Job-Queue-Least-Privilege-RLS.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/learning/notes/Fix-01-Job-Queue-Least-Privilege-RLS.md)<br>
+  [`learning/notes/Fix-01-Job-Queue-Least-Privilege-RLS.md`](notes/Fix-01-Job-Queue-Least-Privilege-RLS.md)<br>
   *Deep dive into PostgreSQL RLS mechanics, permissive policy OR-combination, superuser test masking, search path injection prevention, connection pool tainting, and destructive test guardrails.*
 - **Fix 2 Technical Notes:**<br>
-  [`learning/notes/Fix-02-Worker-Crash-Recovery-And-Retry-Limits.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/learning/notes/Fix-02-Worker-Crash-Recovery-And-Retry-Limits.md)<br>
+  [`learning/notes/Fix-02-Worker-Crash-Recovery-And-Retry-Limits.md`](notes/Fix-02-Worker-Crash-Recovery-And-Retry-Limits.md)<br>
   *Deep dive into attempt count semantic definitions, bounded sweeper concurrency, non-superuser transaction-scoped migration policies, honest representation of historical uncertainty (`NULL`), trigger guards vs column defaults, and PostgreSQL function return table upgrade rules.*
+- **Fix 3 Technical Notes:**<br>
+  [`learning/notes/Fix-03-PostgreSQL-Security-Definer-Hardening.md`](notes/Fix-03-PostgreSQL-Security-Definer-Hardening.md)<br>
+  *Deep dive into SECURITY DEFINER mechanics, search-path resolution order, pg_temp attack vectors, role attributes, PostgreSQL 16+ role membership options (ADMIN, INHERIT, SET), advisory lock database locality, driver-level parser divergences, and schema vs. table ownership.*
 
 #### Interview Preparation
 - **Fix 1 Interview Cheat Sheet:**<br>
-  [`learning/interviews/Fix 1 Job Queue Least Privilege RLS Interview CheatSheet.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/learning/interviews/Fix%201%20Job%20Queue%20Least%20Privilege%20RLS%20Interview%20CheatSheet.md)<br>
+  [`learning/interviews/Fix 1 Job Queue Least Privilege RLS Interview CheatSheet.md`](interviews/Fix%201%20Job%20Queue%20Least%20Privilege%20RLS%20Interview%20CheatSheet.md)<br>
   *Layman analogy ("Safe Deposit Box vs. Armored Car"), 30-second elevator pitch, staff-level Q&A, SQL patterns, architectural traps, and production readiness checklist.*
 - **Fix 2 Interview Cheat Sheet:**<br>
-  [`learning/interviews/Fix 2 Worker Crash Recovery and Retry Limits Interview CheatSheet.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/learning/interviews/Fix%202%20Worker%20Crash%20Recovery%20and%20Retry%20Limits%20Interview%20CheatSheet.md)<br>
+  [`learning/interviews/Fix 2 Worker Crash Recovery and Retry Limits Interview CheatSheet.md`](interviews/Fix%202%20Worker%20Crash%20Recovery%20and%20Retry%20Limits%20Interview%20CheatSheet.md)<br>
   *Layman analogy ("Rental Car & Tow Truck"), 30-second elevator pitch, staff-level concurrency and queue Q&A, state machine diagram, operational vs configured limit trade-offs, and historical candidate verification caveats.*
+- **Fix 3 Interview Cheat Sheet:**<br>
+  [`learning/interviews/Fix 3 PostgreSQL SECURITY DEFINER Hardening Interview CheatSheet.md`](interviews/Fix%203%20PostgreSQL%20SECURITY%20DEFINER%20Hardening%20Interview%20CheatSheet.md)<br>
+  *Layman analogy ("Diplomatic Pouch & Embassy Vault"), 30-second elevator pitch, staff-level PostgreSQL security Q&A, before vs. after comparison, and production deployment runbook checklist.*
 
 ---
 
@@ -81,11 +90,25 @@ Key engineering highlights:
 4. **Dual-Limit Architecture & Trigger Guards:** Forward-only migration 0024 introduces `configured_max_attempts` with `NULL` indicating unprovable historical limits, guarded by immutable trigger `fluxora_jobs_retry_limits_guard`.
 5. **Historical 386-Line Candidate Compatibility:** Cautiously treats the archived 386-line migration candidate as a historical candidate (not proven provenance for `fluxora_dev`), verified via backward-compatibility suite in `packages/db/src/migrate/job-queue-rls-migration.test.ts`.
 
+#### Fix 3 — PostgreSQL SECURITY DEFINER Hardening
+Covers migration `0025_security_definer_hardening.sql` and regression suite `security-definer-hardening.test.ts`, establishing dedicated service-role ownership, pinned search paths, revoked public execute, PostgreSQL 16+ role membership hardening, database-local advisory lock serialization, and driver-level connection validation.
+
+> [!IMPORTANT]
+> **Status:** Implementation and non-destructive verification completed; live destructive PostgreSQL integration verification pending.
+> `FLUXORA_QUEUE_TEST_DATABASE_URL`, `QUEUE_TEST_DATABASE_URL`, `FLUXORA_CLUSTER_LOCK_DATABASE_URL`, and `FLUXORA_ALLOW_DESTRUCTIVE_QUEUE_MIGRATION_TESTS=true` are not configured locally. Live integration verification remains pending execution against a dedicated disposable PostgreSQL test cluster and canonical lock database (with validated host and port consistency). `fluxora_dev` must never be used for destructive tests.
+
+Key engineering highlights:
+1. **Dedicated Service Role Architecture:** Provisioned dedicated least-privilege `NOLOGIN` roles `fluxora_auth` (auth functions) and `fluxora_tenant_guard` (tenant helpers), eliminating superuser/migrator function ownership.
+2. **Search-Path & CVE-2018-1058 Defense:** Pinned `search_path = pg_catalog, public, pg_temp` across all 12 functions, schema-qualified all relation references, and revoked `CREATE ON SCHEMA public FROM PUBLIC`.
+3. **PostgreSQL 16+ CREATEROLE ADMIN OPTION Mitigation:** Pre-provisioned service roles via trusted administrator and granted temporary `WITH SET TRUE, INHERIT FALSE, ADMIN FALSE` membership for ownership transfer, preventing migration runners from permanently administering service roles.
+4. **Canonical Advisory Lock Concurrency:** Solved database-local advisory lock isolation across test runners by enforcing a dedicated canonical lock database (`FLUXORA_CLUSTER_LOCK_DATABASE_URL`), validated via preflight host/port endpoint matching.
+5. **Driver-Level Connection String Validation:** Resolved `pg-connection-string` from installed `pg` via `createRequire`, validated effective driver configurations (preventing percent-encoding and query-parameter bypasses), and built frozen, branded `ValidatedPostgresConfig` objects.
+
 ---
 
 ## 3. Canonical Architecture Cross-References
 
-- **Implementation Snapshot:** [`docs/DESIGN.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/docs/DESIGN.md) (living snapshot of current state, active constraints, and verification results).
-- **Implementation Roadmap:** [`docs/architecture/17-implementation-roadmap.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/docs/architecture/17-implementation-roadmap.md) (phase definitions and step sequencing).
-- **Database Schema:** [`docs/architecture/06-database-schema.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/docs/architecture/06-database-schema.md) (relational models and RLS policies).
-- **Security Architecture:** [`docs/architecture/11-security-architecture.md`](file:///c:/Users/HP/Desktop/Projects/fluxora/docs/architecture/11-security-architecture.md) (sandboxing, least-privilege roles, and tenant boundaries).
+- **Implementation Snapshot:** [`docs/DESIGN.md`](../docs/DESIGN.md) (living snapshot of current state, active constraints, and verification results).
+- **Implementation Roadmap:** [`docs/architecture/17-implementation-roadmap.md`](../docs/architecture/17-implementation-roadmap.md) (phase definitions and step sequencing).
+- **Database Schema:** [`docs/architecture/06-database-schema.md`](../docs/architecture/06-database-schema.md) (relational models and RLS policies).
+- **Security Architecture:** [`docs/architecture/11-security-architecture.md`](../docs/architecture/11-security-architecture.md) (sandboxing, least-privilege roles, and tenant boundaries).
