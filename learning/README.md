@@ -17,7 +17,7 @@ learning/
 │   ├── phase-06/             # PR Impact Analysis: webhook handling, diff storage, impact engine, change overlay
 │   ├── phase-07/             # Evidence Engine: completeness audit, clickable citations, confidence weighting, coverage view
 │   ├── phase-08/             # Simulation: persistence, deterministic rule-table, propagation engine, APIs, studio UI
-│   ├── production-hardening/ # Cross-cutting Production Hardening: Fix 1 (job queue RLS), Fix 2 (worker crash recovery), Fix 3 (SECURITY DEFINER hardening)
+│   ├── production-hardening/ # Cross-cutting Production Hardening: Fix 1 (job queue RLS), Fix 2 (worker crash recovery), Fix 3 (SECURITY DEFINER hardening), Fix 4 (scenario referential integrity)
 │   └── infrastructure/       # Cross-cutting infrastructure migrations (e.g. Vitest test runner migration)
 ├── notes/                    # In-depth technical learning notes and architectural concepts
 └── interviews/               # Senior/staff engineer interview cheat sheets, Q&A guides, and trade-off analyses
@@ -27,7 +27,7 @@ learning/
 
 ## 2. Cross-cutting Production Hardening
 
-Fix 1, Fix 2, and Fix 3 are completed engineering hardening tasks associated with the database security, job queue, and worker infrastructure. These cross-cutting engineering fixes harden multi-tenant security, least-privilege role boundaries, crash resilience, invariant enforcement, migration backward-compatibility, and `SECURITY DEFINER` privilege boundaries.
+Fix 1, Fix 2, Fix 3, and Fix 4 are completed engineering hardening tasks associated with database security, job queue, worker infrastructure, and relational referential integrity. These cross-cutting engineering fixes harden multi-tenant security, least-privilege role boundaries, crash resilience, invariant enforcement, migration backward-compatibility, `SECURITY DEFINER` privilege boundaries, and database-level foreign key invariants.
 
 > [!NOTE]
 > These production hardening tasks address critical database and worker infrastructure invariants discovered during production engineering reviews. They are tracked as cross-cutting infrastructure hardening and are kept separate from the numbered roadmap phases (and must not be confused with or labeled as Phase 11, which remains an independent future roadmap milestone).
@@ -44,6 +44,9 @@ Fix 1, Fix 2, and Fix 3 are completed engineering hardening tasks associated wit
 - **Fix 3 — PostgreSQL SECURITY DEFINER Hardening:**<br>
   [`learning/implementations/production-hardening/fix-03-security-definer-hardening.md`](implementations/production-hardening/fix-03-security-definer-hardening.md)<br>
   *Covers exhaustive audit of 20 SECURITY DEFINER functions, dedicated service roles (`fluxora_auth`, `fluxora_tenant_guard`), CVE-2018-1058 search-path defense, PostgreSQL 16+ `CREATEROLE` `ADMIN OPTION` mitigation, database-local advisory lock concurrency via a canonical lock database, driver-level connection string validation, and schema ownership prerequisites.*
+- **Fix 4 — Scenario and Repository Referential Integrity:**<br>
+  [`learning/implementations/production-hardening/fix-04-scenario-repository-referential-integrity.md`](implementations/production-hardening/fix-04-scenario-repository-referential-integrity.md)<br>
+  *Covers composite foreign key enforcement, `graph_nodes` repository backfill, fail-closed pre-migration data audit, `BEFORE INSERT` trigger auto-derivation, immutable `repository_id` trigger guard, single-table simulation query optimization, and concurrency race validation.*
 
 #### Technical Learning Notes
 - **Fix 1 Technical Notes:**<br>
@@ -55,6 +58,9 @@ Fix 1, Fix 2, and Fix 3 are completed engineering hardening tasks associated wit
 - **Fix 3 Technical Notes:**<br>
   [`learning/notes/Fix-03-PostgreSQL-Security-Definer-Hardening.md`](notes/Fix-03-PostgreSQL-Security-Definer-Hardening.md)<br>
   *Deep dive into SECURITY DEFINER mechanics, search-path resolution order, pg_temp attack vectors, role attributes, PostgreSQL 16+ role membership options (ADMIN, INHERIT, SET), advisory lock database locality, driver-level parser divergences, and schema vs. table ownership.*
+- **Fix 4 Technical Notes:**<br>
+  [`learning/notes/Fix-04-Scenario-Repository-Referential-Integrity.md`](notes/Fix-04-Scenario-Repository-Referential-Integrity.md)<br>
+  *Deep dive into SQL standard composite foreign key constraints, referenced table UNIQUE requirements, graph node lineage derivation, trigger-based denormalization synchronization, concurrent foreign key validation, and index optimization.*
 
 #### Interview Preparation
 - **Fix 1 Interview Cheat Sheet:**<br>
@@ -66,6 +72,9 @@ Fix 1, Fix 2, and Fix 3 are completed engineering hardening tasks associated wit
 - **Fix 3 Interview Cheat Sheet:**<br>
   [`learning/interviews/Fix 3 PostgreSQL SECURITY DEFINER Hardening Interview CheatSheet.md`](interviews/Fix%203%20PostgreSQL%20SECURITY%20DEFINER%20Hardening%20Interview%20CheatSheet.md)<br>
   *Layman analogy ("Diplomatic Pouch & Embassy Vault"), 30-second elevator pitch, staff-level PostgreSQL security Q&A, before vs. after comparison, and production deployment runbook checklist.*
+- **Fix 4 Interview Cheat Sheet:**<br>
+  [`learning/interviews/Fix 4 Scenario and Repository Referential Integrity Interview CheatSheet.md`](interviews/Fix%204%20Scenario%20and%20Repository%20Referential%20Integrity%20Interview%20CheatSheet.md)<br>
+  *Layman analogy ("Boarding Pass & Gate Ticket"), 30-second elevator pitch, staff-level relational integrity Q&A, SQL patterns, operational migration zero-downtime trade-offs, and verification checklist.*
 
 ---
 
@@ -103,6 +112,19 @@ Key engineering highlights:
 3. **PostgreSQL 16+ CREATEROLE ADMIN OPTION Mitigation:** Pre-provisioned service roles via trusted administrator and granted temporary `WITH SET TRUE, INHERIT FALSE, ADMIN FALSE` membership for ownership transfer, preventing migration runners from permanently administering service roles.
 4. **Canonical Advisory Lock Concurrency:** Solved database-local advisory lock isolation across test runners by enforcing a dedicated canonical lock database (`FLUXORA_CLUSTER_LOCK_DATABASE_URL`), validated via preflight host/port endpoint matching.
 5. **Driver-Level Connection String Validation:** Resolved `pg-connection-string` from installed `pg` via `createRequire`, validated effective driver configurations (preventing percent-encoding and query-parameter bypasses), and built frozen, branded `ValidatedPostgresConfig` objects.
+
+#### Fix 4 — Scenario and Repository Referential Integrity
+Covers forward-only migrations `0026_scenario_repository_referential_integrity.sql` and `0027_graph_node_lineage_integrity.sql`, query optimizations in `simulation.ts`, disposable test isolation in `packages/db/src/testing/test-database.ts`, and test suites `scenario-referential-integrity.test.ts` and `scenario-referential-integrity-migration.test.ts`, eliminating cross-repository entity targeting, repository identity spoofing, and lineage reassignment at the PostgreSQL storage engine level.
+
+Key engineering highlights:
+1. **Composite Foreign Key Hardening:** Replaced independent single-column foreign key with composite foreign key `CONSTRAINT scenarios_repository_target_node_fkey FOREIGN KEY (repository_id, target_node_id) REFERENCES graph_nodes (repository_id, id) ON DELETE CASCADE` (Migration 0026).
+2. **Authoritative Lineage Derivation & Spoofing Rejection:** Denormalized `repository_id uuid NOT NULL REFERENCES repositories(id) ON DELETE CASCADE` onto `graph_nodes`. In forward-only migration 0027, the `BEFORE INSERT` trigger (`trg_graph_nodes_set_repository_id`) authoritatively derives `repository_id` from `analysis_runs` $\to$ `repository_snapshots`. Caller-provided `repository_id` values are validated against derived truth; any mismatch is rejected with SQLSTATE `23000` (`integrity_constraint_violation`), while unresolvable runs fail closed with SQLSTATE `23503` (`foreign_key_violation`).
+3. **Dual Immutability Guard:** Guarded `graph_nodes` against runtime updates to **both** `repository_id` AND `analysis_run_id` via `BEFORE UPDATE` trigger `trg_graph_nodes_prevent_repository_mutation` raising SQLSTATE `23000`.
+4. **Upstream Lineage Verification:** Audited upstream parent models (`analysis_runs.snapshot_id`, `repository_snapshots.repository_id`) and verified they are write-once parent identities never updated in application or worker code.
+5. **Fail-Closed Pre-Migration Data Audit:** Asserts 0 orphaned graph nodes and 0 mismatched scenarios before schema alterations (raising SQLSTATE `23514`), backed by temporary `NO FORCE RLS` relaxation for table owners during migration maintenance.
+6. **Application-Layer Query Optimization:** Replaced a 3-table join in `createScenario` with a single-table indexed check, intercepting PostgreSQL constraint violation `23503` and translating it into a domain-level `SimulationPersistenceValidationError`.
+7. **Disposable Test Database Isolation:** Enforces strict execution against dedicated disposable test databases (`fluxora_fix4_test`), safely rejecting `fluxora_dev` and production environments.
+8. **Deterministic Concurrency Verification:** Replaced JavaScript timing assumptions with deterministic PostgreSQL `pg_locks` lock-wait checks (`waitForLockWait`).
 
 ---
 

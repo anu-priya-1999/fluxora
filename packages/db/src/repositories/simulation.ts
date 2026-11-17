@@ -186,13 +186,11 @@ export async function createScenario(
     }
 
     // 2. Verify target node exists and belongs to this repository & organization
-    const nodeCheck = await client.query<{ id: string; analysis_run_id: string }>(
-      `SELECT gn.id, gn.analysis_run_id
+    const nodeCheck = await client.query<{ id: string }>(
+      `SELECT gn.id
        FROM graph_nodes gn
-       JOIN analysis_runs ar ON ar.id = gn.analysis_run_id
-       JOIN repository_snapshots rs ON rs.id = ar.snapshot_id
        WHERE gn.id = $1::uuid
-         AND rs.repository_id = $2::uuid`,
+         AND gn.repository_id = $2::uuid`,
       [targetNodeId, repositoryId],
     );
     if (nodeCheck.rows.length === 0) {
@@ -207,15 +205,33 @@ export async function createScenario(
       VALUES ($1::uuid, $2::uuid, $3, $4::uuid, $5, $6::jsonb, $7::uuid)
       RETURNING id, organization_id, repository_id, name, target_node_id, failure_type, parameters, created_by, created_at
     `;
-    const res = await client.query<ScenarioRow>(insertQuery, [
-      organizationId,
-      repositoryId,
-      name.trim(),
-      targetNodeId,
-      failureType,
-      JSON.stringify(parameters ?? {}),
-      createdBy ?? null,
-    ]);
+    let res: pg.QueryResult<ScenarioRow>;
+    try {
+      res = await client.query<ScenarioRow>(insertQuery, [
+        organizationId,
+        repositoryId,
+        name.trim(),
+        targetNodeId,
+        failureType,
+        JSON.stringify(parameters ?? {}),
+        createdBy ?? null,
+      ]);
+    } catch (err: unknown) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "code" in err &&
+        (err as { code: string }).code === "23503"
+      ) {
+        const pgErr = err as { code: string; constraint?: string };
+        if (pgErr.constraint === "scenarios_repository_target_node_fkey") {
+          throw new SimulationPersistenceValidationError(
+            "Target node does not exist in the specified repository.",
+          );
+        }
+      }
+      throw err;
+    }
 
     const row = res.rows[0];
     if (!row) {

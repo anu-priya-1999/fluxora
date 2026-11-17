@@ -13398,3 +13398,58 @@ The PostgreSQL client (`pg.Client`) delegates connection string parsing to the `
    - While `SECURITY DEFINER` functions have their `search_path` pinned during function execution, regular client connections executing ad-hoc queries still depend on the connection string or role-level `search_path`.
 3. **Application Layer Token Handling**:
    - The database guarantees cryptographic storage and rotation atomicity for refresh sessions and OAuth states, but client application servers remain responsible for validating transport security (HTTPS/TLS) and cookie HTTPOnly/SameSite attributes.
+
+---
+
+## Fix 4: Scenario and Repository Referential Integrity
+
+### 1. Problem and Relational Architecture Gap
+In Fluxora's architecture, a `Scenario` represents an experimental what-if failure hypothesis targeting a specific graph entity within a repository. Prior to Fix 4, the `scenarios` table possessed independent single-column foreign keys:
+- `repository_id REFERENCES repositories(id)`
+- `target_node_id REFERENCES graph_nodes(id)`
+
+Because `graph_nodes` only maintained a foreign key to `analysis_runs(id)` without a direct `repository_id` column, the database engine could only verify that the referenced repository and node existed independently. It could not verify that the target graph node actually belonged to the selected repository. Consequently:
+- A scenario could target a node belonging to another repository, producing falsified blast-radius analysis and corrupted simulation state.
+- Relationship enforcement relied on an advisory 3-way join application check in `createScenario`, leaving the database vulnerable to TOCTOU concurrency races, direct SQL updates, and background worker bypasses.
+
+### 2. Composite Foreign-Key Solution
+Fix 4 migrates referential integrity enforcement into PostgreSQL's relational core via forward-only migration `0026_scenario_repository_referential_integrity.sql`:
+1. **Denormalized `repository_id` on `graph_nodes`**: Added `repository_id uuid NOT NULL REFERENCES repositories(id) ON DELETE CASCADE`, backfilled from `analysis_runs` $\to$ `repository_snapshots` $\to$ `repositories`.
+2. **Composite Unique Referenced Key**: Added `CONSTRAINT graph_nodes_repository_id_id_unique UNIQUE (repository_id, id)` on `graph_nodes`.
+3. **Composite Foreign Key on `scenarios`**: Replaced single-column `scenarios_target_node_id_fkey` with:
+   ```sql
+   CONSTRAINT scenarios_repository_target_node_fkey
+     FOREIGN KEY (repository_id, target_node_id)
+     REFERENCES public.graph_nodes (repository_id, id)
+     ON DELETE CASCADE
+   ```
+4. **Supporting Composite Index**: Created `scenarios_repository_target_node_idx ON scenarios (repository_id, target_node_id)` for high-performance join probes and cascade lookups.
+5. **Independent Repository Key Retention**: Retained `scenarios_repository_id_fkey REFERENCES repositories(id) ON DELETE CASCADE` for defense-in-depth.
+
+### 3. Preserved Nullability, Deletion, and Ingestion Semantics
+- **Strict Nullability**: `scenarios.repository_id` and `scenarios.target_node_id` remain strictly `NOT NULL`.
+- **Cascade Deletion**: Deleting a target node or repository cascades scenario deletion (`ON DELETE CASCADE`), preventing orphaned hypotheses.
+- **Fail-Closed Authoritative Ingestion Trigger**: Graph ingestion pipelines insert into `graph_nodes` with or without passing `repository_id`. In forward-only migration `0027_graph_node_lineage_integrity.sql`, the `BEFORE INSERT` trigger (`trg_graph_nodes_set_repository_id`) authoritatively derives `repository_id` from `analysis_runs` $\to$ `repository_snapshots`. If an explicit, non-null `repository_id` is supplied by the caller, it is compared against the authoritative derived identity; any mismatch is rejected with SQLSTATE `23000` (`integrity_constraint_violation`). If the analysis run or associated snapshot cannot be resolved, it fails closed with SQLSTATE `23503` (`foreign_key_violation`).
+- **Dual Immutability Enforcement**: The `BEFORE UPDATE` trigger (`trg_graph_nodes_prevent_repository_mutation`) enforces immutability for **both** `repository_id` and `analysis_run_id` using `IS DISTINCT FROM` comparisons, rejecting any attempt to mutate either lineage column with SQLSTATE `23000`. Unrelated mutable attributes (`name`, `path`, `metadata`, `confidence`) remain updateable.
+- **Upstream Lineage Verification**: An audit of upstream lineage confirmed that `analysis_runs.snapshot_id` and `repository_snapshots.repository_id` are write-once parent identities with no application or worker update paths, ensuring the derived repository identity invariant cannot be invalidated upstream.
+
+### 4. Tenant-Isolation Boundaries & Trigger Security
+- All existing `FORCE ROW LEVEL SECURITY` configurations on `scenarios`, `repositories`, `repository_snapshots`, `analysis_runs`, and `graph_nodes` remain strictly intact.
+- Both trigger functions use `SECURITY INVOKER` and explicit `SET search_path = pg_catalog, public`. Lineage resolution operates under the calling role's tenant context (`app.current_org_id`); any cross-tenant analysis run reference returns zero rows under tenant RLS and fails closed with SQLSTATE `23503` without leaking cross-tenant information.
+- Execution privileges on trigger functions are granted to runtime service roles `fluxora_app`, `fluxora_worker`, and test role `fluxora_rls_test`.
+
+### 5. Migration Strategy, Test Database Isolation & Verification
+- **Migrations**: `0026_scenario_repository_referential_integrity.sql` established the schema, constraints, index, and initial triggers. Forward-only migration `0027_graph_node_lineage_integrity.sql` hardened trigger functions against explicit repository spoofing and analysis-run mutations without editing or rewriting migration 0026.
+- **Test Database Isolation Policy**: Destructive and integration tests must never run against `fluxora_dev` or production databases. A dedicated disposable test database framework (`packages/db/src/testing/test-database.ts`) strictly enforces approved local hosts (`localhost`, `127.0.0.1`, `::1`, `postgres`), validates disposable test database naming patterns (`fluxora_fix4_test`, `fluxora_clean_*`), rejects development (`*_dev`) and production databases, recreates the isolated database, points `DATABASE_URL` to it, and cleanly tears it down after test completion.
+- **Deterministic Concurrency Verification**: In concurrency tests, timing-based assertions have been replaced by database-observed lock waits (`waitForLockWait` polling PostgreSQL's `pg_locks` for `NOT granted`), guaranteeing that the transaction was physically blocked waiting on the tuple lock before committing the contender.
+- **Verification Results**:
+  - `scenario-referential-integrity.test.ts`: 30/30 passed against isolated disposable database `fluxora_fix4_test` (valid creation, cross-repo rejection, update checks, cascade deletions, tenant isolation, deterministic concurrency, explicit repository mismatch rejection `23000`, dual immutability `23000`, permitted updates, and RLS invoker checks).
+  - `scenario-referential-integrity-migration.test.ts`: 8/8 passed (0026 & 0027 static analysis, catalog constraint verification, pre-migration audit check violation `23514`, trigger derivation, and forward-only 0026 $\to$ 0027 migration upgrade test).
+  - Full `@fluxora/db` test suite: Clean passing.
+  - Workspace `typecheck`, `lint`, and `lint:evidence`: Clean (0 errors).
+
+### 6. Architectural Decision Record & Learning Documentation
+- **ADR**: `docs/architecture/18-decision-log.md` (ADR-011) and [`learning/decisions/adr-011-scenario-repository-referential-integrity.md`](../learning/decisions/adr-011-scenario-repository-referential-integrity.md).
+- **Engineering Implementation Report**: [`learning/implementations/production-hardening/fix-04-scenario-repository-referential-integrity.md`](../learning/implementations/production-hardening/fix-04-scenario-repository-referential-integrity.md).
+- **Technical Learning Notes**: [`learning/notes/Fix-04-Scenario-Repository-Referential-Integrity.md`](../learning/notes/Fix-04-Scenario-Repository-Referential-Integrity.md).
+- **Interview Guide**: [`learning/interviews/Fix 4 Scenario and Repository Referential Integrity Interview CheatSheet.md`](../learning/interviews/Fix%204%20Scenario%20and%20Repository%20Referential%20Integrity%20Interview%20CheatSheet.md).
