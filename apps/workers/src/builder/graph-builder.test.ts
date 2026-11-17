@@ -774,7 +774,7 @@ describe.skipIf(!hasDatabase)(
     );
 
     it(
-      "15. Cross-tenant/cross-scope writes are rejected according to existing RLS behavior",
+      "15. Cross-tenant writes fail closed without disclosing tenant data",
       async () => {
         const normalized = createEmptyNormalizedResult({
           symbols: [
@@ -802,7 +802,18 @@ describe.skipIf(!hasDatabase)(
               });
             });
           },
-          /row-level security policy|violates row-level security policy/i,
+          (err: Error & { code?: string }) => {
+            // Under RLS, runA is invisible to Org B, so trigger cannot resolve repo_id -> fails closed with 23503
+            assert.equal(err.code, "23503");
+            assert.match(
+              err.message,
+              /Cannot resolve repository_id for graph_node with analysis_run_id/,
+            );
+            // Verify no mention of Org A or repoA in the error message
+            assert.equal(err.message.includes(orgA.id), false);
+            assert.equal(err.message.includes(repoA.id), false);
+            return true;
+          },
         );
       },
     );
