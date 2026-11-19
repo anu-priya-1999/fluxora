@@ -135,15 +135,18 @@ Allow authenticated users navigating the Architecture Explorer (`/repositories/[
 
 ## Verification Matrix
 
-| Verification Check | Target / Scope | Result |
-| --- | --- | --- |
-| `pnpm --filter @fluxora/web test` | 16 test files (including `simulation-mode.test.ts` with 49 tests and `explorer.test.ts` with 27 tests) | **283 passed (0 failed)** |
-| Full Workspace Tests (`pnpm test`) | 7 workspace packages, 75 test files | **1,144 passed, 9 skipped (0 failed)** |
-| `pnpm typecheck` | 7 workspace packages | **Exit code 0 (clean)** |
-| `pnpm lint` | Monorepo ESLint check | **Exit code 0 (0 errors, 0 warnings)** |
-| `pnpm lint:evidence` | EvidenceWriter AST lint | **Exit code 0 (all paths pass)** |
-| `pnpm build` | Next.js 16 production build | **Exit code 0 (all routes compiled)** |
-| `git diff --check` | Whitespace & format check | **Exit code 0 (clean)** |
+| Verification Check | Target / Scope | Result | Status |
+| --- | --- | --- | --- |
+| `pnpm --filter @fluxora/web test` | 16 test files (including `simulation-mode.test.ts` with 49 tests and `explorer.test.ts` with 31 tests) | **287 passed (0 failed)** | Verified (Latest execution) |
+| `pnpm typecheck` | 7 workspace packages (`tsc --noEmit`) | **Exit code 0 (clean)** | Verified (Latest execution) |
+| `pnpm lint` | Monorepo ESLint check | **Exit code 0 (0 errors, 0 warnings)** | Verified (Latest execution) |
+| `git diff --check` | Whitespace & formatting check | **Exit code 0 (clean)** | Verified (Latest execution) |
+| Full Workspace Tests (`pnpm test`) | 7 workspace packages, 75 test files | **1,144 passed, 9 skipped (0 failed)** | Historical baseline (Recorded prior to doc recovery) |
+| `pnpm lint:evidence` | EvidenceWriter AST lint | **Exit code 0 (all paths pass)** | Historical baseline (Recorded prior to doc recovery) |
+| `pnpm build` | Next.js 16 production build | **Exit code 0 (all routes compiled)** | Historical baseline (Recorded prior to doc recovery) |
+
+> [!NOTE]
+> The web test suite reflects the latest verified test count: 16 test files and 287 passed tests (including 49 tests in `simulation-mode.test.ts` and 31 tests in `explorer.test.ts`). The full workspace test count (1,144 passed) and production build are preserved as historical workspace execution baselines and were not rerun during this documentation-only recovery task.
 
 ---
 

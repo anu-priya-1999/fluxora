@@ -16,7 +16,7 @@ learning/
 │   ├── phase-05/             # Architecture UI: React Flow canvas, explorer, inspector, filters, clustering, WebSockets
 │   ├── phase-06/             # PR Impact Analysis: webhook handling, diff storage, impact engine, change overlay
 │   ├── phase-07/             # Evidence Engine: completeness audit, clickable citations, confidence weighting, coverage view
-│   ├── phase-08/             # Simulation: persistence, deterministic rule-table, propagation engine, APIs, studio UI
+│   ├── phase-08/             # Simulation: persistence, deterministic rule-table, propagation engine, APIs, studio UI, simulation mode overlay
 │   ├── production-hardening/ # Cross-cutting Production Hardening: Fix 1 (job queue RLS), Fix 2 (worker crash recovery), Fix 3 (SECURITY DEFINER hardening), Fix 4 (scenario referential integrity)
 │   └── infrastructure/       # Cross-cutting infrastructure migrations (e.g. Vitest test runner migration)
 ├── notes/                    # In-depth technical learning notes and architectural concepts
