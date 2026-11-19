@@ -1,0 +1,105 @@
+{
+  "fixtureId": "golden-taxonomy-simulation-v1",
+  "repositoryFullName": "shadcn-ui/taxonomy",
+  "repositoryName": "taxonomy",
+  "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+  "description": "Hand-verified deterministic simulation validation scenario against pinned Taxonomy repository fixture.",
+  "scenario": {
+    "name": "Taxonomy subscription helper unavailable",
+    "failureType": "unavailable",
+    "targetCanonicalId": "mod:lib/subscription.ts",
+    "description": "Simulates unavailability of the lib/subscription.ts helper module to verify deterministic failure propagation to dependent callers."
+  },
+  "manuallyVerifiedCallRelationship": {
+    "edgeId": "test-edge:mod:app/api/users/stripe/route.ts->mod:lib/subscription.ts:CALLS",
+    "callerCanonicalId": "mod:app/api/users/stripe/route.ts",
+    "calleeCanonicalId": "mod:lib/subscription.ts",
+    "edgeType": "CALLS",
+    "invokedSymbol": "getUserSubscriptionPlan",
+    "sourceFile": "app/api/users/stripe/route.ts",
+    "sourceLine": 20,
+    "sourceSnippet": "const subscriptionPlan = await getUserSubscriptionPlan(session.user.id)",
+    "metadata": {
+      "sync": true,
+      "hasFallback": "unknown",
+      "hasCircuitBreaker": "unknown"
+    },
+    "isTestOnly": true,
+    "provenance": "test-fixture-manual-verification"
+  },
+  "expectedResults": [
+    {
+      "canonicalId": "mod:lib/subscription.ts",
+      "expectedState": "failed",
+      "explanation": "Direct failure seed",
+      "ruleApplied": "target_failure",
+      "ruleVersion": "1.0.0",
+      "confidence": 1.0,
+      "capped": false,
+      "assumptions": [
+        "Scenario target node directly seeded as failed (unavailable)"
+      ],
+      "causalPath": [
+        {
+          "canonicalId": "mod:lib/subscription.ts",
+          "edgeId": null,
+          "ruleId": "target_failure",
+          "ruleVersion": "1.0.0",
+          "previousState": "healthy",
+          "resultingState": "failed",
+          "confidence": 1.0,
+          "capped": false,
+          "assumptions": [
+            "Scenario target node directly seeded as failed (unavailable)"
+          ]
+        }
+      ]
+    },
+    {
+      "canonicalId": "mod:app/api/users/stripe/route.ts",
+      "expectedState": "degraded",
+      "explanation": "Caller affected by the verified simulation-only CALLS relationship",
+      "ruleApplied": "CALLS+sync+no_fallback",
+      "ruleVersion": "1.0.0",
+      "confidence": 0.9,
+      "capped": false,
+      "assumptions": [
+        "Scenario target node directly seeded as failed (unavailable)",
+        "No circuit breaker detected on app/api/users/stripe/route.ts->lib/subscription.ts call",
+        "No fallback handler detected on app/api/users/stripe/route.ts->lib/subscription.ts call"
+      ],
+      "causalPath": [
+        {
+          "canonicalId": "mod:lib/subscription.ts",
+          "edgeId": null,
+          "ruleId": "target_failure",
+          "ruleVersion": "1.0.0",
+          "previousState": "healthy",
+          "resultingState": "failed",
+          "confidence": 1.0,
+          "capped": false,
+          "assumptions": [
+            "Scenario target node directly seeded as failed (unavailable)"
+          ]
+        },
+        {
+          "canonicalId": "mod:app/api/users/stripe/route.ts",
+          "edgeId": "test-edge:mod:app/api/users/stripe/route.ts->mod:lib/subscription.ts:CALLS",
+          "ruleId": "CALLS+sync+no_fallback",
+          "ruleVersion": "1.0.0",
+          "previousState": "healthy",
+          "resultingState": "degraded",
+          "confidence": 0.9,
+          "capped": false,
+          "assumptions": [
+            "No circuit breaker detected on app/api/users/stripe/route.ts->lib/subscription.ts call",
+            "No fallback handler detected on app/api/users/stripe/route.ts->lib/subscription.ts call"
+          ]
+        }
+      ]
+    }
+  ],
+  "expectedUnaffectedCanonicalIds": [
+    "mod:components/site-footer.tsx"
+  ]
+}

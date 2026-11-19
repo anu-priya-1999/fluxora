@@ -1,3 +1,5 @@
+import type { SimulationResultState } from "./simulation.ts";
+
 /**
  * Metadata contract and characteristics for golden repository fixtures used in deterministic tests.
  */
@@ -88,4 +90,80 @@ export interface GoldenImpactExpectationManifest {
   readonly expectedTruncated: boolean;
   readonly expectedMaxDepthReached: number;
   readonly prFixture: GoldenPullRequestFixture;
+}
+
+/**
+ * Manually verified dependency call relationship derived from fixture source code.
+ */
+export interface GoldenSimulationVerifiedCallRelationship {
+  readonly edgeId: string;
+  readonly callerCanonicalId: string;
+  readonly calleeCanonicalId: string;
+  readonly edgeType: "CALLS";
+  readonly invokedSymbol: string;
+  readonly sourceFile: string;
+  readonly sourceLine: number;
+  readonly sourceSnippet: string;
+  readonly metadata: {
+    readonly sync: boolean;
+    readonly hasFallback: "unknown" | boolean;
+    readonly hasCircuitBreaker: "unknown" | boolean;
+  };
+  readonly isTestOnly: boolean;
+  readonly provenance: string;
+}
+
+/**
+ * Hand-designed simulation scenario definition for golden validation.
+ */
+export interface GoldenSimulationScenarioDefinition {
+  readonly name: string;
+  readonly failureType: "unavailable" | "latency";
+  readonly targetCanonicalId: string;
+  readonly description: string;
+}
+
+/**
+ * Expected causal step explaining why a node reached a simulation state in golden validation.
+ */
+export interface GoldenSimulationExpectedCausalStep {
+  readonly canonicalId: string;
+  readonly edgeId: string | null;
+  readonly ruleId: string;
+  readonly ruleVersion: string;
+  readonly previousState: SimulationResultState;
+  readonly resultingState: SimulationResultState;
+  readonly confidence: number;
+  readonly capped: boolean;
+  readonly assumptions: readonly string[];
+}
+
+/**
+ * Expected node state and causal explanation in golden simulation validation.
+ */
+export interface GoldenSimulationExpectedNodeResult {
+  readonly canonicalId: string;
+  readonly expectedState: SimulationResultState;
+  readonly explanation: string;
+  readonly ruleApplied: string;
+  readonly ruleVersion: string;
+  readonly confidence: number;
+  readonly capped: boolean;
+  readonly assumptions: readonly string[];
+  readonly causalPath: readonly GoldenSimulationExpectedCausalStep[];
+}
+
+/**
+ * Hand-verified expected simulation propagation ground truth for a golden fixture.
+ */
+export interface GoldenSimulationExpectationManifest {
+  readonly fixtureId: string;
+  readonly repositoryFullName: string;
+  readonly repositoryName: string;
+  readonly pinnedCommitSha: string;
+  readonly description: string;
+  readonly scenario: GoldenSimulationScenarioDefinition;
+  readonly manuallyVerifiedCallRelationship: GoldenSimulationVerifiedCallRelationship;
+  readonly expectedResults: readonly GoldenSimulationExpectedNodeResult[];
+  readonly expectedUnaffectedCanonicalIds: readonly string[];
 }

@@ -181,7 +181,7 @@ Broken into phases; each phase's features are further broken into small, sequent
 4. Implement `POST /scenarios`, `POST /scenarios/:id/run`, `GET /simulations/:id`.
 5. Implement simulation-mode overlay in the frontend (state-colored graph, assumptions panel).
 6. Rule-table unit tests (`12-testing-strategy.md §12.1`) — build alongside the rule table, not after.
-7. Validate against the golden-fixture repo with a hand-designed scenario and manually sanity-checked expected propagation.
+7. Validate against the golden-fixture repo with a hand-designed scenario and manually sanity-checked expected propagation (Completed — Global Step 58, golden simulation test suite and ADR-012).
 
 **Database changes:** `Scenario`, `Simulation`, `SimulationResult`.
 **Testing:** Rule-isolation tests + full-scenario tests against synthetic and golden-fixture graphs.

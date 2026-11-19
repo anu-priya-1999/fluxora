@@ -128,7 +128,45 @@ Key engineering highlights:
 
 ---
 
-## 3. Canonical Architecture Cross-References
+## 3. Phase 8 — Simulation Deliverables
+
+Phase 8 implements Fluxora's deterministic scenario simulation architecture, rule table, propagation engine, UI studio, and real golden-fixture validation.
+
+### Document Directory
+
+#### Implementation Reports
+- **Step 52 — Simulation Persistence Foundation:**<br>
+  [`learning/implementations/phase-08/step-52-simulation-persistence-foundation.md`](implementations/phase-08/step-52-simulation-persistence-foundation.md)
+- **Step 53 — Simulation Rule Table:**<br>
+  [`learning/implementations/phase-08/step-53-rule-table.md`](implementations/phase-08/step-53-rule-table.md)
+- **Step 54 — Simulation Engine:**<br>
+  [`learning/implementations/phase-08/step-54-simulation-engine.md`](implementations/phase-08/step-54-simulation-engine.md)
+- **Step 55 — Simulation HTTP APIs:**<br>
+  [`learning/implementations/phase-08/step-55-simulation-apis.md`](implementations/phase-08/step-55-simulation-apis.md)
+- **Step 56 — Simulation Studio UI:**<br>
+  [`learning/implementations/phase-08/step-56-simulation-studio-ui.md`](implementations/phase-08/step-56-simulation-studio-ui.md)
+- **Step 57 — Simulation Mode Overlay:**<br>
+  [`learning/implementations/phase-08/step-57-simulation-mode-overlay.md`](implementations/phase-08/step-57-simulation-mode-overlay.md)
+- **Step 58 — Golden Fixture Simulation Validation:**<br>
+  [`learning/implementations/phase-08/step-58-golden-fixture-simulation-validation.md`](implementations/phase-08/step-58-golden-fixture-simulation-validation.md)<br>
+  *Covers Taxonomy golden fixture validation, the IMPORTS vs CALLS semantic boundary, ADR-012 test relationship provenance, 5-stage golden simulation test suite, and causal evidence verification.*
+
+#### Technical Learning Notes
+- **Note 51:** [`learning/notes/51. Simulation Persistence Foundation.md`](notes/51.%20Simulation%20Persistence%20Foundation.md)
+- **Note 52:** [`learning/notes/52. Simulation Rule-Table.md`](notes/52.%20Simulation%20Rule-Table.md)
+- **Note 53:** [`learning/notes/53. Simulation Engine.md`](notes/53.%20Simulation%20Engine.md)
+- **Note 54:** [`learning/notes/54. Simulation HTTP APIs.md`](notes/54.%20Simulation%20HTTP%20APIs.md)
+- **Note 55:** [`learning/notes/55. Simulation Studio UI.md`](notes/55.%20Simulation%20Studio%20UI.md)
+- **Note 56:** [`learning/notes/56. Simulation Mode Overlay.md`](notes/56.%20Simulation%20Mode%20Overlay.md)
+- **Note 57:** [`learning/notes/57. Golden Fixture Simulation Validation.md`](notes/57.%20Golden%20Fixture%20Simulation%20Validation.md)
+
+#### Interview Preparation
+- **Step 57 Interview Sheet:** [`learning/interviews/57. Step 57 Simulation Mode Overlay Interview CheatSheet.md`](interviews/57.%20Step%2057%20Simulation%20Mode%20Overlay%20Interview%20CheatSheet.md)
+- **Step 58 Interview Sheet:** [`learning/interviews/58. Step 58 Golden Fixture Simulation Validation Interview CheatSheet.md`](interviews/58.%20Step%2058%20Golden%20Fixture%20Simulation%20Validation%20Interview%20CheatSheet.md)
+
+---
+
+## 4. Canonical Architecture Cross-References
 
 - **Implementation Snapshot:** [`docs/DESIGN.md`](../docs/DESIGN.md) (living snapshot of current state, active constraints, and verification results).
 - **Implementation Roadmap:** [`docs/architecture/17-implementation-roadmap.md`](../docs/architecture/17-implementation-roadmap.md) (phase definitions and step sequencing).

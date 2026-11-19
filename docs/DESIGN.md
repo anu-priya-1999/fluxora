@@ -13547,3 +13547,41 @@ Fix 4 migrates referential integrity enforcement into PostgreSQL's relational co
 - **Engineering Implementation Report**: [`learning/implementations/production-hardening/fix-04-scenario-repository-referential-integrity.md`](../learning/implementations/production-hardening/fix-04-scenario-repository-referential-integrity.md).
 - **Technical Learning Notes**: [`learning/notes/Fix-04-Scenario-Repository-Referential-Integrity.md`](../learning/notes/Fix-04-Scenario-Repository-Referential-Integrity.md).
 - **Interview Guide**: [`learning/interviews/Fix 4 Scenario and Repository Referential Integrity Interview CheatSheet.md`](../learning/interviews/Fix%204%20Scenario%20and%20Repository%20Referential%20Integrity%20Interview%20CheatSheet.md).
+
+---
+
+## Global Step 58: Golden Fixture Simulation Validation
+
+### 1. Objective and Architectural Context
+Global Step 58 concludes Phase 8 (Simulation) by validating the Step 53 Simulation Rule Table and Step 54 Simulation Engine against Fluxora's real, immutable Taxonomy golden repository fixture (`shadcn-ui/taxonomy` at pinned commit `298a8857c7128a0d121e7f699dfd729f23b3966d`).
+
+The objective is to establish an offline, deterministic, hand-verified simulation scenario that proves:
+1. The actual pinned repository fixture loads and passes integrity checks without external network access or source code execution.
+2. The canonical Phase 3 pipeline (`runPhase3Pipeline`) and graph projection (`buildGraphProjection`) produce the exact expected baseline graph (490 nodes, 888 edges).
+3. The semantic boundary between module importing (`IMPORTS`) and runtime function invocation (`CALLS`) is preserved: `IMPORTS` does NOT propagate failure.
+4. An authentic, fixture-backed dependency invocation (`app/api/users/stripe/route.ts:20` awaiting `getUserSubscriptionPlan` from `lib/subscription.ts`) is explicitly represented as a test-only `CALLS` edge without polluting the production graph projection (ADR-012).
+5. The deterministic engine produces exact expected state transitions (`mod:lib/subscription.ts` failed, `mod:app/api/users/stripe/route.ts` degraded).
+6. Every non-seed transition identifies its traversed edge, rule ID (`CALLS+sync+no_fallback`), rule version (`1.0.0`), confidence (`0.9`), and generated assumptions.
+7. Unrelated nodes (`mod:components/site-footer.tsx`) remain unaffected.
+8. Repeated executions produce identical logical results.
+
+### 2. Architecture & Decision Highlights (ADR-012)
+- **Sanctity of Production Graph**: The production `GraphProjectionResult` produced by `buildGraphProjection` remains 100% untouched. It projects 490 nodes (367 symbol, 118 module, 5 api) and 888 edges (511 `IMPORTS`, 5 `EXPOSES_ROUTE`, 372 `RESOLVES_TO`). Zero `CALLS` edges exist in the production projection.
+- **IMPORTS is Not CALLS**: `IMPORTS` represents a static packaging/compilation dependency; `CALLS` represents runtime execution. Conflating them would falsely propagate failures across dormant imports. Test B verifies that seeding the target module without a `CALLS` edge results in zero caller degradation.
+- **Fixture-Backed Test Provenance**: The awaited invocation at `app/api/users/stripe/route.ts:20` is documented in `fixtures/golden/simulation-manifest.json` and injected into the in-memory `SimulationGraphSnapshot` with `isTestOnly: true` and `provenance: "test-fixture-manual-verification"`. It is never written to PostgreSQL.
+
+### 3. Verification Suite
+- `apps/workers/src/fixtures/golden.test.ts`: Added manifest loading, schema conformity, source file verification, snippet matching at line 20, callee export checking, and positive/negative control tests (10/10 passed).
+- `apps/workers/src/pipeline/golden-simulation.test.ts`: 5-test validation suite covering:
+  - **Test A**: Production graph projection integrity (490 nodes, 888 edges, zero CALLS).
+  - **Test B**: IMPORTS negative control (caller remains healthy, 1 affected node).
+  - **Test C**: Hand-verified simulation relationship (target failed, caller degraded, confidence 0.9, exact causal path and assumptions).
+  - **Test D**: Determinism across 3 consecutive runs (identical states, paths, iterations).
+  - **Test E**: Causal evidence integrity (all steps connect valid nodes, valid rules, valid states).
+- **Workspace Verification**:
+  - `pnpm --filter @fluxora/workers test`: 22 files passed (301 passed, 4 skipped).
+  - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
+  - `pnpm lint`: Clean (0 errors).
+  - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
+  - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
+  - `pnpm test`: 1154 passed, 9 skipped across entire workspace.
