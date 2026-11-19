@@ -14,3 +14,18 @@ export * from "./EvidenceCitation.tsx";
 export * from "./confidence-data.ts";
 export * from "./coverage-data.ts";
 export * from "./AnalysisCoverageBar.tsx";
+export {
+  CANONICAL_SIMULATION_STATES,
+  SIMULATION_STATE_SEVERITY,
+  isCanonicalSimulationState,
+  DEFAULT_SIMULATION_MODE_STATE,
+  extractSimulationCausalSteps,
+  normalizeSimulationResponse,
+  computeSimulationSliceMetrics,
+  formatSimulationConfidence,
+  getSimulationStateBadgeConfig,
+  buildExplorerSimulationUrl,
+  type NormalizedSimulationModeState,
+  type SimulationSliceMetrics,
+} from "./simulation-mode-data.ts";
+export * from "./SimulationModeBar.tsx";

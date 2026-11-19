@@ -66,6 +66,11 @@ export interface FluxoraNodeData {
   readonly isAffectedApi?: boolean | undefined;
   readonly isAffectedEvent?: boolean | undefined;
   readonly impactEvidenceIds?: readonly string[] | undefined;
+  readonly simulationModeActive?: boolean | undefined;
+  readonly simulationState?: import("@fluxora/shared-types").SimulationResultState | undefined;
+  readonly simulationRule?: string | undefined;
+  readonly simulationConfidence?: number | undefined;
+  readonly simulationCapped?: boolean | undefined;
   [key: string]: unknown;
 }
 

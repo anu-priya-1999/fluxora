@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { GraphCanvas } from "../../../../components/graph/GraphCanvas";
 import { NodeInspectorPanel } from "../../../../components/graph/NodeInspectorPanel";
@@ -28,7 +28,15 @@ import {
   fetchImpactAnalysis,
   normalizeImpactAnalysisResponse,
   type NormalizedChangeModeState,
+  SimulationModeBar,
+  DEFAULT_SIMULATION_MODE_STATE,
+  normalizeSimulationResponse,
+  type NormalizedSimulationModeState,
 } from "../../../../components/graph";
+import {
+  getSimulationApi,
+  getSimulationResultsApi,
+} from "../../../../components/simulation/simulation-api";
 import {
   createExplorerWebSocketClient,
   type ExplorerWsStatus,
@@ -37,6 +45,7 @@ import {
 import { isGraphUpdatedEventRelevant } from "../../../../events/graph-events";
 import {
   buildGraphQueryRequest,
+  createSimulationPollController,
   fetchGraphQuery,
   transformGraphResponseToFlow,
   type ExplorerState,
@@ -49,17 +58,29 @@ export interface ArchitectureExplorerClientProps {
   readonly webSocketFactory?: WebSocketFactory | undefined;
 }
 
-function updateUrlParams(impactId: string | null): void {
+function updateUrlParams(params: {
+  impactId?: string | null | undefined;
+  simulationId?: string | null | undefined;
+}): void {
   if (typeof window === "undefined" || !window.history || !window.location) {
     return;
   }
   try {
     const url = new URL(window.location.href);
-    if (impactId) {
-      url.searchParams.set("impact_id", impactId);
-    } else {
-      url.searchParams.delete("impact_id");
-      url.searchParams.delete("impact_analysis_id");
+    if (params.impactId !== undefined) {
+      if (params.impactId) {
+        url.searchParams.set("impact_id", params.impactId);
+      } else {
+        url.searchParams.delete("impact_id");
+        url.searchParams.delete("impact_analysis_id");
+      }
+    }
+    if (params.simulationId !== undefined) {
+      if (params.simulationId) {
+        url.searchParams.set("simulation_id", params.simulationId);
+      } else {
+        url.searchParams.delete("simulation_id");
+      }
     }
     window.history.replaceState(null, "", url.toString());
   } catch {
@@ -95,6 +116,34 @@ export function ArchitectureExplorerClient({
     return DEFAULT_CHANGE_MODE_STATE;
   });
   const [impactAnalysisFetchTrigger, setImpactAnalysisFetchTrigger] = useState(0);
+
+  // Step 57: Simulation-Mode State
+  const [simulationModeState, setSimulationModeState] = useState<NormalizedSimulationModeState>(() => {
+    if (context.initialSimulationId) {
+      return {
+        ...DEFAULT_SIMULATION_MODE_STATE,
+        enabled: true,
+        simulationId: context.initialSimulationId,
+        status: "loading",
+      };
+    }
+    return DEFAULT_SIMULATION_MODE_STATE;
+  });
+  const [simulationFetchTrigger, setSimulationFetchTrigger] = useState(0);
+
+  // Step 57: Bounded simulation poll controller
+  const simPollControllerRef = useRef<ReturnType<typeof createSimulationPollController> | null>(null);
+
+  const getSimPollController = useCallback(() => {
+    if (simPollControllerRef.current === null) {
+      simPollControllerRef.current = createSimulationPollController({
+        onPoll: () => {
+          setSimulationFetchTrigger((prev) => prev + 1);
+        },
+      });
+    }
+    return simPollControllerRef.current;
+  }, []);
 
   const selectedNode = useMemo(() => {
     if (state.status !== "ready" || !selectedNodeId) {
@@ -134,7 +183,7 @@ export function ArchitectureExplorerClient({
   const handleToggleChangeMode = useCallback((enabled: boolean) => {
     setChangeModeState((prev) => {
       const next = { ...prev, enabled };
-      updateUrlParams(next.enabled ? next.impactAnalysisId : null);
+      updateUrlParams({ impactId: next.enabled ? next.impactAnalysisId : null });
       return next;
     });
   }, []);
@@ -148,7 +197,7 @@ export function ArchitectureExplorerClient({
         status: "loading" as const,
         errorMessage: null,
       };
-      updateUrlParams(impactAnalysisId);
+      updateUrlParams({ impactId: impactAnalysisId });
       return next;
     });
     setImpactAnalysisFetchTrigger((prev) => prev + 1);
@@ -159,12 +208,54 @@ export function ArchitectureExplorerClient({
       ...DEFAULT_CHANGE_MODE_STATE,
       enabled: true,
     });
-    updateUrlParams(null);
+    updateUrlParams({ impactId: null });
   }, []);
 
   const handleRetryImpact = useCallback(() => {
     setImpactAnalysisFetchTrigger((prev) => prev + 1);
   }, []);
+
+  // Step 57: Simulation-Mode handlers
+  const handleToggleSimulationMode = useCallback((enabled: boolean) => {
+    setSimulationModeState((prev) => {
+      const next = { ...prev, enabled };
+      updateUrlParams({ simulationId: next.enabled ? next.simulationId : null });
+      return next;
+    });
+  }, []);
+
+  const handleLoadSimulation = useCallback(
+    (simulationId: string) => {
+      getSimPollController().cancel();
+      setSimulationModeState((prev) => {
+        const next = {
+          ...prev,
+          enabled: true,
+          simulationId,
+          status: "loading" as const,
+          errorMessage: null,
+        };
+        updateUrlParams({ simulationId });
+        return next;
+      });
+      setSimulationFetchTrigger((prev) => prev + 1);
+    },
+    [getSimPollController],
+  );
+
+  const handleClearSimulation = useCallback(() => {
+    getSimPollController().cancel();
+    setSimulationModeState({
+      ...DEFAULT_SIMULATION_MODE_STATE,
+      enabled: false,
+    });
+    updateUrlParams({ simulationId: null });
+  }, [getSimPollController]);
+
+  const handleRetrySimulation = useCallback(() => {
+    getSimPollController().resetBudget();
+    setSimulationFetchTrigger((prev) => prev + 1);
+  }, [getSimPollController]);
 
   // Step 46: Fetch Impact Analysis when enabled and an ID is present
   useEffect(() => {
@@ -234,6 +325,188 @@ export function ArchitectureExplorerClient({
 
     return () => clearTimeout(timer);
   }, [changeModeState.enabled, changeModeState.executionStatus, changeModeState.status]);
+
+  // Step 57: Fetch Simulation metadata and results when enabled and an ID is present
+  useEffect(() => {
+    if (!isLoaded || !simulationModeState.enabled || !simulationModeState.simulationId) {
+      return;
+    }
+
+    let isCancelled = false;
+    const targetSimulationId = simulationModeState.simulationId;
+
+    async function loadSimulation() {
+      setSimulationModeState((prev) => {
+        if (!prev.enabled || prev.simulationId !== targetSimulationId) {
+          return prev;
+        }
+        return {
+          ...prev,
+          status: "loading",
+          errorMessage: null,
+        };
+      });
+
+      // 1. Retrieve simulation metadata
+      const simRes = await getSimulationApi({
+        apiUrl,
+        getToken,
+        simulationId: targetSimulationId,
+      });
+
+      if (isCancelled) return;
+
+      if (!simRes.ok) {
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+          return {
+            ...prev,
+            status: "error",
+            errorMessage: simRes.message,
+          };
+        });
+        return;
+      }
+
+      // If response ID does not match target simulation ID, report error without applying
+      if (simRes.data.id !== targetSimulationId) {
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            status: "error",
+            executionStatus: null,
+            errorMessage: `Simulation metadata ID mismatch: Received simulation ID "${simRes.data.id}", but requested "${targetSimulationId}".`,
+          };
+        });
+        return;
+      }
+
+      // 2. Strict analysis-run consistency verification
+      if (simRes.data.analysis_run_id !== context.analysisRunId) {
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+          return {
+            ...prev,
+            status: "error",
+            errorMessage: `Analysis run mismatch: Simulation belongs to run ${simRes.data.analysis_run_id}, but current explorer is displaying run ${context.analysisRunId}.`,
+          };
+        });
+        return;
+      }
+
+      // Check if simulation failed during execution
+      if (simRes.data.status === "failed") {
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+          return {
+            ...prev,
+            executionStatus: "failed",
+            status: "error",
+            errorMessage: "Simulation failed during execution on the server.",
+          };
+        });
+        return;
+      }
+
+      // Check if simulation is still pending or running on the server
+      if (simRes.data.status === "pending" || simRes.data.status === "running") {
+        const normalized = normalizeSimulationResponse(simRes.data, null, {
+          enabled: true,
+        });
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+          return normalized;
+        });
+        return;
+      }
+
+      // 3. Retrieve simulation node results
+      const resultsRes = await getSimulationResultsApi({
+        apiUrl,
+        getToken,
+        simulationId: targetSimulationId,
+      });
+
+      if (isCancelled) return;
+
+      if (!resultsRes.ok) {
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+          return {
+            ...prev,
+            status: "error",
+            errorMessage: resultsRes.message,
+          };
+        });
+        return;
+      }
+
+      if (resultsRes.data.simulation_id !== targetSimulationId) {
+        setSimulationModeState((prev) => {
+          if (!prev.enabled || prev.simulationId !== targetSimulationId) {
+            return prev;
+          }
+
+          return {
+            ...prev,
+            status: "error",
+            executionStatus: null,
+            errorMessage: `Simulation results mismatch: Received results for simulation "${resultsRes.data.simulation_id}", but requested "${targetSimulationId}".`,
+          };
+        });
+        return;
+      }
+
+      // 4. Normalize simulation state deterministically
+      const normalized = normalizeSimulationResponse(simRes.data, resultsRes.data, {
+        enabled: true,
+      });
+
+      setSimulationModeState((prev) => {
+        if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+        return normalized;
+      });
+    }
+
+    void loadSimulation();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [
+    apiUrl,
+    context.analysisRunId,
+    isLoaded,
+    getToken,
+    simulationModeState.enabled,
+    simulationModeState.simulationId,
+    simulationFetchTrigger,
+  ]);
+
+  // Step 57: Bounded, cancellable auto-poll if simulation is pending or running on the server
+  useEffect(() => {
+    const controller = getSimPollController();
+    controller.update({
+      enabled: simulationModeState.enabled,
+      simulationId: simulationModeState.simulationId,
+      executionStatus: simulationModeState.executionStatus,
+      status: simulationModeState.status,
+    });
+
+    return () => {
+      controller.cancel();
+    };
+  }, [
+    getSimPollController,
+    simulationModeState.enabled,
+    simulationModeState.executionStatus,
+    simulationModeState.status,
+    simulationModeState.simulationId,
+  ]);
 
   useEffect(() => {
     if (!isLoaded) {
@@ -471,6 +744,16 @@ export function ArchitectureExplorerClient({
       gitRef: context.ref ?? changeModeState.headCommit,
       analysisRunId: state.analysisRunId,
     }),
+    // Step 57: Simulation Mode Bar
+    React.createElement(SimulationModeBar, {
+      state: simulationModeState,
+      onToggle: handleToggleSimulationMode,
+      onLoadSimulation: handleLoadSimulation,
+      onRetry: handleRetrySimulation,
+      onClear: handleClearSimulation,
+      onSelectNode: handleSelectNode,
+      analysisRunId: state.analysisRunId,
+    }),
     // Step 51: Analysis Coverage View
     React.createElement(AnalysisCoverageBar, {
       edges: state.graph.edges,
@@ -514,6 +797,7 @@ export function ArchitectureExplorerClient({
           showMiniMap: false,
           showBackground: true,
           changeMode: changeModeState,
+          simulationMode: simulationModeState,
         }),
       ),
       React.createElement(
@@ -532,6 +816,7 @@ export function ArchitectureExplorerClient({
           analysisRunId: state.analysisRunId,
           onClose: handleClearSelection,
           changeMode: changeModeState,
+          simulationMode: simulationModeState,
         }),
       ),
     ),

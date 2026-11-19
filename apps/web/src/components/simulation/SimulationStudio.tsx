@@ -29,6 +29,7 @@ import {
   type StudioFilterState,
   type SupportedFailureType,
 } from "./simulation-types.ts";
+import { buildExplorerSimulationUrl } from "../graph/simulation-mode-data.ts";
 
 export interface SimulationStudioProps {
   readonly apiUrl: string;
@@ -391,6 +392,34 @@ export function SimulationStudio({
   const impactSummary = useMemo(() => {
     return calculateSimulationImpact(simulationResults, simulation);
   }, [simulationResults, simulation]);
+
+  // Deep-link to Architecture Explorer Simulation Mode
+  const explorerSimulationUrl = useMemo(() => {
+    if (!simulation?.id) return null;
+    const effectiveStartNodeId =
+      (startNodeId && UUID_REGEX.test(startNodeId.trim()) ? startNodeId.trim() : undefined) ??
+      (targetNodeId && UUID_REGEX.test(targetNodeId.trim()) ? targetNodeId.trim() : undefined) ??
+      (selectedResultNodeId && UUID_REGEX.test(selectedResultNodeId.trim()) ? selectedResultNodeId.trim() : undefined) ??
+      (simulationResults[0]?.node_id && UUID_REGEX.test(simulationResults[0].node_id.trim()) ? simulationResults[0].node_id.trim() : undefined);
+
+    if (!effectiveStartNodeId) return null;
+
+    return buildExplorerSimulationUrl({
+      repositoryId,
+      analysisRunId,
+      startNodeId: effectiveStartNodeId,
+      simulationId: simulation.id,
+      selectedNodeId: selectedResultNodeId,
+    });
+  }, [
+    repositoryId,
+    analysisRunId,
+    startNodeId,
+    targetNodeId,
+    selectedResultNodeId,
+    simulation,
+    simulationResults,
+  ]);
 
   // Filtered and sorted results
   const displayedResults = useMemo(() => {
@@ -776,8 +805,20 @@ export function SimulationStudio({
               data-testid="studio-impact-summary"
               aria-label="Impact Summary"
             >
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <h2 className="text-base font-semibold text-slate-900">Deterministic Impact Summary</h2>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-2">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-base font-semibold text-slate-900">Deterministic Impact Summary</h2>
+                  {explorerSimulationUrl && (
+                    <Link
+                      href={explorerSimulationUrl}
+                      data-testid="view-on-architecture-graph-link"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-colors"
+                    >
+                      <span>View on Architecture Graph</span>
+                      <span aria-hidden="true">→</span>
+                    </Link>
+                  )}
+                </div>
                 <span className="text-xs font-mono text-slate-500">
                   {impactSummary.ruleTableVersion ? `Rule Table v${impactSummary.ruleTableVersion}` : "Rule Table: Active"}
                   {impactSummary.iterations !== undefined ? ` · ${impactSummary.iterations} iteration${impactSummary.iterations === 1 ? "" : "s"}` : ""}

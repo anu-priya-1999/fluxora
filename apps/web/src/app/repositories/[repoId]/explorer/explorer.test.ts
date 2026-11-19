@@ -3,10 +3,16 @@ import { test } from "vitest";
 import { GRAPH_QUERY_PATH, type GraphQueryRequest, type GraphQueryResponse } from "@fluxora/shared-types";
 import {
   buildGraphQueryRequest,
+  createSimulationPollController,
   fetchGraphQuery,
   resolveRepositoryAnalysisContext,
+  shouldScheduleSimulationPoll,
   transformGraphResponseToFlow,
 } from "./explorer-data.ts";
+import {
+  DEFAULT_SIMULATION_MODE_STATE,
+  type NormalizedSimulationModeState,
+} from "../../../../components/graph/simulation-mode-data.ts";
 import { computeLodGraph } from "../../../../components/graph/graph-lod.ts";
 import {
   handleGraphUpdatedMessage,
@@ -639,4 +645,649 @@ test("Step 39: Step 38 LOD is reapplied deterministically after fresh graph data
   });
 
   assert.equal(lodOverviewWithSelected.visibleNodes.some((n) => n.id === "symbol-1"), true);
+});
+
+test("Step 57: resolveRepositoryAnalysisContext resolves simulation_id parameter", () => {
+  const simId = "77777777-7777-4777-8777-777777777777";
+  const result = resolveRepositoryAnalysisContext({
+    repoId: REPO_ID,
+    searchParams: {
+      analysis_run_id: RUN_ID,
+      start_node_id: NODE_ROOT,
+      simulation_id: simId,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.context.initialSimulationId, simId);
+  }
+
+  // Gracefully ignores malformed simulation_id
+  const resultMalformed = resolveRepositoryAnalysisContext({
+    repoId: REPO_ID,
+    searchParams: {
+      analysis_run_id: RUN_ID,
+      start_node_id: NODE_ROOT,
+      simulation_id: "not-a-valid-uuid",
+    },
+  });
+
+  assert.equal(resultMalformed.ok, true);
+  if (resultMalformed.ok) {
+    assert.equal(resultMalformed.context.initialSimulationId, undefined);
+  }
+});
+
+// =============================================================================
+// Step 57 Hardening: Bounded Simulation Polling Lifecycle Regression Tests
+// =============================================================================
+
+test("Step 57 [Polling 1]: Pending simulation schedules polling", () => {
+  let pollTriggerCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollTriggerCount += 1;
+    },
+  });
+
+  controller.update({
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "pending",
+    status: "pending",
+  });
+
+  assert.equal(controller.isScheduled(), true);
+  assert.equal(pollTriggerCount, 0);
+  controller.cancel();
+});
+
+test("Step 57 [Polling 2]: Running simulation schedules polling", () => {
+  let pollTriggerCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollTriggerCount += 1;
+    },
+  });
+
+  controller.update({
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "running",
+    status: "running",
+  });
+
+  assert.equal(controller.isScheduled(), true);
+  assert.equal(pollTriggerCount, 0);
+  controller.cancel();
+});
+
+test("Step 57 [Polling 3]: Loading status does not schedule polling timer", () => {
+  let pollTriggerCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollTriggerCount += 1;
+    },
+  });
+
+  const state = {
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "running",
+    status: "loading",
+  };
+
+  assert.equal(shouldScheduleSimulationPoll(state), false);
+
+  controller.update(state);
+
+  assert.equal(controller.isScheduled(), false);
+  assert.equal(pollTriggerCount, 0);
+});
+
+test("Step 57 [Polling 4]: Error status does not automatically trigger polling timer", () => {
+  let pollTriggerCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollTriggerCount += 1;
+    },
+  });
+
+  const state = {
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "running",
+    status: "error",
+  };
+
+  assert.equal(shouldScheduleSimulationPoll(state), false);
+
+  controller.update(state);
+
+  assert.equal(controller.isScheduled(), false);
+  assert.equal(pollTriggerCount, 0);
+});
+
+test("Step 57 [Polling 5]: Completed simulation stops polling", () => {
+  let pollTriggerCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollTriggerCount += 1;
+    },
+  });
+
+  // Initially running
+  controller.update({
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "running",
+    status: "running",
+  });
+  assert.equal(controller.isScheduled(), true);
+
+  // Transition to completed
+  controller.update({
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "completed",
+    status: "ready",
+  });
+  assert.equal(controller.isScheduled(), false);
+  assert.equal(pollTriggerCount, 0);
+});
+
+test("Step 57 [Polling 6]: Failed simulation stops polling", () => {
+  let pollTriggerCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollTriggerCount += 1;
+    },
+  });
+
+  controller.update({
+    enabled: true,
+    simulationId: "sim-111",
+    executionStatus: "failed",
+    status: "error",
+  });
+
+  assert.equal(controller.isScheduled(), false);
+  assert.equal(pollTriggerCount, 0);
+});
+
+test("Step 57 [Polling 7]: Switching simulation IDs resets the attempt count", () => {
+  let scheduledCallbacks: Array<() => void> = [];
+  const mockSetTimeout = ((fn: () => void) => {
+    scheduledCallbacks.push(fn);
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout;
+
+  const mockClearTimeout = (() => {
+    scheduledCallbacks = [];
+  }) as unknown as typeof clearTimeout;
+
+  let pollCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollCount += 1;
+    },
+    maxAttempts: 15,
+    setTimeoutFn: mockSetTimeout,
+    clearTimeoutFn: mockClearTimeout,
+  });
+
+  // Exhaust 15 attempts on sim-A
+  for (let i = 0; i < 15; i++) {
+    controller.update({
+      enabled: true,
+      simulationId: "sim-A",
+      executionStatus: "running",
+      status: "running",
+    });
+    const cb = scheduledCallbacks.pop();
+    assert.ok(cb);
+    cb();
+  }
+
+  assert.equal(controller.getBudget().count, 15);
+  assert.equal(pollCount, 15);
+
+  // Attempt 16 on sim-A is blocked by budget
+  controller.update({
+    enabled: true,
+    simulationId: "sim-A",
+    executionStatus: "running",
+    status: "running",
+  });
+  assert.equal(controller.isScheduled(), false);
+
+  // Switch to sim-B: budget must reset to 0 and polling must be scheduled!
+  controller.update({
+    enabled: true,
+    simulationId: "sim-B",
+    executionStatus: "running",
+    status: "running",
+  });
+
+  assert.equal(controller.getBudget().simulationId, "sim-B");
+  assert.equal(controller.getBudget().count, 0);
+  assert.equal(controller.isScheduled(), true);
+
+  // Trigger sim-B callback
+  const cbB = scheduledCallbacks.pop();
+  assert.ok(cbB);
+  cbB();
+  assert.equal(controller.getBudget().count, 1);
+  assert.equal(pollCount, 16);
+});
+
+test("Step 57 [Polling 8]: The maximum of 15 attempts is strictly respected", () => {
+  let scheduledCallbacks: Array<() => void> = [];
+  const mockSetTimeout = ((fn: () => void) => {
+    scheduledCallbacks.push(fn);
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout;
+
+  const mockClearTimeout = (() => {
+    scheduledCallbacks = [];
+  }) as unknown as typeof clearTimeout;
+
+  let pollCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollCount += 1;
+    },
+    maxAttempts: 15,
+    setTimeoutFn: mockSetTimeout,
+    clearTimeoutFn: mockClearTimeout,
+  });
+
+  for (let i = 0; i < 15; i++) {
+    controller.update({
+      enabled: true,
+      simulationId: "sim-A",
+      executionStatus: "running",
+      status: "running",
+    });
+    assert.equal(controller.isScheduled(), true);
+    const cb = scheduledCallbacks.pop();
+    assert.ok(cb);
+    cb();
+  }
+
+  assert.equal(pollCount, 15);
+  assert.equal(controller.getBudget().count, 15);
+
+  // 16th check: must not schedule another timer
+  controller.update({
+    enabled: true,
+    simulationId: "sim-A",
+    executionStatus: "running",
+    status: "running",
+  });
+  assert.equal(controller.isScheduled(), false);
+  assert.equal(scheduledCallbacks.length, 0);
+});
+
+test("Step 57 [Polling 9]: Disabling Simulation Mode cancels scheduled polling", () => {
+  let scheduledCallbacks: Array<() => void> = [];
+  const mockSetTimeout = ((fn: () => void) => {
+    scheduledCallbacks.push(fn);
+    return 1 as unknown as ReturnType<typeof setTimeout>;
+  }) as unknown as typeof setTimeout;
+
+  const mockClearTimeout = (() => {
+    scheduledCallbacks = [];
+  }) as unknown as typeof clearTimeout;
+
+  let pollCount = 0;
+  const controller = createSimulationPollController({
+    onPoll: () => {
+      pollCount += 1;
+    },
+    setTimeoutFn: mockSetTimeout,
+    clearTimeoutFn: mockClearTimeout,
+  });
+
+  // Scheduled when enabled
+  controller.update({
+    enabled: true,
+    simulationId: "sim-A",
+    executionStatus: "running",
+    status: "running",
+  });
+  assert.equal(controller.isScheduled(), true);
+
+  // Disabled
+  controller.update({
+    enabled: false,
+    simulationId: "sim-A",
+    executionStatus: "running",
+    status: "running",
+  });
+  assert.equal(controller.isScheduled(), false);
+  assert.equal(scheduledCallbacks.length, 0);
+  assert.equal(pollCount, 0);
+});
+
+async function runSimulatedLoadSimulation(options: {
+  targetSimulationId: string;
+  fetchMetadata: () => Promise<
+    | { ok: true; data: { id: string; status: string; analysis_run_id: string } }
+    | { ok: false; message: string }
+  >;
+  fetchResults?: () => Promise<
+    | { ok: true; data: { simulation_id: string; results: unknown[] } }
+    | { ok: false; message: string }
+  >;
+  analysisRunId: string;
+  getState: () => NormalizedSimulationModeState;
+  setState: (updater: (prev: NormalizedSimulationModeState) => NormalizedSimulationModeState) => void;
+}) {
+  const { targetSimulationId, fetchMetadata, fetchResults, analysisRunId, setState } = options;
+
+  setState((prev) => {
+    if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+    return { ...prev, status: "loading", errorMessage: null };
+  });
+
+  const simRes = await fetchMetadata();
+
+  if (!simRes.ok) {
+    setState((prev) => {
+      if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+      return { ...prev, status: "error", errorMessage: simRes.message };
+    });
+    return;
+  }
+
+  // Mismatched metadata simulation ID guard
+  if (simRes.data.id !== targetSimulationId) {
+    setState((prev) => {
+      if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+      return {
+        ...prev,
+        status: "error",
+        executionStatus: null,
+        errorMessage: `Simulation metadata ID mismatch: Received simulation ID "${simRes.data.id}", but requested "${targetSimulationId}".`,
+      };
+    });
+    return;
+  }
+
+  if (simRes.data.analysis_run_id !== analysisRunId) {
+    setState((prev) => {
+      if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+      return { ...prev, status: "error", errorMessage: "Run mismatch" };
+    });
+    return;
+  }
+
+  if (simRes.data.status === "failed") {
+    setState((prev) => {
+      if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+      return { ...prev, status: "error", executionStatus: "failed", errorMessage: "Simulation failed" };
+    });
+    return;
+  }
+
+  if (simRes.data.status === "pending" || simRes.data.status === "running") {
+    setState((prev) => {
+      if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+      return { ...prev, status: "running", executionStatus: simRes.data.status as "pending" | "running" };
+    });
+    return;
+  }
+
+  if (fetchResults) {
+    const resultsRes = await fetchResults();
+    if (!resultsRes.ok) {
+      setState((prev) => {
+        if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+        return { ...prev, status: "error", errorMessage: resultsRes.message };
+      });
+      return;
+    }
+
+    // Mismatched results simulation ID guard
+    if (resultsRes.data.simulation_id !== targetSimulationId) {
+      setState((prev) => {
+        if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+        return {
+          ...prev,
+          status: "error",
+          executionStatus: null,
+          errorMessage: `Simulation results mismatch: Received results for simulation "${resultsRes.data.simulation_id}", but requested "${targetSimulationId}".`,
+        };
+      });
+      return;
+    }
+
+    setState((prev) => {
+      if (!prev.enabled || prev.simulationId !== targetSimulationId) return prev;
+      return { ...prev, status: "ready", executionStatus: "completed" };
+    });
+  }
+}
+
+test("Step 57 [Mismatch 1]: Metadata response with mismatched simulation ID transitions to error instead of remaining in loading", async () => {
+  let simState: NormalizedSimulationModeState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-requested",
+    status: "loading",
+    executionStatus: "running",
+  };
+
+  await runSimulatedLoadSimulation({
+    targetSimulationId: "sim-requested",
+    analysisRunId: RUN_ID,
+    fetchMetadata: async () => ({
+      ok: true,
+      data: {
+        id: "sim-different",
+        status: "completed",
+        analysis_run_id: RUN_ID,
+      },
+    }),
+    getState: () => simState,
+    setState: (updater) => {
+      simState = updater(simState);
+    },
+  });
+
+  // Must transition to error, NOT remain in loading
+  assert.equal(simState.status, "error");
+  assert.notEqual(simState.status, "loading");
+  assert.equal(simState.executionStatus, null);
+  assert.ok(simState.errorMessage?.includes("sim-different"));
+  assert.ok(simState.errorMessage?.includes("sim-requested"));
+});
+
+test("Step 57 [Mismatch 2]: Results response with mismatched simulation ID transitions to error instead of remaining in loading", async () => {
+  let simState: NormalizedSimulationModeState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-requested",
+    status: "loading",
+    executionStatus: "running",
+  };
+
+  await runSimulatedLoadSimulation({
+    targetSimulationId: "sim-requested",
+    analysisRunId: RUN_ID,
+    fetchMetadata: async () => ({
+      ok: true,
+      data: {
+        id: "sim-requested",
+        status: "completed",
+        analysis_run_id: RUN_ID,
+      },
+    }),
+    fetchResults: async () => ({
+      ok: true,
+      data: {
+        simulation_id: "sim-wrong-results",
+        results: [],
+      },
+    }),
+    getState: () => simState,
+    setState: (updater) => {
+      simState = updater(simState);
+    },
+  });
+
+  // Must transition to error, NOT remain in loading
+  assert.equal(simState.status, "error");
+  assert.notEqual(simState.status, "loading");
+  assert.equal(simState.executionStatus, null);
+  assert.ok(simState.errorMessage?.includes("sim-wrong-results"));
+  assert.ok(simState.errorMessage?.includes("sim-requested"));
+});
+
+test("Step 57 [Mismatch 3]: Stale mismatched metadata response cannot overwrite a different currently selected simulation", async () => {
+  let simState: NormalizedSimulationModeState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-A",
+    status: "loading",
+  };
+
+  // Start slow fetch for sim-A which will return mismatched metadata
+  const promiseA = runSimulatedLoadSimulation({
+    targetSimulationId: "sim-A",
+    analysisRunId: RUN_ID,
+    fetchMetadata: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return {
+        ok: true,
+        data: {
+          id: "sim-mismatched",
+          status: "completed",
+          analysis_run_id: RUN_ID,
+        },
+      };
+    },
+    getState: () => simState,
+    setState: (updater) => {
+      simState = updater(simState);
+    },
+  });
+
+  // User immediately switches to sim-B before sim-A completes
+  simState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-B",
+    status: "ready",
+    executionStatus: "completed",
+    errorMessage: null,
+  };
+
+  await promiseA;
+
+  // Stale mismatch from sim-A must not overwrite sim-B!
+  assert.equal(simState.simulationId, "sim-B");
+  assert.equal(simState.status, "ready");
+  assert.equal(simState.executionStatus, "completed");
+  assert.equal(simState.errorMessage, null);
+});
+
+test("Step 57 [Mismatch 4]: Stale mismatched results response cannot overwrite a different currently selected simulation", async () => {
+  let simState: NormalizedSimulationModeState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-A",
+    status: "loading",
+  };
+
+  // Start fetch for sim-A where results take time and return mismatched simulation_id
+  const promiseA = runSimulatedLoadSimulation({
+    targetSimulationId: "sim-A",
+    analysisRunId: RUN_ID,
+    fetchMetadata: async () => ({
+      ok: true,
+      data: {
+        id: "sim-A",
+        status: "completed",
+        analysis_run_id: RUN_ID,
+      },
+    }),
+    fetchResults: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return {
+        ok: true,
+        data: {
+          simulation_id: "sim-mismatched-results",
+          results: [],
+        },
+      };
+    },
+    getState: () => simState,
+    setState: (updater) => {
+      simState = updater(simState);
+    },
+  });
+
+  // User immediately switches to sim-B
+  simState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-B",
+    status: "ready",
+    executionStatus: "completed",
+    errorMessage: null,
+  };
+
+  await promiseA;
+
+  // Stale results mismatch from sim-A must not overwrite sim-B
+  assert.equal(simState.simulationId, "sim-B");
+  assert.equal(simState.status, "ready");
+  assert.equal(simState.errorMessage, null);
+});
+
+test("Step 57 [Mismatch 5]: Stale mismatched response cannot overwrite state when simulation mode is disabled", async () => {
+  let simState: NormalizedSimulationModeState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: true,
+    simulationId: "sim-A",
+    status: "loading",
+  };
+
+  const promiseA = runSimulatedLoadSimulation({
+    targetSimulationId: "sim-A",
+    analysisRunId: RUN_ID,
+    fetchMetadata: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return {
+        ok: true,
+        data: {
+          id: "sim-mismatched",
+          status: "completed",
+          analysis_run_id: RUN_ID,
+        },
+      };
+    },
+    getState: () => simState,
+    setState: (updater) => {
+      simState = updater(simState);
+    },
+  });
+
+  // User disables simulation mode
+  simState = {
+    ...DEFAULT_SIMULATION_MODE_STATE,
+    enabled: false,
+    simulationId: "sim-A",
+    status: "idle",
+  };
+
+  await promiseA;
+
+  // State remains disabled and idle, not overwritten by error
+  assert.equal(simState.enabled, false);
+  assert.equal(simState.status, "idle");
+  assert.equal(simState.errorMessage, null);
 });

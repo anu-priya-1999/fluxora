@@ -1,4 +1,4 @@
-import type { GraphNodeType } from "@fluxora/shared-types";
+import type { GraphNodeType, SimulationResultState } from "@fluxora/shared-types";
 
 /**
  * Standard visual styling and metadata configuration for Fluxora graph nodes.
@@ -114,6 +114,8 @@ export interface NodeStyleComputationInput {
   readonly impactRole?: "direct" | "downstream" | "unaffected" | undefined;
   readonly impactHopDistance?: number | undefined;
   readonly impactConfidence?: number | undefined;
+  readonly simulationModeActive?: boolean | undefined;
+  readonly simulationState?: SimulationResultState | undefined;
 }
 
 export interface ComputedNodeStyles {
@@ -125,10 +127,16 @@ export interface ComputedNodeStyles {
 }
 
 /**
- * Computes node visual styling based on base type, selection state, and change-mode overlay.
+ * Computes node visual styling based on base type, selection state, change-mode, and simulation-mode overlay.
  *
  * Guarantees:
- * - Selected node styling takes absolute priority over change-mode overlay (Constraint 4.6 & 15.N).
+ * - Selected node styling takes absolute priority over change-mode and simulation-mode overlays.
+ * - Simulation states use consistent semantic colors:
+ *   - failed: Red 600 border + ring (#dc2626)
+ *   - degraded: Amber 600 border + ring (#d97706)
+ *   - at_risk: Yellow 500 border + ring (#eab308)
+ *   - healthy: Emerald 600 border + ring (#059669)
+ *   - Nodes absent from simulation results retain normal node appearance (never fabricated as healthy, faded, or grayscaled).
  * - Direct changes get the strongest visual emphasis (#dc2626 border + ring).
  * - Downstream changes receive progressively weaker emphasis with hop distance.
  * - Low-confidence findings (< 0.70) are rendered with dashed borders.
@@ -137,7 +145,7 @@ export interface ComputedNodeStyles {
 export function computeNodeVisualStyles(input: NodeStyleComputationInput): ComputedNodeStyles {
   const config = getNodeVisualConfig(input.nodeType);
 
-  // 1. Selection priority: selection always wins over change-mode styling
+  // 1. Selection priority: selection always wins over overlay styling
   if (input.isSelected) {
     return {
       border: "2px solid #2563eb",
@@ -147,7 +155,56 @@ export function computeNodeVisualStyles(input: NodeStyleComputationInput): Compu
     };
   }
 
-  // 2. Change-Mode styling (when active)
+  // 2. Simulation-Mode styling (when active)
+  if (input.simulationModeActive) {
+    if (input.simulationState === "failed") {
+      return {
+        border: "2px solid #dc2626", // Red 600
+        backgroundColor: "#fef2f2", // Red 50
+        boxShadow: "0 0 0 3px rgba(220, 38, 38, 0.25), 0 4px 6px -1px rgba(0, 0, 0, 0.1)",
+        opacity: 1.0,
+      };
+    }
+
+    if (input.simulationState === "degraded") {
+      return {
+        border: "2px solid #d97706", // Amber 600
+        backgroundColor: "#fffbeb", // Amber 50
+        boxShadow: "0 0 0 2px rgba(217, 119, 6, 0.2), 0 1px 3px rgba(0, 0, 0, 0.08)",
+        opacity: 1.0,
+      };
+    }
+
+    if (input.simulationState === "at_risk") {
+      return {
+        border: "2px solid #eab308", // Yellow 500
+        backgroundColor: "#fefce8", // Yellow 50
+        boxShadow: "0 0 0 2px rgba(234, 179, 8, 0.2), 0 1px 3px rgba(0, 0, 0, 0.08)",
+        opacity: 1.0,
+      };
+    }
+
+    if (input.simulationState === "healthy") {
+      return {
+        border: "2px solid #059669", // Emerald 600
+        backgroundColor: "#ecfdf5", // Emerald 50
+        boxShadow: "0 0 0 2px rgba(5, 150, 105, 0.2), 0 1px 3px rgba(0, 0, 0, 0.08)",
+        opacity: 1.0,
+      };
+    }
+
+    // Nodes without simulation results (or with invalid/unrecognized states) retain their normal
+    // Architecture Explorer appearance: never faded (opacity 1.0), never grayscaled,
+    // and never fabricated as healthy.
+    return {
+      border: `2px solid ${config.borderColor}`,
+      backgroundColor: config.backgroundColor,
+      boxShadow: "0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px -1px rgba(0, 0, 0, 0.1)",
+      opacity: 1.0,
+    };
+  }
+
+  // 3. Change-Mode styling (when active)
   if (input.changeModeActive) {
     if (input.impactRole === "direct") {
       return {

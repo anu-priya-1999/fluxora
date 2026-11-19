@@ -1,7 +1,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import type { GraphNodeType, GraphQueryResponseNode } from "@fluxora/shared-types";
-import { getNodeVisualConfig } from "./node-styles.ts";
+import { getNodeVisualConfig, computeNodeVisualStyles } from "./node-styles.ts";
 import {
   mapDomainGraphToFlow,
   type CanvasInputEdge,
@@ -260,4 +260,27 @@ test("Rendering does not perform any network calls", () => {
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test("Step 57: Simulation mode node styles provide distinct semantic styling for all canonical states", () => {
+  const nodeType = "service";
+
+  const states = ["failed", "degraded", "at_risk", "healthy"] as const;
+  const borders = new Set<string>();
+
+  for (const st of states) {
+    const styles = getNodeVisualConfig(nodeType);
+    assert.ok(styles);
+    const style = computeNodeVisualStyles({
+      nodeType,
+      isSelected: false,
+      simulationModeActive: true,
+      simulationState: st,
+    });
+    assert.equal(style.opacity, 1.0);
+    borders.add(style.border);
+  }
+
+  // All 4 canonical states have visually distinct borders
+  assert.equal(borders.size, 4);
 });

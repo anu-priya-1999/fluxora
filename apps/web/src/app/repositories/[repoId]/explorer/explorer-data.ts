@@ -9,6 +9,7 @@ export interface ResolvedAnalysisContext {
   readonly analysisRunId: string;
   readonly defaultStartNodeId: string;
   readonly initialImpactAnalysisId?: string | undefined;
+  readonly initialSimulationId?: string | undefined;
 }
 
 export type ResolveAnalysisContextResult =
@@ -207,6 +208,7 @@ export interface ResolveAnalysisContextInput {
     readonly node_id?: string | string[] | undefined;
     readonly impact_id?: string | string[] | undefined;
     readonly impact_analysis_id?: string | string[] | undefined;
+    readonly simulation_id?: string | string[] | undefined;
     readonly repository_name?: string | string[] | undefined;
     readonly repo_name?: string | string[] | undefined;
     readonly commit_sha?: string | string[] | undefined;
@@ -265,6 +267,13 @@ export function resolveRepositoryAnalysisContext(
       ? rawImpactId.trim()
       : undefined;
 
+  const rawSimulationId = firstParam(input.searchParams?.simulation_id);
+
+  const initialSimulationId =
+    rawSimulationId && UUID_REGEX.test(rawSimulationId.trim())
+      ? rawSimulationId.trim()
+      : undefined;
+
   const rawRepoName =
     firstParam(input.searchParams?.repository_name) ??
     firstParam(input.searchParams?.repo_name);
@@ -289,6 +298,7 @@ export function resolveRepositoryAnalysisContext(
       ...(initialImpactAnalysisId !== undefined
         ? { initialImpactAnalysisId }
         : {}),
+      ...(initialSimulationId !== undefined ? { initialSimulationId } : {}),
     },
   };
 }
@@ -309,4 +319,125 @@ function extractErrorMessage(payload: unknown): string | undefined {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// =============================================================================
+// Step 57: Simulation Mode Polling Lifecycle Contracts and Controller
+// =============================================================================
+
+export const MAX_SIMULATION_POLL_ATTEMPTS = 15;
+export const SIMULATION_POLL_INTERVAL_MS = 4000;
+
+export interface SimulationPollingState {
+  readonly enabled: boolean;
+  readonly simulationId: string | null;
+  readonly executionStatus: string | null;
+  readonly status: string;
+}
+
+/**
+ * Determines whether simulation auto-polling should be scheduled.
+ * Polling must ONLY be scheduled when:
+ * - Simulation Mode is enabled.
+ * - A simulation ID exists.
+ * - Server execution status is "pending" or "running".
+ * - Normalized UI status is also "pending" or "running".
+ *
+ * Polling is NEVER scheduled when UI status is "loading" or "error",
+ * preventing overlapping GET requests and unwanted automatic retries on errors.
+ */
+export function shouldScheduleSimulationPoll(state: SimulationPollingState): boolean {
+  return (
+    state.enabled &&
+    Boolean(state.simulationId) &&
+    (state.executionStatus === "pending" || state.executionStatus === "running") &&
+    (state.status === "pending" || state.status === "running")
+  );
+}
+
+export interface SimulationPollingBudget {
+  simulationId: string | null;
+  count: number;
+}
+
+export interface SimulationPollControllerOptions {
+  readonly onPoll: () => void;
+  readonly maxAttempts?: number;
+  readonly intervalMs?: number;
+  readonly setTimeoutFn?: typeof setTimeout;
+  readonly clearTimeoutFn?: typeof clearTimeout;
+}
+
+export interface SimulationPollController {
+  readonly update: (state: SimulationPollingState) => void;
+  readonly cancel: () => void;
+  readonly resetBudget: () => void;
+  readonly getBudget: () => Readonly<SimulationPollingBudget>;
+  readonly isScheduled: () => boolean;
+}
+
+/**
+ * Deterministic polling controller that manages simulation polling attempts per simulation ID.
+ * Cancels timers on state change/cleanup, enforces max 15 attempts, and resets budget on ID change.
+ */
+export function createSimulationPollController(
+  options: SimulationPollControllerOptions,
+): SimulationPollController {
+  const maxAttempts = options.maxAttempts ?? MAX_SIMULATION_POLL_ATTEMPTS;
+  const intervalMs = options.intervalMs ?? SIMULATION_POLL_INTERVAL_MS;
+  const setTimeoutFn = options.setTimeoutFn ?? setTimeout;
+  const clearTimeoutFn = options.clearTimeoutFn ?? clearTimeout;
+
+  let budget: SimulationPollingBudget = { simulationId: null, count: 0 };
+  let activeTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancel(): void {
+    if (activeTimer !== null) {
+      clearTimeoutFn(activeTimer);
+      activeTimer = null;
+    }
+  }
+
+  function update(state: SimulationPollingState): void {
+    cancel();
+
+    // Reset polling budget when switching simulation ID
+    if (budget.simulationId !== state.simulationId) {
+      budget = { simulationId: state.simulationId, count: 0 };
+    }
+
+    if (!shouldScheduleSimulationPoll(state)) {
+      return;
+    }
+
+    if (budget.count >= maxAttempts) {
+      return;
+    }
+
+    activeTimer = setTimeoutFn(() => {
+      activeTimer = null;
+      budget.count += 1;
+      options.onPoll();
+    }, intervalMs);
+  }
+
+  function resetBudget(): void {
+    budget.count = 0;
+  }
+
+  function getBudget(): Readonly<SimulationPollingBudget> {
+    return budget;
+  }
+
+  function isScheduled(): boolean {
+    return activeTimer !== null;
+  }
+
+  return {
+    update,
+    cancel,
+    resetBudget,
+    getBudget,
+    isScheduled,
+  };
 }

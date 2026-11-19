@@ -965,3 +965,45 @@ test("getStateBadgeColors returns correct styling properties for all 4 canonical
   assert.equal(healthy.label, "Healthy");
   assert.match(healthy.text, /text-emerald/);
 });
+
+// ---------------------------------------------------------------------------
+// 7. Step 57 Deep-Link Navigation Tests
+// ---------------------------------------------------------------------------
+
+test("buildExplorerSimulationUrl generates a valid deep-link URL with verified identifiers", async () => {
+  const { buildExplorerSimulationUrl } = await import("../graph/simulation-mode-data.ts");
+
+  const url = buildExplorerSimulationUrl({
+    repositoryId: REPO_ID,
+    analysisRunId: RUN_ID,
+    startNodeId: SEED_NODE_ID,
+    simulationId: SIMULATION_ID,
+    selectedNodeId: DOWNSTREAM_NODE_ID,
+  });
+
+  assert.ok(url !== null);
+  assert.equal(
+    url,
+    `/repositories/${REPO_ID}/explorer?analysis_run_id=${RUN_ID}&start_node_id=${SEED_NODE_ID}&simulation_id=${SIMULATION_ID}&node_id=${DOWNSTREAM_NODE_ID}`,
+  );
+});
+
+test("buildExplorerSimulationUrl returns null when any required UUID is missing or invalid", async () => {
+  const { buildExplorerSimulationUrl } = await import("../graph/simulation-mode-data.ts");
+
+  const invalidRepo = buildExplorerSimulationUrl({
+    repositoryId: "bad-repo",
+    analysisRunId: RUN_ID,
+    startNodeId: SEED_NODE_ID,
+    simulationId: SIMULATION_ID,
+  });
+  assert.equal(invalidRepo, null);
+
+  const invalidRun = buildExplorerSimulationUrl({
+    repositoryId: REPO_ID,
+    analysisRunId: "",
+    startNodeId: SEED_NODE_ID,
+    simulationId: SIMULATION_ID,
+  });
+  assert.equal(invalidRun, null);
+});

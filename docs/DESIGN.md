@@ -12270,6 +12270,100 @@ Provide a comprehensive, responsive Next.js App Router application page (`/simul
 
 ---
 
+## Global Step 57 — Simulation Mode Overlay in Architecture Explorer
+
+### Overview & Objective
+
+Global Step 57 connects persisted deterministic failure-simulation results (persisted in Step 54/55 and authored/run in Step 56 Simulation Studio) directly to the interactive Architecture Explorer at `/repositories/[repoId]/explorer`.
+
+Authenticated users can load a persisted simulation run by its UUID—either manually via the Simulation Mode Bar or through URL deep-linking (`?simulation_id=<uuid>`)—and observe the failure propagation directly on the real React Flow architecture graph.
+
+The overlay highlights affected components across all 4 canonical simulation states (`failed`, `degraded`, `at_risk`, `healthy`), visually traces the causal propagation edges between components, surfaces circuit-breaker capped boundaries, preserves neutral presentation for unreached/unaffected nodes without fabricating healthy statuses, and exposes step-by-step causal evidence in the Node Inspector.
+
+### Core Architectural Decisions & Invariants
+
+1. **Analysis-Run Snapshot Isolation**:
+   - A simulation is strictly scoped to an analysis-run snapshot (`simulation.analysis_run_id`).
+   - Before applying a simulation overlay, the Explorer verifies:
+     ```ts
+     simulation.analysis_run_id === explorerContext.analysisRunId
+     ```
+   - If a simulation belongs to a different snapshot, the overlay is rejected with a clear context-mismatch error (`simulation_context_mismatch`). The existing graph topology is preserved, and mismatched results are never rendered over foreign graph nodes.
+
+2. **Semantic Truth for Absent Nodes ("No Result" vs "Healthy")**:
+   - A graph node absent from the simulation results was unreached or unaffected by propagation.
+   - Nodes absent from the simulation results must **never** be labeled `healthy`.
+   - Absent nodes retain their ordinary Architecture Explorer node appearance (opacity 1.0, no grayscale or faded styling, no artificial 'NO RESULT' badge modifying graph node presentation).
+   - The Node Inspector explicitly explains that the component was not evaluated by the simulation. Only explicit results returned by the deterministic engine establish a component's resulting state.
+
+3. **Pure Normalized State View Model (`simulation-mode-data.ts`)**:
+   - Normalizes raw `SimulationResponse` and `SimulationResultResponse[]` into an immutable `NormalizedSimulationModeState` view model.
+   - Indexes results by `nodeId` in `Map<string, SimulationResultResponse>` and causal edges in `Set<string>` for $O(1)$ graph canvas lookups during render cycles.
+   - Resolves duplicate node results deterministically by state severity (`failed` > `degraded` > `at_risk` > `healthy`), with `causalEdgeIds` and `ruleTableVersion` derived strictly from final accepted results after duplicate resolution to prevent stale edge or rule-version leakage from discarded results.
+   - Computes canonical aggregate metrics (`failed`, `degraded`, `at_risk`, `healthy`, `capped`, `total`) and LOD slice metrics (`visibleAffectedNodes`, `hiddenAffectedNodes`).
+   - Validates canonical states against domain enum bounds; invalid or unrecognized states are never converted into `at_risk` or other valid states, but are retained in `invalidResultsByNodeId` strictly for diagnostics without inflating canonical metrics or generating causal edges.
+   - Parses structured `SimulationCausalStep` breadcrumbs from `propagation_path` (supporting both structured objects and legacy formatted strings). Rejects steps missing a canonical `nodeId`, `previousState`, or `resultingState` rather than misattributing values from the enclosing result in multi-node paths.
+
+4. **Mutual Exclusivity of Visualization Overlays**:
+   - Simulation Mode and Change Mode represent distinct analytical lenses.
+   - When Simulation Mode is active and ready, it takes visual precedence on the React Flow canvas to prevent ambiguous or contradictory multi-colored borders.
+   - Disabling or clearing Simulation Mode seamlessly restores the underlying Change Mode overlay without requiring a re-fetch of PR impact analysis.
+   - Selected-node styling priority is preserved across both modes.
+
+5. **Deterministic Causal Edge Highlighting**:
+   - The graph canvas highlights only edge IDs explicitly identified in structured causal propagation steps (`step.edgeId`).
+   - Causal edges are rendered with high-visibility failure stroke styling (`#dc2626`, 3px width, opacity 1.0); non-causal edges receive muted opacity (0.35).
+   - Seed target failure steps have no edge ID (`null`) and do not synthesize phantom edges.
+   - Causal edges exclusively reflect final accepted node results; edges from superseded lower-severity duplicate results are discarded.
+
+6. **Bounded Polling Lifecycle & Stale Response Isolation (`explorer-data.ts` & `explorer-client.tsx`)**:
+   - Bounded automatic polling (maximum 15 attempts, 4000ms interval) executes exclusively for `pending` or `running` simulations.
+   - No polling is scheduled when UI status is `loading` (active fetch in progress) or `error`, preventing overlapping GET requests and automatic retries upon failure.
+   - Polling budgets are strictly scoped per simulation ID; switching simulation IDs resets the attempt counter to 0.
+   - Active timers are cancelled on component unmount, mode disable, simulation change, or execution completion/failure.
+   - Asynchronous responses from superseded simulations are guarded via target simulation ID checking and discarded to prevent state clobbering.
+
+7. **Honest Confidence & Static Assumptions Notice**:
+   - Prominently displayed in both `SimulationModeBar` and `NodeInspectorPanel`:
+     > *"Simulation confidence reflects deterministic rule confidence and static metadata assumptions. It is not a real-world failure probability."*
+   - Explains that latency degradation models topology-driven risk propagation rather than fabricated numerical millisecond queueing metrics.
+
+### Implementation Structure
+
+- `apps/web/src/components/graph/simulation-mode-data.ts`:
+  Pure helper functions: `normalizeSimulationResponse`, `extractSimulationCausalSteps`, `computeSimulationSliceMetrics`, `buildExplorerSimulationUrl`, `isCanonicalSimulationState`, `getSimulationStateBadgeConfig`, `formatSimulationConfidence`. Accurately derives causal edges and rule-table versions from accepted results, rejecting malformed causal steps.
+- `apps/web/src/components/graph/SimulationModeBar.tsx`:
+  Simulation Mode header component: mode toggle, manual simulation UUID input with synchronized parent prop reflection, Load/Clear/Retry buttons, loading spinner, error banners, summary metric chips, honest confidence notice, and expandable visual legend.
+- `apps/web/src/components/graph/node-styles.ts`:
+  Visual styling computation: applies distinct border colors, background colors, and box shadows for canonical simulation states (`#dc2626` failed, `#d97706` degraded, `#eab308` at-risk, `#059669` healthy); unreached and invalid nodes retain their ordinary Architecture Explorer node appearance.
+- `apps/web/src/components/graph/NodeRenderer.tsx`:
+  React Flow node component: renders simulation state badge (`FAILED`, `DEGRADED`, `AT RISK`, `HEALTHY`, `CAPPED`), simulation confidence percentage, and data attributes for testing. Unreached nodes receive no simulation badge and retain their base graph appearance.
+- `apps/web/src/components/graph/GraphCanvas.tsx`:
+  Graph canvas integration: accepts `simulationMode` prop, highlights causal edges in failure red (`#dc2626`, 3px width), and displays LOD slice indicator when affected nodes exist outside the current viewport.
+- `apps/web/src/components/graph/node-inspector-data.ts`:
+  Node inspector extension: adds dedicated **Simulation Result** section detailing applied rule ID/version, calibrated confidence, explicit static metadata assumptions, and chronological causal propagation steps (`previousState → resultingState`, rule ID, edge ID, capped status).
+- `apps/web/src/app/repositories/[repoId]/explorer/explorer-data.ts` & `page.tsx`:
+  Server route handling: parses `simulation_id` query parameter into `initialSimulationId` in `ResolvedAnalysisContext`. Implements bounded polling controller (`createSimulationPollController`) and polling eligibility predicate (`shouldScheduleSimulationPoll`).
+- `apps/web/src/app/repositories/[repoId]/explorer/explorer-client.tsx`:
+  Client integration: orchestrates `simulationModeState`, syncs `simulation_id` search param, manages polling controller with attempt reset on ID switch, guards against active-fetch overlaps and stale async responses, enforces analysis-run snapshot isolation, handles mismatched metadata and results responses with guarded error transitions preventing stuck loading states, and injects simulation props into `GraphCanvas` and `NodeInspectorPanel`.
+- `apps/web/src/components/simulation/SimulationStudio.tsx`:
+  Bidirectional deep-link: adds "View on Architecture Graph" action button to the Simulation Studio results header, computing canonical explorer URLs via `buildExplorerSimulationUrl`.
+- `apps/web/src/components/graph/simulation-mode.test.ts`:
+  49 unit tests covering normalization, canonical states, missing/invalid previous state rejection, missing step nodeId/resultingState rejection, circuit-breaker caps, seed step handling, duplicate resolution with stale causal edge discarding, failure states, pending/running lifecycle states, empty/converged messaging, LOD slice metrics, visual styling, NodeRenderer markup, interactive SimulationModeBar button click/input synchronization, and NodeInspectorPanel causal paths.
+- `apps/web/src/app/repositories/[repoId]/explorer/explorer.test.ts`:
+  31 unit tests including dedicated polling lifecycle tests (pending/running polling, active-fetch/error suppression, completed/failed termination, per-ID budget reset, max 15 attempts, mode disable cleanup) and mismatched response regression tests (metadata mismatch, results mismatch, stuck loading prevention, and stale response isolation).
+
+### Explicit Scope Exclusions
+
+- No re-implementation or modification of Step 54 Simulation Engine or Step 53 Rule Table.
+- No new database tables, migrations, or backend API endpoints.
+- No background queue workers for simulations.
+- No speculative failure types (`capacity`, `removal`).
+- No probabilistic machine learning or LLM-generated simulation graphs.
+- No golden-fixture benchmark test suites (reserved for Step 58).
+
+---
+
 ## Production Hardening — Fix 1, Fix 1B, Fix 1C & Fix 1D: Job Queue RLS, Least-Privilege Worker Access, and Review Corrections
 
 ### 1. Problem & Threat Model

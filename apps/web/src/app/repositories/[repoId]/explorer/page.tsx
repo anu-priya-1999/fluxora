@@ -18,6 +18,7 @@ interface ExplorerPageProps {
     node_id?: string | string[];
     impact_id?: string | string[];
     impact_analysis_id?: string | string[];
+    simulation_id?: string | string[];
   }>;
 }
 

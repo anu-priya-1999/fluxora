@@ -35,6 +35,11 @@ export function NodeRenderer({ data, selected }: NodeRendererProps): React.JSX.E
     impactConfidence,
     isAffectedApi,
     isAffectedEvent,
+    simulationModeActive,
+    simulationState,
+    simulationRule,
+    simulationConfidence,
+    simulationCapped,
   } = data;
 
   const config = getNodeVisualConfig(nodeType);
@@ -47,6 +52,8 @@ export function NodeRenderer({ data, selected }: NodeRendererProps): React.JSX.E
     impactRole,
     impactHopDistance,
     impactConfidence,
+    simulationModeActive,
+    simulationState,
   });
 
   const children: React.ReactNode[] = [
@@ -188,6 +195,107 @@ export function NodeRenderer({ data, selected }: NodeRendererProps): React.JSX.E
               "Event",
             )
           : null,
+        // Step 57: Simulation Mode Badges
+        simulationModeActive && simulationState === "failed"
+          ? React.createElement(
+              "span",
+              {
+                key: "sim-failed",
+                "data-testid": "simulation-failed-badge",
+                style: {
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  padding: "2px 5px",
+                  borderRadius: "4px",
+                  backgroundColor: "#fee2e2",
+                  color: "#b91c1c",
+                  border: "1px solid #fecaca",
+                },
+              },
+              "Failed",
+            )
+          : null,
+        simulationModeActive && simulationState === "degraded"
+          ? React.createElement(
+              "span",
+              {
+                key: "sim-degraded",
+                "data-testid": "simulation-degraded-badge",
+                style: {
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  padding: "2px 5px",
+                  borderRadius: "4px",
+                  backgroundColor: "#fef3c7",
+                  color: "#b45309",
+                  border: "1px solid #fde68a",
+                },
+              },
+              "Degraded",
+            )
+          : null,
+        simulationModeActive && simulationState === "at_risk"
+          ? React.createElement(
+              "span",
+              {
+                key: "sim-at-risk",
+                "data-testid": "simulation-at-risk-badge",
+                style: {
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  padding: "2px 5px",
+                  borderRadius: "4px",
+                  backgroundColor: "#fefce8",
+                  color: "#854d0e",
+                  border: "1px solid #fef08a",
+                },
+              },
+              "At Risk",
+            )
+          : null,
+        simulationModeActive && simulationState === "healthy"
+          ? React.createElement(
+              "span",
+              {
+                key: "sim-healthy",
+                "data-testid": "simulation-healthy-badge",
+                style: {
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  padding: "2px 5px",
+                  borderRadius: "4px",
+                  backgroundColor: "#d1fae5",
+                  color: "#047857",
+                  border: "1px solid #a7f3d0",
+                },
+              },
+              "Healthy",
+            )
+          : null,
+        simulationModeActive && simulationCapped && simulationState !== undefined
+          ? React.createElement(
+              "span",
+              {
+                key: "sim-capped",
+                "data-testid": "simulation-capped-badge",
+                style: {
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  padding: "2px 5px",
+                  borderRadius: "4px",
+                  backgroundColor: "#e0e7ff",
+                  color: "#4338ca",
+                  border: "1px solid #c7d2fe",
+                },
+              },
+              "Capped",
+            )
+          : null,
       ),
       typeof depth === "number"
         ? React.createElement(
@@ -244,7 +352,7 @@ export function NodeRenderer({ data, selected }: NodeRendererProps): React.JSX.E
       : null,
 
     // Footer: Base Graph Confidence score indicator
-    confidence < 1.0 && !changeModeActive
+    confidence < 1.0 && !changeModeActive && (!simulationModeActive || !simulationState)
       ? React.createElement(
           "div",
           {
@@ -311,6 +419,47 @@ export function NodeRenderer({ data, selected }: NodeRendererProps): React.JSX.E
         )
       : null,
 
+    // Step 57: Simulation Confidence indicator
+    simulationModeActive && simulationConfidence !== undefined && simulationState !== undefined
+      ? React.createElement(
+          "div",
+          {
+            key: "simulation-confidence",
+            "data-testid": "node-simulation-confidence",
+            style: {
+              marginTop: "6px",
+              fontSize: "10px",
+              color: simulationConfidence < 0.7 ? "#b45309" : "#64748b",
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+            },
+          },
+          React.createElement("span", null, "Sim Conf:"),
+          React.createElement(
+            "span",
+            { style: { fontWeight: 600 } },
+            `${Math.round(simulationConfidence * 100)}%`,
+          ),
+          simulationRule
+            ? React.createElement(
+                "span",
+                {
+                  key: "sim-rule",
+                  "data-testid": "node-simulation-rule",
+                  style: {
+                    fontSize: "9px",
+                    color: "#7c3aed",
+                    fontFamily: "ui-monospace, monospace",
+                    marginLeft: "auto",
+                  },
+                },
+                simulationRule,
+              )
+            : null,
+        )
+      : null,
+
     // Source handle for outgoing edges
     React.createElement(Handle, {
       key: "source-handle",
@@ -333,6 +482,8 @@ export function NodeRenderer({ data, selected }: NodeRendererProps): React.JSX.E
       "data-selected": isSelected ? "true" : "false",
       "data-change-mode": changeModeActive ? "true" : "false",
       "data-impact-role": impactRole ?? "none",
+      "data-simulation-mode": simulationModeActive ? "true" : "false",
+      "data-simulation-state": simulationState ?? "none",
       style: {
         border: computedStyles.border,
         backgroundColor: computedStyles.backgroundColor,

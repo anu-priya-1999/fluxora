@@ -6,6 +6,7 @@ import type {
 } from "@fluxora/shared-types";
 import { getNodeVisualConfig } from "./node-styles.ts";
 import type { NormalizedChangeModeState } from "./change-mode-data.ts";
+import type { NormalizedSimulationModeState } from "./simulation-mode-data.ts";
 import { buildSourcePermalink } from "./evidence-citation-data.ts";
 import { EvidenceCitation } from "./EvidenceCitation.tsx";
 import { normalizeConfidence } from "./confidence-data.ts";
@@ -84,6 +85,10 @@ export interface NodeInspectorPanelProps {
    * Optional active Change-Mode state (Step 46).
    */
   readonly changeMode?: NormalizedChangeModeState | null | undefined;
+  /**
+   * Optional active Simulation-Mode state (Step 57).
+   */
+  readonly simulationMode?: NormalizedSimulationModeState | null | undefined;
 }
 
 /**
@@ -437,6 +442,7 @@ export function NodeInspectorPanel({
   onClose,
   className,
   changeMode,
+  simulationMode,
 }: NodeInspectorPanelProps): React.JSX.Element {
   const effectiveRef = gitRef ?? inputRef;
 
@@ -711,6 +717,22 @@ export function NodeInspectorPanel({
     ? changeMode?.evidenceIdsByNodeId.get(node.id) ?? []
     : [];
 
+  const isSimulationModeReady = Boolean(
+    simulationMode && simulationMode.enabled && simulationMode.status === "ready",
+  );
+  const simResult = isSimulationModeReady
+    ? simulationMode?.resultsByNodeId.get(node.id)
+    : undefined;
+  const simState = isSimulationModeReady
+    ? simulationMode?.resultingStateByNodeId.get(node.id)
+    : undefined;
+  const invalidSimResult = isSimulationModeReady
+    ? simulationMode?.invalidResultsByNodeId?.get(node.id)
+    : undefined;
+  const simCausalSteps = isSimulationModeReady
+    ? simulationMode?.causalStepsByNodeId.get(node.id) ?? []
+    : [];
+
   return React.createElement(
     "div",
     {
@@ -965,6 +987,240 @@ export function NodeInspectorPanel({
                 },
                 "This node is outside the blast radius of the analyzed pull request.",
               ),
+        )
+      : null,
+
+    // Step 57: Simulation Result Section (rendered when simulation mode is ready)
+    isSimulationModeReady
+      ? React.createElement(
+          "section",
+          {
+            key: "simulation-mode-result",
+            "data-testid": "inspector-simulation-section",
+            className:
+              "p-4 flex flex-col gap-3 text-xs bg-purple-50/40 border-b border-purple-100",
+          },
+          React.createElement(
+            "div",
+            { className: "flex items-center justify-between gap-2" },
+            React.createElement(
+              "h3",
+              { className: "text-xs font-semibold text-purple-900 uppercase tracking-wider" },
+              "Simulation Result",
+            ),
+            simState
+              ? React.createElement(
+                  "span",
+                  {
+                    "data-testid": "inspector-simulation-state-badge",
+                    className: `text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                      simState === "failed"
+                        ? "bg-red-100 text-red-800 border-red-200"
+                        : simState === "degraded"
+                          ? "bg-amber-100 text-amber-800 border-amber-200"
+                          : simState === "at_risk"
+                            ? "bg-yellow-100 text-yellow-800 border-yellow-200"
+                            : "bg-emerald-100 text-emerald-800 border-emerald-200"
+                    }`,
+                  },
+                  simState.replace("_", " "),
+                )
+              : invalidSimResult
+                ? React.createElement(
+                    "span",
+                    {
+                      "data-testid": "inspector-simulation-invalid-badge",
+                      className:
+                        "text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border bg-rose-100 text-rose-800 border-rose-200",
+                    },
+                    "Invalid State",
+                  )
+                : null,
+          ),
+          simResult && simState
+            ? React.createElement(
+                React.Fragment,
+                null,
+                // Resulting State & Rule
+                React.createElement(
+                  "div",
+                  { className: "grid grid-cols-2 gap-2 bg-white p-2.5 rounded border border-purple-100" },
+                  React.createElement(
+                    "div",
+                    { className: "flex flex-col gap-0.5" },
+                    React.createElement("span", { className: "text-slate-500 text-[10px] uppercase font-semibold" }, "Rule Applied"),
+                    React.createElement(
+                      "span",
+                      {
+                        "data-testid": "inspector-simulation-rule",
+                        className: "font-mono font-medium text-slate-800 text-[11px] break-all",
+                      },
+                      simResult.rule_applied,
+                    ),
+                  ),
+                  React.createElement(
+                    "div",
+                    { className: "flex flex-col gap-0.5" },
+                    React.createElement("span", { className: "text-slate-500 text-[10px] uppercase font-semibold" }, "Rule Confidence"),
+                    React.createElement(
+                      "span",
+                      {
+                        "data-testid": "inspector-simulation-confidence",
+                        className: "font-semibold text-purple-900",
+                      },
+                      `${Math.round((simResult.confidence ?? 1.0) * 100)}%`,
+                    ),
+                  ),
+                ),
+                // Honest confidence notice
+                React.createElement(
+                  "p",
+                  {
+                    "data-testid": "inspector-simulation-confidence-notice",
+                    className: "text-[10px] text-slate-500 italic leading-snug",
+                  },
+                  "Simulation confidence reflects deterministic rule confidence and static metadata assumptions. It is not a real-world failure probability.",
+                ),
+                // Assumptions
+                React.createElement(
+                  "div",
+                  {
+                    "data-testid": "inspector-simulation-assumptions",
+                    className: "flex flex-col gap-1",
+                  },
+                  React.createElement(
+                    "span",
+                    { className: "text-slate-600 font-semibold text-[11px]" },
+                    "Assumptions:",
+                  ),
+                  simResult.assumptions && simResult.assumptions.length > 0
+                    ? React.createElement(
+                        "ul",
+                        { className: "list-disc list-inside space-y-0.5 text-slate-600 text-[11px] pl-1" },
+                        simResult.assumptions.map((asm, i) =>
+                          React.createElement("li", { key: i }, asm),
+                        ),
+                      )
+                    : React.createElement(
+                        "span",
+                        { className: "text-slate-500 italic text-[11px]" },
+                        "No conservative assumptions recorded.",
+                      ),
+                ),
+                // Causal Path in Execution Order
+                React.createElement(
+                  "div",
+                  {
+                    "data-testid": "inspector-simulation-causal-path",
+                    className: "flex flex-col gap-1.5 pt-1 border-t border-purple-100",
+                  },
+                  React.createElement(
+                    "span",
+                    { className: "text-slate-700 font-semibold text-[11px] uppercase tracking-wide" },
+                    `Causal Propagation Path (${simCausalSteps.length} step${simCausalSteps.length === 1 ? "" : "s"})`,
+                  ),
+                  simCausalSteps.length > 0
+                    ? React.createElement(
+                        "div",
+                        { className: "space-y-2 mt-1" },
+                        simCausalSteps.map((step, idx) =>
+                          React.createElement(
+                            "div",
+                            {
+                              key: idx,
+                              "data-testid": `simulation-causal-step-${idx}`,
+                              className:
+                                "p-2 bg-white rounded border border-slate-200 flex flex-col gap-1 text-[11px]",
+                            },
+                            React.createElement(
+                              "div",
+                              { className: "flex items-center justify-between gap-1" },
+                              React.createElement(
+                                "span",
+                                { className: "font-semibold text-slate-700" },
+                                `Step ${idx + 1}: `,
+                                React.createElement(
+                                  "span",
+                                  {
+                                    "data-testid": "simulation-step-transition",
+                                    className: "font-mono text-purple-700",
+                                  },
+                                  `${step.previousState} → ${step.resultingState}`,
+                                ),
+                              ),
+                              step.capped
+                                ? React.createElement(
+                                    "span",
+                                    {
+                                      "data-testid": "simulation-step-capped",
+                                      className:
+                                        "px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 text-[9px] font-bold uppercase",
+                                    },
+                                    "Capped",
+                                  )
+                                : null,
+                            ),
+                            React.createElement(
+                              "div",
+                              { className: "text-slate-600 font-mono text-[10px]" },
+                              `Rule: ${step.ruleId}${step.ruleVersion ? ` (v${step.ruleVersion})` : ""}`,
+                            ),
+                            React.createElement(
+                              "div",
+                              {
+                                "data-testid": "simulation-step-edge",
+                                className: "text-slate-500 text-[10px] break-all",
+                              },
+                              step.edgeId
+                                ? `Edge: ${step.edgeId}`
+                                : "None (Seed target failure)",
+                            ),
+                            step.assumptions && step.assumptions.length > 0
+                              ? React.createElement(
+                                  "div",
+                                  { className: "text-[10px] text-slate-500 italic" },
+                                  `Assumptions: ${step.assumptions.join("; ")}`,
+                                )
+                              : null,
+                          ),
+                        ),
+                      )
+                    : React.createElement(
+                        "span",
+                        { className: "text-slate-500 italic text-[11px]" },
+                        "No structured causal steps available.",
+                      ),
+                ),
+              )
+            : invalidSimResult
+              ? React.createElement(
+                  "div",
+                  {
+                    "data-testid": "inspector-simulation-invalid-result",
+                    className:
+                      "flex flex-col gap-1.5 p-2.5 bg-rose-50/60 rounded border border-rose-200 text-xs",
+                  },
+                  React.createElement(
+                    "p",
+                    { className: "text-rose-800 font-semibold" },
+                    "Unrecognized Simulation Result State",
+                  ),
+                  React.createElement(
+                    "p",
+                    { className: "text-rose-700 text-[11px]" },
+                    `The simulation returned an unrecognized state (${JSON.stringify(
+                      invalidSimResult.resulting_state ?? invalidSimResult.state,
+                    )}) for this node. It cannot be displayed as a canonical simulation state and has been excluded from simulation metrics and causal edge rendering.`,
+                  ),
+                )
+              : React.createElement(
+                  "p",
+                  {
+                    "data-testid": "inspector-simulation-no-result",
+                    className: "text-slate-500 text-xs italic",
+                  },
+                  "No simulation result for this node. This node was not reached by the simulation propagation path.",
+                ),
         )
       : null,
 

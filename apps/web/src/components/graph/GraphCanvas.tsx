@@ -26,6 +26,10 @@ import {
   computeImpactSliceMetrics,
   type NormalizedChangeModeState,
 } from "./change-mode-data.ts";
+import {
+  computeSimulationSliceMetrics,
+  type NormalizedSimulationModeState,
+} from "./simulation-mode-data.ts";
 
 const DEFAULT_NODE_TYPES: NodeTypes = {
   fluxoraNode: NodeRenderer,
@@ -112,6 +116,10 @@ export interface GraphCanvasProps {
    * Optional Change-Mode state to overlay on the graph (Step 46).
    */
   readonly changeMode?: NormalizedChangeModeState | null | undefined;
+  /**
+   * Optional Simulation-Mode state to overlay on the graph (Step 57).
+   */
+  readonly simulationMode?: NormalizedSimulationModeState | null | undefined;
 }
 
 /**
@@ -148,6 +156,7 @@ export function GraphCanvas({
   initialLod = "module",
   onLodChange,
   changeMode,
+  simulationMode,
 }: GraphCanvasProps): React.JSX.Element {
   const [currentLod, setCurrentLod] = React.useState<LodLevel>(initialLod);
 
@@ -189,71 +198,132 @@ export function GraphCanvas({
     return computeImpactSliceMetrics(changeMode, visibleNodes);
   }, [changeMode, visibleNodes]);
 
-  // Map input nodes and edges deterministically to React Flow format with Change-Mode overlay
+  // Compute simulation slice metrics (how many simulation results are visible in the current slice)
+  const simulationSliceMetrics = useMemo(() => {
+    if (!simulationMode || !simulationMode.enabled || simulationMode.status !== "ready") {
+      return null;
+    }
+    return computeSimulationSliceMetrics(simulationMode, visibleNodes);
+  }, [simulationMode, visibleNodes]);
+
+  // Map input nodes and edges deterministically to React Flow format with Simulation-Mode or Change-Mode overlay
   const { nodes, edges } = useMemo(() => {
     const mapped = mapDomainGraphToFlow(visibleNodes, visibleEdges);
-    const isChangeModeActive = Boolean(changeMode?.enabled && changeMode?.status === "ready");
+    // Simulation Mode and Change Mode are mutually exclusive visual overlays.
+    // Active simulation mode suspends change mode visualization.
+    const isSimulationModeActive = Boolean(
+      simulationMode?.enabled && simulationMode?.status === "ready",
+    );
+    const isChangeModeActive =
+      !isSimulationModeActive && Boolean(changeMode?.enabled && changeMode?.status === "ready");
 
     const updatedNodes = mapped.nodes.map((n) => {
       const isSelected = n.id === selectedNodeId;
 
-      if (!isChangeModeActive || !changeMode) {
+      if (isSimulationModeActive && simulationMode) {
+        const simState = simulationMode.resultingStateByNodeId.get(n.id);
+        const simRule = simulationMode.ruleByNodeId.get(n.id);
+        const simConfidence = simulationMode.confidenceByNodeId.get(n.id);
+        const simCapped = simulationMode.hasCappedByNodeId.get(n.id);
+
         return {
           ...n,
           data: {
             ...n.data,
             isSelected,
             changeModeActive: false,
+            simulationModeActive: true,
+            simulationState: simState,
+            simulationRule: simRule,
+            simulationConfidence: simConfidence,
+            simulationCapped: simCapped,
           },
         };
       }
 
-      // Change mode is active: determine impact role and metadata
-      const isDirect = changeMode.directNodeIds.has(n.id);
-      const isDownstream = !isDirect && changeMode.downstreamNodeIds.has(n.id);
-      const impactRole: "direct" | "downstream" | "unaffected" = isDirect
-        ? "direct"
-        : isDownstream
-          ? "downstream"
-          : "unaffected";
-      const impactHopDistance = changeMode.hopDistanceByNodeId.get(n.id);
-      const impactConfidence = changeMode.confidenceByNodeId.get(n.id);
-      const isAffectedApi = changeMode.affectedApiNodeIds.has(n.id);
-      const isAffectedEvent = changeMode.affectedEventNodeIds.has(n.id);
-      const impactEvidenceIds = changeMode.evidenceIdsByNodeId.get(n.id);
+      if (isChangeModeActive && changeMode) {
+        // Change mode is active: determine impact role and metadata
+        const isDirect = changeMode.directNodeIds.has(n.id);
+        const isDownstream = !isDirect && changeMode.downstreamNodeIds.has(n.id);
+        const impactRole: "direct" | "downstream" | "unaffected" = isDirect
+          ? "direct"
+          : isDownstream
+            ? "downstream"
+            : "unaffected";
+        const impactHopDistance = changeMode.hopDistanceByNodeId.get(n.id);
+        const impactConfidence = changeMode.confidenceByNodeId.get(n.id);
+        const isAffectedApi = changeMode.affectedApiNodeIds.has(n.id);
+        const isAffectedEvent = changeMode.affectedEventNodeIds.has(n.id);
+        const impactEvidenceIds = changeMode.evidenceIdsByNodeId.get(n.id);
+
+        return {
+          ...n,
+          data: {
+            ...n.data,
+            isSelected,
+            changeModeActive: true,
+            simulationModeActive: false,
+            impactRole,
+            impactHopDistance,
+            impactConfidence,
+            isAffectedApi,
+            isAffectedEvent,
+            impactEvidenceIds,
+          },
+        };
+      }
 
       return {
         ...n,
         data: {
           ...n.data,
           isSelected,
-          changeModeActive: true,
-          impactRole,
-          impactHopDistance,
-          impactConfidence,
-          isAffectedApi,
-          isAffectedEvent,
-          impactEvidenceIds,
+          changeModeActive: false,
+          simulationModeActive: false,
         },
       };
     });
 
     const updatedEdges = mapped.edges.map((e) => {
       const isSelected = e.id === selectedEdgeId;
-      if (!isSelected) {
-        return e;
+      if (isSelected) {
+        return {
+          ...e,
+          selected: true,
+          style: e.style
+            ? { ...e.style, stroke: "#3b82f6", strokeWidth: 3, opacity: 1.0 }
+            : { stroke: "#3b82f6", strokeWidth: 3, opacity: 1.0 },
+        };
       }
-      return {
-        ...e,
-        selected: true,
-        style: e.style
-          ? { ...e.style, stroke: "#3b82f6", strokeWidth: 3, opacity: 1.0 }
-          : { stroke: "#3b82f6", strokeWidth: 3, opacity: 1.0 },
-      };
+
+      if (isSimulationModeActive && simulationMode) {
+        const isCausalEdge = simulationMode.causalEdgeIds.has(e.id);
+        if (isCausalEdge) {
+          return {
+            ...e,
+            style: e.style
+              ? { ...e.style, stroke: "#dc2626", strokeWidth: 3, opacity: 1.0 }
+              : { stroke: "#dc2626", strokeWidth: 3, opacity: 1.0 },
+          };
+        }
+        return {
+          ...e,
+          style: e.style ? { ...e.style, opacity: 0.35 } : { opacity: 0.35 },
+        };
+      }
+
+      return e;
     });
 
     return { nodes: updatedNodes, edges: updatedEdges };
-  }, [visibleNodes, visibleEdges, selectedNodeId, selectedEdgeId, changeMode]);
+  }, [
+    visibleNodes,
+    visibleEdges,
+    selectedNodeId,
+    selectedEdgeId,
+    changeMode,
+    simulationMode,
+  ]);
 
   const handleNodeClick = useMemo(() => {
     if (!onNodeClick) return undefined;
@@ -357,6 +427,19 @@ export function GraphCanvas({
                 }}
               >
                 • {impactSliceMetrics.visibleImpactedNodes}/{impactSliceMetrics.totalImpactedNodes} impacted visible
+              </span>
+            )}
+            {simulationSliceMetrics && simulationSliceMetrics.totalResultNodes > 0 && (
+              <span
+                data-testid="simulation-slice-indicator"
+                style={{
+                  color:
+                    simulationSliceMetrics.hiddenResultNodes > 0 ? "#7c3aed" : "#15803d",
+                  fontWeight: 600,
+                  marginLeft: "4px",
+                }}
+              >
+                • {simulationSliceMetrics.visibleResultNodes}/{simulationSliceMetrics.totalResultNodes} sim results visible
               </span>
             )}
           </div>
