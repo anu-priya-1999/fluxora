@@ -19,6 +19,7 @@ learning/
 │   ├── phase-08/             # Simulation: persistence, deterministic rule-table, propagation engine, APIs, studio UI, simulation mode overlay
 │   ├── production-hardening/ # Cross-cutting Production Hardening: Fix 1 (job queue RLS), Fix 2 (worker crash recovery), Fix 3 (SECURITY DEFINER hardening), Fix 4 (scenario referential integrity)
 │   └── infrastructure/       # Cross-cutting infrastructure migrations (e.g. Vitest test runner migration)
+├── decisions/                # Architectural Decision Records (ADRs)
 ├── notes/                    # In-depth technical learning notes and architectural concepts
 └── interviews/               # Senior/staff engineer interview cheat sheets, Q&A guides, and trade-off analyses
 ```
@@ -166,7 +167,31 @@ Phase 8 implements Fluxora's deterministic scenario simulation architecture, rul
 
 ---
 
-## 4. Canonical Architecture Cross-References
+## 4. Phase 9 — AI Reasoning Deliverables
+
+Phase 9 implements Fluxora's AI reasoning layer, establishing a controlled Model Gateway, context assembly over deterministic evidence, structured output validation, and grounded explanations.
+
+### Document Directory
+
+#### Implementation Reports
+- **Step 59 — Model Gateway Foundation:**<br>
+  [`learning/implementations/phase-09/step-59-model-gateway.md`](implementations/phase-09/step-59-model-gateway.md)<br>
+  *Covers provider-independent ModelGateway contract, Anthropic Claude Messages SDK integration, task-aware routing policies, bounded retries with exponential backoff and Retry-After parsing, secondary model fallback, cancellation propagation, microdollar token cost accounting, OpenTelemetry AI instrumentation, secret redaction, and offline deterministic mock mode.*
+
+#### Technical Learning Notes
+- **Note 58:** [`learning/notes/58. Model Gateway Foundation.md`](notes/58.%20Model%20Gateway%20Foundation.md)
+
+#### Architectural Decision Records
+- **ADR-013 — Single Controlled Model Gateway Boundary with Secondary Model Fallback:**<br>
+  [`learning/decisions/adr-013-model-gateway-boundary-and-fallback.md`](decisions/adr-013-model-gateway-boundary-and-fallback.md)<br>
+  *Covers provider-independent ModelGateway boundary, provider SDK encapsulation, offline mock mode defaults, bounded task-aware primary/fallback routing, and clear separation from context assembly and deterministic explanation fallback.*
+
+#### Interview Preparation
+- **Step 59 Interview Sheet:** [`learning/interviews/59. Step 59 Model Gateway Interview CheatSheet.md`](interviews/59.%20Step%2059%20Model%20Gateway%20Interview%20CheatSheet.md)
+
+---
+
+## 5. Canonical Architecture Cross-References
 
 - **Implementation Snapshot:** [`docs/DESIGN.md`](../docs/DESIGN.md) (living snapshot of current state, active constraints, and verification results).
 - **Implementation Roadmap:** [`docs/architecture/17-implementation-roadmap.md`](../docs/architecture/17-implementation-roadmap.md) (phase definitions and step sequencing).

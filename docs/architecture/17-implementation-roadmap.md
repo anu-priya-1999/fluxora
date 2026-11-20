@@ -197,7 +197,7 @@ Broken into phases; each phase's features are further broken into small, sequent
 **Goal:** Ground the deterministic outputs in natural-language explanation.
 
 **Steps:**
-1. Implement the Model Gateway (`§9.2`) with Claude integration, retry/fallback logic, cost/latency logging.
+1. [x] Implement the Model Gateway (`§9.2`) with Claude integration, retry/fallback logic, cost/latency logging (Global Step 59).
 2. Implement the Context Assembler (`§9.4`) for the impact-explanation task type first (narrowest, highest-value scope).
 3. Implement structured-output schemas + the Validator (`§9.6`), including the grounding check against the evidence-id manifest.
 4. Wire impact-analysis completion → AI explanation generation → `AIExplanationPanel` in the UI.

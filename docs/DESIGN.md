@@ -13585,3 +13585,45 @@ The objective is to establish an offline, deterministic, hand-verified simulatio
   - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
   - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
   - `pnpm test`: 1154 passed, 9 skipped across entire workspace.
+
+---
+
+## Global Step 59: Model Gateway Foundation
+
+### 1. Objective and Architectural Context
+Global Step 59 initiates **Phase 9 (AI Reasoning)** by establishing the **Model Gateway Foundation** as the single controlled boundary for all outbound Large Language Model (LLM) requests.
+
+The objective is to establish a provider-independent, observable, cost-aware, and fault-tolerant AI infrastructure boundary that strictly preserves the architectural separation between Fluxora's deterministic graph reasoning core and the probabilistic AI explanation layer (Principle P1/P10). The gateway handles request routing, bounded retries, secondary model fallback, cancellation, and token pricing while remaining completely decoupled from prompt construction, evidence assembly, and structured output validation.
+
+### 2. Architecture & Decision Highlights (ADR-013)
+- **Controlled Gateway Boundary**: Implemented in `@fluxora/workers` under `apps/workers/src/ai/`. All outbound LLM traffic routes through `ModelGateway.generate(request: ModelGatewayRequest): Promise<ModelGatewayResponse>`.
+- **Official Anthropic Claude Adapter**: Uses `@anthropic-ai/sdk` (`^1.10.0`), mapping Messages API parameters, extracting reported token usage (`input_tokens`, `output_tokens`), request IDs (`msg_...`), and stop reasons without leaking provider-specific types into public contracts.
+- **Task-Aware Routing Policy**: Deterministic per-task policies mapping `impact_explanation` (20s budget), `simulation_narration` (30s budget), and `chat_query` (45s budget) to primary (`claude-sonnet-5-5`) and secondary fallback (`claude-haiku-5-5`) tiers with bounded client timeout clamping.
+- **Bounded Resilience & Fallback**:
+  - Automatically retries transient network errors, timeouts, rate limits (429), and 5xx server errors with bounded exponential backoff (`baseRetryDelayMs: 500`, `maxRetryDelayMs: 5000`).
+  - Parses `Retry-After` HTTP headers (supporting Web API Headers and dictionary objects), clamped to a 10s safety limit.
+  - On exhaustion of primary retries, falls back to the configured secondary model (`claude-haiku-5-5`) for a single attempt.
+  - Fails fast on fatal client errors (401/403 authentication, 400 invalid request) without retrying or falling back.
+  - Injected sleep function enables instantaneous, deterministic unit tests.
+- **Cancellation Propagation**: Actively monitors caller `AbortSignal` before dispatch, during backoff sleep timers, and in-flight across provider API calls, terminating connections and immediately clearing timeouts.
+- **Token Usage & Microdollar Cost Accounting**: Injectable `ModelPricingRegistry` computing USD costs based on per-million token rates across all billed attempts (including billable failed attempts). Supports tiered pricing based on input token counts (e.g. `claude-haiku-5-5` standard rates of $0.10/MTok input for <= 100K tokens and $0.50/MTok input for > 100K tokens; `claude-sonnet-5-5` at $2.00/MTok input and $10.00/MTok output; standard Claude API list prices verified on November 20, 2026). Missing pricing or null usage returns `costUsd: null` rather than fabricating zero cost.
+- **Observability & Secret Safety**:
+  - Emits dedicated OpenTelemetry instruments (`fluxora.ai.gateway.requests`, `fluxora.ai.gateway.attempts`, `tokens.input`, `tokens.output`, `cost.usd`, `latency`, `attempt.latency`) and spans (`fluxora.ai.gateway.request`, `fluxora.ai.provider.attempt`).
+  - Automated regex redaction (`sanitizeErrorMessage`) scrubs Anthropic API keys (`sk-ant-...`) and Bearer tokens from error messages and logs.
+  - Strictly prohibits prompts, diffs, repository code, and unbounded entity IDs from log attributes.
+- **Default Mock Mode**: Defaults to `USE_REAL_LLM=false` for offline local development and CI testing, returning deterministic canned responses without API keys or network access. Fails closed with `CONFIGURATION_ERROR` when real mode is enabled without an API key.
+
+### 3. Verification Suite
+- `apps/workers/src/ai/pricing.test.ts`: 11 tests verifying formulas, microdollar precision, missing pricing, null usage, custom overrides, Haiku 100K token threshold on both sides, Sonnet pricing, and multi-attempt cost aggregation.
+- `apps/workers/src/ai/policy.test.ts`: 4 tests verifying architectural timeout budgets, safety bounds clamping, max token fallbacks, and task overrides.
+- `apps/workers/src/ai/config.test.ts`: 4 tests verifying mock mode defaults, fail-fast configuration errors, and SecretsClient integration.
+- `apps/workers/src/ai/anthropic-adapter.test.ts`: 7 tests verifying text and usage normalization, empty content rejection, 401/403 sanitization, 429 Retry-After parsing, 500 handling, cancellation, and timeout aborts.
+- `apps/workers/src/ai/gateway.test.ts`: 12 tests verifying mock semantics, primary success, retry backoff, fallback invocation on primary exhaustion, retries exhausted errors, non-retryable error handling, Retry-After bounds, cancellation propagation, and secret sanitization.
+- `apps/workers/src/ai/factory.test.ts`: 3 tests verifying default mock creation, real Anthropic provider instantiation, and provider overrides.
+- **Workspace Verification**:
+  - `pnpm --filter @fluxora/workers test`: 28 test files passed (342 passed, 4 skipped).
+  - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
+  - `pnpm lint`: Clean (0 errors).
+  - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
+  - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
+  - `pnpm test`: 1,195 passed, 9 skipped across entire workspace.

@@ -17,10 +17,11 @@ This is the highest-scrutiny component of Fluxora, both because it's the most in
 
 ## 9.2 Model gateway
 
-- Single internal client (`ModelGateway`) wraps all outbound calls to Claude (primary). All prompt construction, retries, and fallback logic live behind this interface so provider swaps or multi-provider routing never touch calling code.
-- **Fallback model:** a configured secondary model (e.g., a smaller/cheaper Claude tier) used when the primary errors out repeatedly or when a lower-stakes task (e.g., quick chat follow-ups) doesn't need the highest-capability model — model selection is task-aware, not one-size-fits-all, to manage cost (see `16-cost-model.md`).
+- Single internal client (`ModelGateway`) wraps all outbound calls to Claude (primary: `claude-sonnet-5-5`, fallback: `claude-haiku-5-5`). All prompt construction, retries, and fallback logic live behind this interface so provider swaps or multi-provider routing never touch calling code. Implemented under `apps/workers/src/ai/`.
+- **Offline local development & testing:** defaults to a deterministic `MockModelProvider` (`USE_REAL_LLM=false`), requiring zero external network calls or secrets. Setting `USE_REAL_LLM=true` enables the real Anthropic Claude adapter and enforces fail-closed API key validation.
+- **Fallback model:** a configured secondary model (`claude-haiku-5-5`, a cost-efficient Claude tier) used when the primary errors out repeatedly or when a lower-stakes task (e.g., quick chat follow-ups) doesn't need the highest-capability model — model selection is task-aware, not one-size-fits-all, to manage cost (see `16-cost-model.md`).
 - **Timeouts:** per-task-type timeout budgets (e.g., 20s for a single impact explanation, 45s for a free-form chat query that may need larger context) with the deterministic result already delivered to the user before the AI call even starts, so a timeout never blocks the core product experience.
-- **Token/cost tracking:** every call logs `model, prompt_version, input_tokens, output_tokens, cost_usd, latency_ms` to `AIAnalysis`, rolled up into per-organization and global cost dashboards (`16-cost-model.md`).
+- **Token/cost tracking:** every call tracks `model, prompt_version, input_tokens, output_tokens, cost_usd, latency_ms`, emitting OpenTelemetry metrics/traces and preparing audit data for `AIAnalysis` persistence in later orchestration steps, rolled up into per-organization and global cost dashboards (`16-cost-model.md`).
 
 ## 9.3 Prompt / version management
 

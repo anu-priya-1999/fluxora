@@ -86,11 +86,11 @@ For each component: **responsibility, inputs, outputs, dependencies, failure mod
 
 ## 5.11 Model Gateway
 
-- **Responsibility:** Single choke point for all LLM calls — provider abstraction, retries, fallback model selection, token/cost tracking.
-- **Inputs:** Assembled prompt + context, target task type.
-- **Outputs:** Raw model response, cost/latency metrics.
-- **Dependencies:** Claude API (primary), fallback provider config.
-- **Failure modes:** Primary model timeout/5xx → retry with backoff, then fallback model; total failure → surface "AI explanation unavailable" without blocking deterministic results (Principle P10).
+- **Responsibility:** Single controlled boundary for all LLM calls — provider abstraction, retries, fallback model selection, token/cost tracking, caller cancellation propagation, and secret sanitization (`apps/workers/src/ai/`).
+- **Inputs:** `ModelGatewayRequest` (assembled messages, task type, prompt version, timeout override, abort signal).
+- **Outputs:** `ModelGatewayResponse` (normalized text, actual model, reported token counts, calculated USD cost, latency, attempt records).
+- **Dependencies:** Anthropic Claude Messages API (primary: `claude-sonnet-5-5`, secondary fallback: `claude-haiku-5-5`), `@fluxora/observability`, `@fluxora/infrastructure` (SecretsClient), deterministic `MockModelProvider` (local dev default).
+- **Failure modes:** Primary model timeout/5xx/rate-limit → bounded exponential backoff retries, then fallback model; fatal auth/400 errors or caller abort → fail fast; total failure → typed `ModelGatewayError` without blocking deterministic graph results (Principle P10).
 
 ## 5.12 Context Assembler
 
