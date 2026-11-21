@@ -24,6 +24,13 @@ learning/
 └── interviews/               # Senior/staff engineer interview cheat sheets, Q&A guides, and trade-off analyses
 ```
 
+### Learning Notes Numbering Convention
+
+- **Foundational Series (Notes 1–6):** Cover foundational architecture, backend, database, infrastructure, job queues, and OpenTelemetry observability (Phase 1).
+- **Roadmap Step Alignment (Notes 8–60+):** From Global Step 8 onward, the filename prefix matches the corresponding Global Step number.
+- **Global Step 7:** Has no separate numbered note because its material (OpenTelemetry) is covered in foundational Note 6 (`6. OpenTelemetry Observability.md`).
+- **Cross-cutting Notes:** Engineering hardening tasks (`Fix-01` through `Fix-04`) and infrastructure migrations (`Vitest Migration`) retain descriptive filenames and are not part of the numbered sequence.
+
 ---
 
 ## 2. Cross-cutting Production Hardening
@@ -153,13 +160,13 @@ Phase 8 implements Fluxora's deterministic scenario simulation architecture, rul
   *Covers Taxonomy golden fixture validation, the IMPORTS vs CALLS semantic boundary, ADR-012 test relationship provenance, 5-stage golden simulation test suite, and causal evidence verification.*
 
 #### Technical Learning Notes
-- **Note 51:** [`learning/notes/51. Simulation Persistence Foundation.md`](notes/51.%20Simulation%20Persistence%20Foundation.md)
-- **Note 52:** [`learning/notes/52. Simulation Rule-Table.md`](notes/52.%20Simulation%20Rule-Table.md)
-- **Note 53:** [`learning/notes/53. Simulation Engine.md`](notes/53.%20Simulation%20Engine.md)
-- **Note 54:** [`learning/notes/54. Simulation HTTP APIs.md`](notes/54.%20Simulation%20HTTP%20APIs.md)
-- **Note 55:** [`learning/notes/55. Simulation Studio UI.md`](notes/55.%20Simulation%20Studio%20UI.md)
-- **Note 56:** [`learning/notes/56. Simulation Mode Overlay.md`](notes/56.%20Simulation%20Mode%20Overlay.md)
-- **Note 57:** [`learning/notes/57. Golden Fixture Simulation Validation.md`](notes/57.%20Golden%20Fixture%20Simulation%20Validation.md)
+- **Note 52:** [`learning/notes/52. Simulation Persistence Foundation.md`](notes/52.%20Simulation%20Persistence%20Foundation.md)
+- **Note 53:** [`learning/notes/53. Simulation Rule-Table.md`](notes/53.%20Simulation%20Rule-Table.md)
+- **Note 54:** [`learning/notes/54. Simulation Engine.md`](notes/54.%20Simulation%20Engine.md)
+- **Note 55:** [`learning/notes/55. Simulation HTTP APIs.md`](notes/55.%20Simulation%20HTTP%20APIs.md)
+- **Note 56:** [`learning/notes/56. Simulation Studio UI.md`](notes/56.%20Simulation%20Studio%20UI.md)
+- **Note 57:** [`learning/notes/57. Simulation Mode Overlay.md`](notes/57.%20Simulation%20Mode%20Overlay.md)
+- **Note 58:** [`learning/notes/58. Golden Fixture Simulation Validation.md`](notes/58.%20Golden%20Fixture%20Simulation%20Validation.md)
 
 #### Interview Preparation
 - **Step 57 Interview Sheet:** [`learning/interviews/57. Step 57 Simulation Mode Overlay Interview CheatSheet.md`](interviews/57.%20Step%2057%20Simulation%20Mode%20Overlay%20Interview%20CheatSheet.md)
@@ -182,7 +189,7 @@ Phase 9 implements Fluxora's AI reasoning layer, establishing a controlled Model
   *Covers pure deterministic context assembly, allowed evidence ID grounding manifest, multi-key prioritization (confidence, hop distance, category, stable nodeId), character budgeting and transparent truncation, tenant-scoped PostgreSQL loading with RLS, untrusted-data classification for prompt injection defense, and provider-independent ModelGatewayRequest generation.*
 
 #### Technical Learning Notes
-- **Note 58:** [`learning/notes/58. Model Gateway Foundation.md`](notes/58.%20Model%20Gateway%20Foundation.md)
+- **Note 59:** [`learning/notes/59. Model Gateway Foundation.md`](notes/59.%20Model%20Gateway%20Foundation.md)
 - **Note 60:** [`learning/notes/60. Impact Explanation Context Assembler.md`](notes/60.%20Impact%20Explanation%20Context%20Assembler.md)
 
 #### Architectural Decision Records

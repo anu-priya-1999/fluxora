@@ -7775,7 +7775,7 @@ The Step 10 learning package includes:
 
 
 
-learning/9. Github App Installation.md
+learning/notes/10. Github App Installation.md
 
 
 
@@ -7807,7 +7807,7 @@ The Step 11 learning package includes:
 
 
 
-learning/10. Repository Snapshot Commit Data Model.md
+learning/notes/11. Repository Snapshot Commit Data Model.md
 
 
 
@@ -7839,7 +7839,7 @@ The Step 12 learning package includes:
 
 
 
-learning/notes/11. Repository Ingestion Worker.md
+learning/notes/12. Repository Ingestion Worker.md
 
 
 
@@ -7863,7 +7863,7 @@ The Step 13 learning package includes:
 
 
 
-learning/notes/12. Repository Snapshot Storage.md
+learning/notes/13. Repository Snapshot Storage.md
 
 
 
@@ -8036,7 +8036,7 @@ learning/
 
 
 
-│   ├── 7. CI-CD and Production Deployment.md
+│   ├── 8. CI-CD and Production Deployment.md
 
 
 
@@ -8048,11 +8048,11 @@ learning/
 
 
 
-├── 9. Github App Installation.md
+├── 10. Github App Installation.md
 
 
 
-├── 10. Repository Snapshot Commit Data Model.md
+├── 11. Repository Snapshot Commit Data Model.md
 
 
 
@@ -8060,11 +8060,11 @@ learning/
 
 
 
-├── notes/11. Repository Ingestion Worker.md
+├── notes/12. Repository Ingestion Worker.md
 
 
 
-├── notes/12. Repository Snapshot Storage.md
+├── notes/13. Repository Snapshot Storage.md
 
 
 
@@ -9239,7 +9239,7 @@ Those belong to later roadmap steps.
 
 
 
-learning/notes/12. Repository Snapshot Storage.md
+learning/notes/13. Repository Snapshot Storage.md
 
 learning/implementations/phase-02/step-13-repository-snapshot-storage.md
 

@@ -26,7 +26,7 @@ Handle `repository.ingest` on the existing PostgreSQL job harness: tenant-check 
 - `apps/workers/src/ingest/ingest.test.ts`
 - `apps/workers/src/ingest/handler.ts`
 - `apps/workers/src/worker.test.ts`
-- `learning/notes/11. Repository Ingestion Worker.md`
+- `learning/notes/12. Repository Ingestion Worker.md`
 - `learning/implementations/phase-02/step-12-repository-ingestion.md`
 - `learning/interviews/5. Step 12 Repository Ingestion Worker Interview CheatSheet.md`
 

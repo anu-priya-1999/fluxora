@@ -52,7 +52,7 @@ No GitHub repository fetching, installation access tokens, object-storage upload
 | `packages/db/src/migrate/repositories-data-model.test.ts` | Static migration contract (FORCE RLS, parent-chain, no child org id, no snapshot UPDATE policy) |
 | `packages/db/src/repositories/repository.test.ts` | Validation unit tests (no database) |
 | `packages/db/src/repositories/repository-data-model.test.ts` | PostgreSQL integration tests (skipped if `DATABASE_URL` is unset) |
-| `learning/10. Repository Snapshot Commit Data Model.md` | Personal learning note |
+| `learning/notes/11. Repository Snapshot Commit Data Model.md` | Personal learning note |
 | `learning/phase-02/step-11-repository-snapshot-commit.md` | This implementation note |
 | `learning/interviews/4. Step 11 Repository Snapshot Commit Interview CheatSheet.md` | Interview sheet |
 
@@ -230,7 +230,7 @@ Local results:
 6. `packages/db/src/repositories/repository-snapshot.ts`
 7. `packages/db/src/repositories/commit.ts`
 8. `packages/db/src/repositories/repository-data-model.test.ts`
-9. `learning/10. Repository Snapshot Commit Data Model.md`
+9. `learning/notes/11. Repository Snapshot Commit Data Model.md`
 
 ---
 

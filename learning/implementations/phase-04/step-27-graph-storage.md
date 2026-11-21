@@ -68,7 +68,7 @@ Targeted indexes support Step 28-33 query patterns:
 - `packages/db/src/repositories/graph.ts`
 - `packages/db/src/repositories/graph-storage.test.ts`
 - `learning/implementations/phase-04/step-27-graph-storage.md`
-- `learning/notes/26. Graph Storage — GraphNode, GraphEdge, and Evidence persistence.md`
+- `learning/notes/27. Graph Storage — GraphNode, GraphEdge, and Evidence persistence.md`
 - `learning/interviews/27. Step 27 Graph Storage Interview CheatSheet.md`
 
 ### Files Modified

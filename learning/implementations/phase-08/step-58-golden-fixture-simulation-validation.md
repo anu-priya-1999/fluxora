@@ -136,7 +136,7 @@ Running the scenario across 3 consecutive iterations confirmed:
 - `fixtures/golden/simulation-manifest.json` — Dedicated Golden Simulation Expectation Manifest.
 - `apps/workers/src/pipeline/golden-simulation.test.ts` — 5-stage golden simulation validation suite.
 - `learning/decisions/adr-012-golden-simulation-fixture-edge-provenance.md` — ADR-012.
-- `learning/notes/57. Golden Fixture Simulation Validation.md` — Technical learning note.
+- `learning/notes/58. Golden Fixture Simulation Validation.md` — Technical learning note.
 - `learning/interviews/58. Step 58 Golden Fixture Simulation Validation Interview CheatSheet.md` — Interview guide.
 - `learning/implementations/phase-08/step-58-golden-fixture-simulation-validation.md` — This report.
 
