@@ -94,11 +94,11 @@ For each component: **responsibility, inputs, outputs, dependencies, failure mod
 
 ## 5.12 Context Assembler
 
-- **Responsibility:** Build the exact, minimal, structured context sent to the model — graph facts and evidence records, never raw repository file content as unmediated context for factual claims.
+- **Responsibility:** Build the exact, minimal, structured context sent to the model — graph facts and evidence records, never raw repository file content as unmediated context for factual claims. Implemented under `apps/workers/src/ai/context/` for the `impact_explanation` task type (Global Step 60).
 - **Inputs:** Task type (explain impact / explain simulation / answer question), relevant `ImpactAnalysis`/`SimulationResult`/`Evidence` records.
-- **Outputs:** A structured context object + selected prompt template version.
-- **Dependencies:** Evidence store.
-- **Failure modes:** Context too large for model window → prioritize by confidence/relevance and truncate with an explicit "N additional lower-confidence findings omitted" marker, never silent truncation.
+- **Outputs:** A structured `ImpactExplanationContext` object + selected prompt template version (`ModelGatewayRequest`).
+- **Dependencies:** Evidence store (`packages/db`), `@fluxora/shared-types`.
+- **Failure modes:** Context too large for model window → prioritize by confidence/relevance and truncate with an explicit "N additional lower-confidence findings omitted" marker, never silent truncation. Analysis not in completed status → fail fast with `not_completed`. Inaccessible or missing record → fail safely with `not_found`.
 
 ## 5.13 Structured Output Validator
 

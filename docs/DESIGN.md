@@ -13627,3 +13627,66 @@ The objective is to establish a provider-independent, observable, cost-aware, an
   - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
   - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
   - `pnpm test`: 1,195 passed, 9 skipped across entire workspace.
+
+---
+
+## Global Step 60: Impact Explanation Context Assembler
+
+### 1. Objective and Architectural Context
+Global Step 60 continues **Phase 9 (AI Reasoning)** by establishing the **Context Assembler for the `impact_explanation` task type**, acting as the controlled, deterministic boundary between Fluxora's verified graph/impact results and its probabilistic Large Language Model (LLM) layer.
+
+The objective is to establish an isolated, pure, and observable data-assembly module that preserves Fluxora's core product principle (P1/P10): the deterministic impact-analysis engine remains the sole authority for blast-radius truth. The LLM only receives verified facts to narrate them. The assembler enforces strict evidence grounding manifests, deterministic prioritization, context budgeting with transparent truncation, and prompt-injection defenses while remaining completely decoupled from model execution.
+
+### 2. Architecture & Decision Highlights (ADR-006 / ADR-013)
+- **Tripartite Context Assembly Module**: Implemented under `apps/workers/src/ai/context/`:
+  - `types.ts`: Strongly typed contracts for `ImpactExplanationContext`, allowlisted `BoundedFinding`, `BoundedEvidenceRecord`, `BoundedUnresolvedFile`, `TruncationDetails`, and `ContextLimits`.
+  - `limits.ts`: Named, configurable defaults (`DEFAULT_CONTEXT_LIMITS`), limit overrides resolution, and ASCII control character sanitization.
+  - `assembler.ts`: Pure deterministic context assembler transforming `ImpactAnalysis` and `EvidenceRecord[]` into a bounded `ImpactExplanationContext`. Zero I/O, zero clock/random dependencies, input immutability.
+  - `loader.ts`: Tenant-scoped context loader using existing PostgreSQL RLS methods (`getImpactAnalysisById`, `listImpactFindingEvidence`) with dependency injection for offline testing. Validates UUIDs, enforces `completed` status, and fails safely with `not_found` on missing or foreign tenant records.
+  - `request-builder.ts`: Prompt template serializer constructing a provider-independent `ModelGatewayRequest` (`taskType: "impact_explanation"`, version `impact-explain-v1`).
+  - `index.ts`: Public module exports, re-exported by `apps/workers/src/ai/index.ts`.
+- **Structural Evidence Association, Allowed Manifest & Three-Level Grounding Architecture**:
+  - Distinguishes three separate levels of evidence guarantees:
+    1. **Structural Evidence Association (Step 60 — Context Assembler)**: Validates every evidence record against `subjectType === "impact_finding"`, matching `analysisRunId`, and matching `metadata.impactAnalysisId`. Enforces exact subject-node matching (`rec.subjectId === finding.node.id`); `metadata.nodeId` is never used as a substitute for a mismatched subject ID. Strips fabricated or unverified evidence IDs; findings without valid evidence retain `evidenceIds: []`. Derives the `allowedEvidenceIds` manifest strictly from evidence records *actually retained* in the serialized context, establishing that the evidence record is structurally associated with the relevant persisted impact finding through validated subject identity, analysis-run identity, and impact-analysis association. This verifies the record's structural association; it does not independently establish the truth, completeness, or semantic accuracy of the underlying evidence description.
+    2. **Evidence Manifest Membership (Step 61 — Output Validator)**: Future structured-output validator checks that evidence IDs cited by model-generated claims belong to the exact allowed evidence-ID manifest. Claims citing IDs outside the allowed manifest are rejected as violating the evidence-grounding policy. Manifest membership establishes citation provenance and allowlist compliance, but does not prove the model interpreted the evidence correctly or that cited evidence factually supports the claim.
+    3. **Semantic Evidence Support (Acknowledged Limitation)**: Manifest membership alone cannot establish that cited evidence substantively supports or entails a natural-language claim. A model could cite a valid evidence ID from an unrelated finding or misrepresent the code relationship. Semantic support requires additional verification (explicit claim-to-finding checks, semantic evaluation in Step 65, or human review) and remains an acknowledged limitation rather than an automatic guarantee of manifest validation.
+- **Deterministic Prioritization, Context Truncation & Budget Hardening**:
+  - Prioritizes findings across 4 tiers: confidence descending $\to$ hop distance ascending $\to$ category rank (`direct` < `downstream` < `api` < `event` < `service`) $\to$ stable `node.id` string comparison.
+  - Dual Independent Budgets:
+    - **Context Envelope Budget (`maxTotalCharacters: 30,000`)**: Bounds the raw compact JSON envelope during deterministic context assembly. Trims unresolved files and lowest-ranked findings from the tail when over budget, updating evidence and manifests in lockstep. Evaluates candidate size inclusive of active truncation reasons.
+    - **Final Request Message Hard Cap (`MAX_REQUEST_MESSAGE_CHARACTERS = 100,000`)**: Independently bounds the final formatted user message (`ModelGatewayRequest.messages[0].content`) after pretty-printing (space=2), secondary manifest serialization, static prompt instructions, truncation disclosures, and Unicode escaping.
+    - **Hard Ceiling Invariant**: Callers may supply a lower custom limit via `options.maxRequestMessageCharacters`, but can NEVER raise the limit above 100,000 or bypass it via `Infinity`, `NaN`, negative values, or zero (`Math.max(1, Math.min(Math.floor(requestedLimit), 100_000))`). Positive fractional values are floored and clamped to $\ge 1$.
+    - **Application Safeguard vs Tokenizer**: Character limits are deterministic application-level safeguards, not tokenizers; the Model Gateway and provider policies manage token budgets.
+  - Never truncates silently: records `truncated: true`, detailed counts of omitted items, and inserts explicit truncation notices in prompt.
+- **Security & Layered Prompt Injection Defenses**:
+  - Zero raw code ingestion: no diffs, no file contents, no comments, no commit messages.
+  - Non-printable ASCII control characters stripped from repository strings; string lengths clamped.
+  - Structured XML containment & Safe JSON Escaping: `<impact_context>` JSON block isolates data from instructions, with markup-significant characters (`<`, `>`, `&`) safely encoded as JSON unicode escape sequences (`\u003c`, `\u003e`, `\u0026`) so adversarial strings can never close XML tags (e.g. `</impact_context>`) or inject fake instructions. Truncation disclosures outside `<impact_context>` also safely encode markup characters and strip newlines.
+  - Defense-in-depth distinction: Unicode escaping enforces structural containment; semantic prompt injection is handled through layered defenses (system untrusted data instructions, minimal context, Step 61 schema/grounding validation, Step 66 fallback).
+  - Strict system instructions: all repository strings classified as untrusted data that must never be interpreted as instructions.
+  - Arbitrary `GraphNode.metadata` and database internals stripped.
+
+### 3. Verification Suite
+- `apps/workers/src/ai/context/assembler.test.ts`: 31 unit tests verifying pure assembler requirements (completed analysis, empty findings, all 5 categories, evidence association, cross-run/cross-analysis/wrong-type rejection, subject mismatch rejection, rejection when only metadata.nodeId matches, unassociated evidence exclusion, missing/duplicate/fabricated evidence IDs, tie-breakers, confidence/hop prioritization, category preservation, finding/evidence/string limits, character budget iteration, strict budget bound inclusive of reasons, transparent truncation, unresolved file limits, malformed inputs, input immutability, repeatability, multi-reason truncation tracking, orphaned evidence dropping, and budget error).
+- `apps/workers/src/ai/context/loader.test.ts`: 8 unit tests verifying tenant-scoped retrieval, missing/inaccessible records safe `not_found`, pending/running/failed status rejection with `not_completed`, UUID validation, and error propagation without database access.
+- `apps/workers/src/ai/context/request-builder.test.ts`: 19 unit tests verifying `ModelGatewayRequest` contract, `impact_explanation` task type, prompt versioning, manifest embedding, honest truncation notices, untrusted data system instructions, safeJsonStringify encoding, prompt-injection XML containment against adversarial strings, request message size bounding, zero raw code, zero metadata leakage, options pass-through, deterministic serialization, hard request-message limit override matrix (100k cap, smaller limits, limits > 100k, Infinity, NaN, negative, zero, fractional), and comprehensive hostile values testing across all fields.
+
+### 4. Roadmap Sequence & Alignment (Phase 9: AI Reasoning)
+1. **Global Step 59 (Phase 9 Step 1)**: Model Gateway (`§9.2`) — Claude integration, offline mock provider, retry/fallback logic, microdollar pricing (Completed).
+2. **Global Step 60 (Phase 9 Step 2)**: Context Assembler (`§9.4`) — deterministic context assembly, allowed evidence manifest, transparent truncation, prompt-injection containment (Completed).
+3. **Global Step 61 (Phase 9 Step 3)**: Output Validator (`§9.6`) — structured-output schemas, grounding validation against allowed manifest.
+4. **Global Step 62 (Phase 9 Step 4)**: Impact Explanation Integration — worker job orchestration connecting impact completion to AI explanation and `AIExplanationPanel` UI.
+5. **Global Step 63 (Phase 9 Step 5)**: Simulation Narration — context assembly, validation, and UI narration for failure simulations.
+6. **Global Step 64 (Phase 9 Step 6)**: Tool-Calling Chat (`§9.5`) — interactive architecture Q&A (`query_graph`, `get_evidence`, `run_simulation`).
+7. **Global Step 65 (Phase 9 Step 7)**: Evaluation Suite (`§12.5`) — groundedness and hallucination baseline evaluation.
+8. **Global Step 66 (Phase 9 Step 8)**: Deterministic Fallback — non-AI template explanation fallback when AI validation fails.
+- **AI Module Verification**:
+  - `pnpm --filter @fluxora/workers test src/ai`: 9 test files passed (99 passed, 0 failed).
+- **Workspace Verification**:
+  - `pnpm --filter @fluxora/workers test`: 31 test files passed (384 passed, 4 skipped).
+  - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
+  - `pnpm lint`: Clean (0 errors).
+  - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
+  - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
+  - `pnpm test`: Full workspace test suite passed (1,237 passed, 9 skipped).
+  - `git diff --check`: Clean (0 whitespace/syntax issues).

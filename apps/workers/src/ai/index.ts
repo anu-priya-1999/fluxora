@@ -12,3 +12,4 @@ export * from "./mock-gateway.ts";
 export * from "./anthropic-adapter.ts";
 export * from "./gateway.ts";
 export * from "./factory.ts";
+export * from "./context/index.ts";

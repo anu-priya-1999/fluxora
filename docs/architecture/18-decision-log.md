@@ -43,6 +43,7 @@ Format: **Decision — Alternatives considered — Why this one.**
 **Decision:** The AI layer receives structured, pre-verified evidence records; raw code excerpts are allowed only for explanatory context, explicitly labeled, and never as the basis for a *relationship* claim.
 **Alternatives considered:** Feed the model the full diff/file content and let it reason about impact directly ("agentic" code-reading approach).
 **Why not:** This is the single most important reliability decision in the AI architecture — it's what makes grounding checkable at all (`09-ai-architecture.md §9.6`) and what makes the prompt-injection mitigation structural rather than best-effort (`11-security-architecture.md §11.9`). An agentic "let the model read the code and decide" approach is more flexible but reintroduces exactly the unverifiability ADR-001 rejects, one layer up.
+**Operationalization (Step 60):** Implemented in `apps/workers/src/ai/context/` via `assembleImpactExplanationContext` and `buildImpactExplanationRequest`, generating the canonical `allowedEvidenceIds` grounding manifest, applying deterministic prioritization and character budgeting, and treating all repository strings as untrusted data within `<impact_context>` delimiters. Grounding distinguishes evidence integrity (Step 60), manifest membership (Step 61), and semantic evidence support (acknowledged limitation; `09-ai-architecture.md §9.4.2`).
 
 ---
 

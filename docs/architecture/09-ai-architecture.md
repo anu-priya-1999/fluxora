@@ -35,8 +35,36 @@ The Context Assembler is the component standing between "untrusted repository co
 
 1. **Never pass raw file content as the basis for a factual claim.** The model receives *already-extracted, already-verified* structured facts (graph nodes/edges, `ImpactAnalysis`/`SimulationResult` records, `Evidence` rows) — not "here's the diff, tell me what breaks." That determination was already made deterministically; the model's job is to narrate it.
 2. **Scope context tightly to the task.** An impact-explanation call gets exactly the `ImpactAnalysis` + its cited `Evidence` rows — not the whole graph, not unrelated PRs, not the full repository tree.
-3. **Attach an explicit evidence-id manifest** to the prompt: "You may only reference the following evidence IDs: [ev_1001, ev_1123, ev_1130]. Do not state anything as fact that is not backed by one of these IDs." This is the mechanism that makes grounding checkable (9.6).
+3. **Attach an explicit evidence-id manifest** to the prompt: "You may only reference the following evidence IDs: [ev_1001, ev_1123, ev_1130]. Do not state anything as fact that is not backed by one of these IDs." This is the mechanism that makes grounding checkable at output validation time (9.6).
 4. **Truncate transparently, never silently**, when context would exceed budget — prioritizing by confidence and hop-distance, with an explicit "N lower-confidence findings omitted" note included in what's sent, so the model's narration can itself say "there may be additional lower-confidence effects not covered here."
+
+### 9.4.1 Impact Explanation Context Assembler Implementation (Global Step 60)
+
+Implemented under `apps/workers/src/ai/context/`:
+- **Contracts (`types.ts`):** `ImpactExplanationContext`, `BoundedFinding`, `BoundedEvidenceRecord`, `TruncationDetails`, and `ContextLimits`.
+- **Pure Assembler (`assembler.ts`):** Deterministic transformation of `ImpactAnalysis` and `EvidenceRecord[]` into a bounded context. Enforces confidence-first, hop-distance-second, stable `nodeId` sorting. Verifies structural evidence association (`subjectType === "impact_finding"`, `analysisRunId`, `impactAnalysisId`, and exact `subjectId === nodeId`; `metadata.nodeId` is never used as a substitute for a mismatched subject ID). Synchronizes the allowed evidence manifest (`allowedEvidenceIds`) strictly with retained evidence records.
+- **Tenant-Scoped Loader (`loader.ts`):** Fetches completed analyses and associated evidence via existing PostgreSQL RLS methods (`getImpactAnalysisById`, `listImpactFindingEvidence`) under tenant boundaries.
+- **Request Builder (`request-builder.ts`):** Formats provider-independent `ModelGatewayRequest` with stable prompt version `impact-explain-v1`, strict system instruction enforcing deterministic authority and untrusted data warnings, and explicit `<impact_context>` JSON containment with safe unicode escaping of markup-significant characters (`\u003c`, `\u003e`, `\u0026`) preventing XML tag breakout or fake instruction injection.
+
+### 9.4.2 Three Levels of Grounding Guarantees
+
+To ensure architectural clarity, Fluxora separates evidence guarantees into three distinct levels:
+
+1. **Structural evidence association (Step 60 — Context Assembly):**
+   - The Context Assembler verifies at context-creation time that an evidence record is structurally associated with the relevant persisted impact finding through validated subject identity, analysis-run identity, and impact-analysis association (`subjectType === "impact_finding"`, matching `analysisRunId`, matching `metadata.impactAnalysisId`, exact `subjectId === finding.node.id`; `metadata.nodeId` is never a substitute for a mismatched `subjectId`).
+   - Only retained, structurally verified evidence records contribute IDs to the `allowedEvidenceIds` manifest.
+   - *Guarantee:* Establishes that the evidence record is structurally associated with the relevant persisted impact finding through validated subject identity, analysis-run identity, and impact-analysis association, and that no fabricated or cross-run evidence IDs enter the context.
+   - *Non-Guarantee:* This verifies the record's structural association. It does not independently establish the truth, completeness, or semantic accuracy of the underlying evidence description.
+2. **Evidence manifest membership (Step 61 — Output Validator):**
+   - The structured-output Validator checks at completion-validation time that evidence IDs cited by model-generated claims belong to the exact allowed evidence-ID manifest supplied with the request.
+   - Claims citing evidence IDs outside the allowed manifest are rejected as violating the evidence-grounding policy (either stripped from the response or triggering retry/fallback).
+   - *Guarantee:* Establishes citation provenance and allowlist compliance. It prevents the model from citing fabricated IDs or IDs outside the allowed manifest. It does *not* prove that the model interpreted the evidence correctly.
+3. **Semantic evidence support (Acknowledged Limitation):**
+   - Manifest membership alone cannot establish that cited evidence substantively supports or entails a natural-language claim.
+   - For example, the model might cite a valid evidence ID associated with an unrelated finding, or misrepresent the relationship described by a valid evidence record.
+   - Manifest membership establishes citation provenance and allowlist compliance, not semantic correctness. The validator does not automatically prove that cited evidence entails or substantively supports the natural-language claim.
+   - Semantic support requires additional verification (such as explicit claim-to-finding association checks, downstream semantic evaluation in the evaluation suite §12.5, or human review).
+   - Unless such verification is implemented, semantic correctness remains an acknowledged limitation, not a guaranteed property.
 
 ### Where raw code snippets *are* allowed in context
 
@@ -56,16 +84,16 @@ The model never gets a generic "read any file" or "run arbitrary query" tool —
 
 - Every AI call requests strict JSON matching a task-specific schema (e.g., `{ "summary": string, "claims": [{ "text": string, "evidence_ids": string[] }], "confidence": "high"|"medium"|"low", "caveats": string[] }`).
 - **Schema validation:** malformed JSON → automatic retry (max 2) with a corrective system message quoting the validation error.
-- **Grounding validation:** every `evidence_ids` entry in every claim is checked against the manifest that was actually sent in context (§9.4.3). Any claim citing an id outside that set is either stripped from the response (if other claims are still valid) or the whole response is rejected and retried, depending on severity.
+- **Grounding validation:** every `evidence_ids` entry in every claim is checked against the manifest that was actually sent in context (§9.4.1, §9.4.2). Claims citing evidence IDs outside the allowed manifest are rejected as violating the evidence-grounding policy (either stripped from the response if other claims are still valid, or the whole response is rejected and retried, depending on severity). Manifest membership establishes citation provenance and allowlist compliance, not semantic correctness. The validator verifies that cited IDs belong to the allowed manifest, but does not automatically prove that cited evidence entails or substantively supports the natural-language claim.
 - **Fallback:** if validation fails after retries, Fluxora falls back to a deterministic, template-based explanation ("Direct impact: Payment Service. Downstream: Checkout (1 hop), Orders (2 hops)...") generated without the LLM at all, so the user is never left with nothing (Principle P10).
 
 ## 9.7 Hallucination mitigation — summary of layered defenses
 
 1. Structural: the model is never the source of graph/impact/simulation facts (P1).
-2. Contextual: only verified, scoped evidence is provided, with an explicit allowed-citation manifest (§9.4.3).
-3. Output-level: schema validation + grounding validation reject or strip unsupported claims (§9.6).
+2. Contextual (Step 60): only verified, scoped evidence is provided (`subjectType === "impact_finding"`, matching analysis run and ID, exact `subjectId === finding.node.id`), with an explicit allowed-citation manifest synchronized strictly with retained evidence (§9.4.1, §9.4.2).
+3. Output-level (Step 61): schema validation + grounding validation reject or strip claims violating the evidence manifest allowlist (§9.6). Note that manifest membership enforces citation provenance, not semantic correctness.
 4. Presentational: the UI visually distinguishes AI narration from graph-derived fact, and confidence/caveats surfaced by the model are always rendered, never hidden.
-5. Evaluation: a continuously-run AI eval suite tracks groundedness and hallucination rate over time as a first-class metric (`12-testing-strategy.md §AI evaluation`), not a one-time check.
+5. Evaluation (Step 65): a continuously-run AI eval suite tracks groundedness, semantic support, and hallucination rate over time as a first-class metric (`12-testing-strategy.md §AI evaluation`), not a one-time check.
 
 ## 9.8 Provenance
 

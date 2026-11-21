@@ -177,9 +177,13 @@ Phase 9 implements Fluxora's AI reasoning layer, establishing a controlled Model
 - **Step 59 — Model Gateway Foundation:**<br>
   [`learning/implementations/phase-09/step-59-model-gateway.md`](implementations/phase-09/step-59-model-gateway.md)<br>
   *Covers provider-independent ModelGateway contract, Anthropic Claude Messages SDK integration, task-aware routing policies, bounded retries with exponential backoff and Retry-After parsing, secondary model fallback, cancellation propagation, microdollar token cost accounting, OpenTelemetry AI instrumentation, secret redaction, and offline deterministic mock mode.*
+- **Step 60 — Impact Explanation Context Assembler:**<br>
+  [`learning/implementations/phase-09/step-60-impact-context-assembler.md`](implementations/phase-09/step-60-impact-context-assembler.md)<br>
+  *Covers pure deterministic context assembly, allowed evidence ID grounding manifest, multi-key prioritization (confidence, hop distance, category, stable nodeId), character budgeting and transparent truncation, tenant-scoped PostgreSQL loading with RLS, untrusted-data classification for prompt injection defense, and provider-independent ModelGatewayRequest generation.*
 
 #### Technical Learning Notes
 - **Note 58:** [`learning/notes/58. Model Gateway Foundation.md`](notes/58.%20Model%20Gateway%20Foundation.md)
+- **Note 60:** [`learning/notes/60. Impact Explanation Context Assembler.md`](notes/60.%20Impact%20Explanation%20Context%20Assembler.md)
 
 #### Architectural Decision Records
 - **ADR-013 — Single Controlled Model Gateway Boundary with Secondary Model Fallback:**<br>
@@ -188,6 +192,7 @@ Phase 9 implements Fluxora's AI reasoning layer, establishing a controlled Model
 
 #### Interview Preparation
 - **Step 59 Interview Sheet:** [`learning/interviews/59. Step 59 Model Gateway Interview CheatSheet.md`](interviews/59.%20Step%2059%20Model%20Gateway%20Interview%20CheatSheet.md)
+- **Step 60 Interview Sheet:** [`learning/interviews/60. Step 60 Context Assembler Interview CheatSheet.md`](interviews/60.%20Step%2060%20Context%20Assembler%20Interview%20CheatSheet.md)
 
 ---
 
