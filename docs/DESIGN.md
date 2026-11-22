@@ -13670,23 +13670,70 @@ The objective is to establish an isolated, pure, and observable data-assembly mo
 - `apps/workers/src/ai/context/assembler.test.ts`: 31 unit tests verifying pure assembler requirements (completed analysis, empty findings, all 5 categories, evidence association, cross-run/cross-analysis/wrong-type rejection, subject mismatch rejection, rejection when only metadata.nodeId matches, unassociated evidence exclusion, missing/duplicate/fabricated evidence IDs, tie-breakers, confidence/hop prioritization, category preservation, finding/evidence/string limits, character budget iteration, strict budget bound inclusive of reasons, transparent truncation, unresolved file limits, malformed inputs, input immutability, repeatability, multi-reason truncation tracking, orphaned evidence dropping, and budget error).
 - `apps/workers/src/ai/context/loader.test.ts`: 8 unit tests verifying tenant-scoped retrieval, missing/inaccessible records safe `not_found`, pending/running/failed status rejection with `not_completed`, UUID validation, and error propagation without database access.
 - `apps/workers/src/ai/context/request-builder.test.ts`: 19 unit tests verifying `ModelGatewayRequest` contract, `impact_explanation` task type, prompt versioning, manifest embedding, honest truncation notices, untrusted data system instructions, safeJsonStringify encoding, prompt-injection XML containment against adversarial strings, request message size bounding, zero raw code, zero metadata leakage, options pass-through, deterministic serialization, hard request-message limit override matrix (100k cap, smaller limits, limits > 100k, Infinity, NaN, negative, zero, fractional), and comprehensive hostile values testing across all fields.
-
-### 4. Roadmap Sequence & Alignment (Phase 9: AI Reasoning)
-1. **Global Step 59 (Phase 9 Step 1)**: Model Gateway (`§9.2`) — Claude integration, offline mock provider, retry/fallback logic, microdollar pricing (Completed).
-2. **Global Step 60 (Phase 9 Step 2)**: Context Assembler (`§9.4`) — deterministic context assembly, allowed evidence manifest, transparent truncation, prompt-injection containment (Completed).
-3. **Global Step 61 (Phase 9 Step 3)**: Output Validator (`§9.6`) — structured-output schemas, grounding validation against allowed manifest.
-4. **Global Step 62 (Phase 9 Step 4)**: Impact Explanation Integration — worker job orchestration connecting impact completion to AI explanation and `AIExplanationPanel` UI.
-5. **Global Step 63 (Phase 9 Step 5)**: Simulation Narration — context assembly, validation, and UI narration for failure simulations.
-6. **Global Step 64 (Phase 9 Step 6)**: Tool-Calling Chat (`§9.5`) — interactive architecture Q&A (`query_graph`, `get_evidence`, `run_simulation`).
-7. **Global Step 65 (Phase 9 Step 7)**: Evaluation Suite (`§12.5`) — groundedness and hallucination baseline evaluation.
-8. **Global Step 66 (Phase 9 Step 8)**: Deterministic Fallback — non-AI template explanation fallback when AI validation fails.
 - **AI Module Verification**:
   - `pnpm --filter @fluxora/workers test src/ai`: 9 test files passed (99 passed, 0 failed).
 - **Workspace Verification**:
-  - `pnpm --filter @fluxora/workers test`: 31 test files passed (384 passed, 4 skipped).
+  - `pnpm --filter @fluxora/workers test`: 31 test files passed (388 passed, 4 skipped).
   - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
   - `pnpm lint`: Clean (0 errors).
   - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
   - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
   - `pnpm test`: Full workspace test suite passed (1,237 passed, 9 skipped).
   - `git diff --check`: Clean (0 whitespace/syntax issues).
+
+### 4. Roadmap Sequence & Alignment (Phase 9: AI Reasoning)
+1. **Global Step 59 (Phase 9 Step 1)**: Model Gateway (`§9.2`) — Claude integration, offline mock provider, retry/fallback logic, microdollar pricing (Completed).
+2. **Global Step 60 (Phase 9 Step 2)**: Context Assembler (`§9.4`) — deterministic context assembly, allowed evidence manifest, transparent truncation, prompt-injection containment (Completed).
+3. **Global Step 61 (Phase 9 Step 3)**: Output Validator (`§9.6`) — structured-output schemas, grounding validation against allowed manifest, strict whole-response rejection, bounded corrective retry (Completed).
+4. **Global Step 62 (Phase 9 Step 4)**: Impact Explanation Integration — worker job orchestration connecting impact completion to AI explanation and `AIExplanationPanel` UI.
+5. **Global Step 63 (Phase 9 Step 5)**: Simulation Narration — context assembly, validation, and UI narration for failure simulations.
+6. **Global Step 64 (Phase 9 Step 6)**: Tool-Calling Chat (`§9.5`) — interactive architecture Q&A (`query_graph`, `get_evidence`, `run_simulation`).
+7. **Global Step 65 (Phase 9 Step 7)**: Evaluation Suite (`§12.5`) — groundedness and hallucination baseline evaluation.
+8. **Global Step 66 (Phase 9 Step 8)**: Deterministic Fallback — non-AI template explanation fallback when AI validation fails.
+
+---
+
+## Global Step 61: Structured Output Schemas & Evidence Grounding Validator
+
+### 1. Objective and Architectural Context
+Global Step 61 advances **Phase 9 (AI Reasoning)** by establishing **Strict Structured-Output Schemas and the Evidence Grounding Validator** for the `impact_explanation` task type, operating directly downstream of the Step 59 Model Gateway and Step 60 Context Assembler.
+
+The objective is to establish an isolated, strict admission-control boundary that preserves Fluxora's core product principle (P1/P10): the deterministic impact-analysis engine remains the sole authority for blast-radius truth. The LLM only receives verified facts to narrate them. The validator enforces strict JSON parsing (rejecting fences, prose, primitives), validates the canonical 4-field output schema (`summary`, `claims`, `confidence`, `caveats`), verifies evidence citation grounding against Step 60's trusted `allowedEvidenceIds` manifest, enforces atomic whole-response rejection on ungrounded claims (ADR-014), and executes at most one bounded corrective retry before failing closed.
+
+### 2. Architecture & Decision Highlights (ADR-014)
+- **Dedicated Structured-Output Module**: Implemented under `apps/workers/src/ai/structured-output/`:
+  - `types.ts`: Strongly typed contracts for `ImpactExplanationOutput`, `ImpactExplanationClaim`, `ImpactExplanationConfidence`, `ValidationIssue`, `ValidationResult<T>`, `ValidationWithRetryResult<T>`, and `ValidateWithRetryOptions`.
+  - `constants.ts`: Schema version `IMPACT_EXPLANATION_OUTPUT_SCHEMA_VERSION = "impact-explanation-output-v1"`, named limits (`IMPACT_EXPLANATION_LIMITS`, `MAX_VALIDATION_ISSUES = 20`, `MAX_CORRECTIVE_FEEDBACK_ISSUES = 10`), and stable error codes (`VALIDATION_ERROR_CODES`).
+  - `schema.ts`: Canonical JSON Schema (Draft-07) definition for provider-independent model prompting and schema reference.
+  - `parser.ts`: Pure strict JSON parser (`parseStrictJsonObject`). Rejects non-string input, empty/whitespace strings, markdown code fences, leading/trailing prose, and non-object roots.
+  - `validator.ts`: Schema and grounding validator (`validateImpactExplanationOutput`). Checks required fields, unrecognized properties, types, string lengths, array bounds, claim structures, and verifies every cited evidence ID against `allowedEvidenceIds`.
+  - `retry.ts`: Bounded retry helper (`validateImpactExplanationWithRetry`) and deterministic feedback builder (`buildValidationCorrectiveInstruction`).
+  - `index.ts`: Module export index, re-exported by `apps/workers/src/ai/index.ts`.
+- **Strict Whole-Response Rejection (ADR-014)**:
+  - Any claim citing an evidence ID outside the trusted `allowedEvidenceIds` manifest triggers immediate validation failure (`UNKNOWN_EVIDENCE_ID`).
+  - Claims with duplicate citations within the claim trigger `DUPLICATE_EVIDENCE_ID`.
+  - Claims with empty citations trigger `EMPTY_EVIDENCE_IDS`.
+  - Output is never silently repaired, coerced, stripped, or partially accepted.
+- **Bounded Corrective Retry Ceiling**:
+  - Maximum 2 total response attempts (1 initial response + 1 corrective retry).
+  - Validation failure results bound returned errors to 20 issues (`MAX_VALIDATION_ISSUES = 20`) in the returned failure payload; downstream orchestration may consume them for error handling or logging.
+  - Feedback quotes up to 10 validation error codes and paths (`MAX_CORRECTIVE_FEEDBACK_ISSUES = 10`) without echoing raw untrusted output.
+  - Provider exceptions bubble up cleanly without being misclassified as validation errors.
+  - Deterministic fallback remains deferred to Step 66.
+- **Three-Level Grounding Guarantee**:
+  - Step 60: Structural evidence association.
+  - Step 61: Evidence manifest membership (citation provenance and allowlist compliance).
+  - Acknowledged limitation: Manifest membership does not prove semantic evidence support (deferred to Step 65 eval suite or human review).
+
+### 3. Verification Suite
+- `apps/workers/src/ai/structured-output/parser.test.ts`: 9 unit tests verifying strict JSON parsing rules (compact, formatted, non-string, empty, whitespace, fences, leading prose, trailing prose, malformed syntax, array root, primitive roots).
+- `apps/workers/src/ai/structured-output/validator.test.ts`: 23 unit tests verifying schema constraints, required fields, unknown properties, enum levels, nulls, empty strings, string/array limits, issue bounding, manifest grounding, citation provenance, duplicate detection, and determinism.
+- `apps/workers/src/ai/structured-output/retry.test.ts`: 8 unit tests verifying single retry ceiling (max 2 total attempts), zero-retry on initial success, corrective feedback generation, error path reporting, provider exception bubbling, and manifest re-use.
+- **AI Module Verification**:
+  - `pnpm --filter @fluxora/workers test src/ai`: 12 test files passed (139 passed, 0 failed).
+- **Workspace Verification**:
+  - `pnpm --filter @fluxora/workers test`: 34 test files passed (440 passed, 4 skipped).
+  - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
+  - `pnpm lint`: Clean (0 errors).
+  - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
+  - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).

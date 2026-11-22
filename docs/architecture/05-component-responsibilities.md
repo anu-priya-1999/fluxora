@@ -102,11 +102,11 @@ For each component: **responsibility, inputs, outputs, dependencies, failure mod
 
 ## 5.13 Structured Output Validator
 
-- **Responsibility:** Validate the model's JSON response against a strict schema; verify every cited claim references a real evidence id that was actually included in context (grounding check).
-- **Inputs:** Raw model output, the evidence-id set that was sent as context.
-- **Outputs:** Validated `AIAnalysis` record, or a rejection triggering retry/fallback.
-- **Dependencies:** JSON schema definitions per task type.
-- **Failure modes:** Model cites an evidence id not in the provided context (fabrication) → reject the response, retry once with a corrective system message, then fall back to a template-based non-AI explanation if retries exhaust.
+- **Responsibility:** Implemented under `apps/workers/src/ai/structured-output/` (Global Step 61). Parses raw model responses strictly as JSON; validates parsed payloads against versioned task-specific schemas (starting with `impact-explanation-output-v1`); verifies that every cited claim references non-empty evidence IDs from the trusted allowed manifest assembled by Step 60; enforces whole-response rejection (ADR-014) on ungrounded or duplicate citations; executes bounded corrective retries (max 2 total response attempts).
+- **Inputs:** Raw model response text, trusted `allowedEvidenceIds` manifest from `ImpactExplanationContext`.
+- **Outputs:** Discriminated `ValidationResult<T>` containing either validated, typed payload or bounded, deterministic validation issues.
+- **Dependencies:** Task schema definitions, strict JSON parser, injected retry callback. Provider-independent; zero SDK or database dependencies.
+- **Failure modes:** Malformed JSON, markdown fences, schema violations, or citations outside the allowed manifest → reject entire response, trigger exactly one corrective retry with deterministic issue guidance, then return explicit validation failure so orchestration can invoke Step 66 deterministic template fallback.
 
 ## 5.14 Fluxora API (BFF layer)
 

@@ -199,7 +199,7 @@ Broken into phases; each phase's features are further broken into small, sequent
 **Steps:**
 1. [x] Implement the Model Gateway (`§9.2`) with Claude integration, retry/fallback logic, cost/latency logging (Global Step 59).
 2. [x] Implement the Context Assembler (`§9.4`) for the impact-explanation task type first (Global Step 60).
-3. Implement structured-output schemas + the Validator (`§9.6`), including the grounding check against the evidence-id manifest (Global Step 61).
+3. [x] Implement structured-output schemas + the Validator (`§9.6`), including the grounding check against the evidence-id manifest (Global Step 61).
 4. Wire impact-analysis completion → AI explanation generation → `AIExplanationPanel` in the UI (Global Step 62).
 5. Repeat 2–4 for simulation narration (Global Step 63).
 6. Implement the tool-calling free-form chat interface (`§9.5`) with the `query_graph`/`get_evidence`/`run_simulation` tool set (Global Step 64).
