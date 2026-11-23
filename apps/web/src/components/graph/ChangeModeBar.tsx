@@ -6,8 +6,11 @@ import {
 } from "./change-mode-data.ts";
 import { EvidenceCitationList } from "./EvidenceCitation.tsx";
 import { normalizeConfidence } from "./confidence-data.ts";
+import { AIExplanationPanel } from "../ai/AIExplanationPanel.tsx";
 
 export interface ChangeModeBarProps {
+  readonly apiUrl?: string | undefined;
+  readonly getToken?: (() => Promise<string | null>) | undefined;
   readonly state: NormalizedChangeModeState;
   readonly onToggle: (enabled: boolean) => void;
   readonly onLoadAnalysis: (impactAnalysisId: string) => void;
@@ -21,6 +24,7 @@ export interface ChangeModeBarProps {
   readonly analysisRunId?: string | null | undefined;
   readonly initialShowFindings?: boolean | undefined;
   readonly className?: string;
+  readonly onAIAnalysisDiscovered?: ((aiAnalysisId: string, aiAnalysisStatus?: string | null) => void) | undefined;
 }
 
 /**
@@ -37,6 +41,8 @@ export interface ChangeModeBarProps {
  * - Does not perform graph queries or database access directly.
  */
 export function ChangeModeBar({
+  apiUrl,
+  getToken,
   state,
   onToggle,
   onLoadAnalysis,
@@ -49,6 +55,7 @@ export function ChangeModeBar({
   analysisRunId,
   initialShowFindings = false,
   className,
+  onAIAnalysisDiscovered,
   ...restProps
 }: ChangeModeBarProps): React.JSX.Element {
   const effectiveRef = gitRef ?? (restProps as { ref?: string | null | undefined }).ref;
@@ -481,6 +488,19 @@ export function ChangeModeBar({
               "Close",
             ),
           ),
+          React.createElement(AIExplanationPanel, {
+            apiUrl,
+            getToken,
+            impactAnalysisId: state.impactAnalysisId,
+            aiAnalysisId: state.aiAnalysisId,
+            impactStatus: state.executionStatus,
+            evidencePool: state.evidence,
+            repositoryName,
+            commitSha: commitSha ?? state.headCommit,
+            gitRef: effectiveRef ?? state.headCommit,
+            analysisRunId,
+            onAIAnalysisDiscovered,
+          }),
           React.createElement(
             "div",
             { className: "flex flex-col gap-2 max-h-72 overflow-y-auto pr-1" },

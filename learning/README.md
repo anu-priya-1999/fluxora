@@ -190,11 +190,15 @@ Phase 9 implements Fluxora's AI reasoning layer, establishing a controlled Model
 - **Step 61 — Structured Output Schemas & Evidence Grounding Validator:**<br>
   [`learning/implementations/phase-09/step-61-structured-output-validator.md`](implementations/phase-09/step-61-structured-output-validator.md)<br>
   *Covers canonical 4-field output schema (version `impact-explanation-output-v1`), strict JSON parsing (rejection of markdown fences, prose, primitives), evidence-manifest grounding validation against Step 60 allowed manifest, ADR-014 atomic whole-response rejection, bounded corrective retries (max 2 total attempts), and explicit distinction between citation provenance and semantic support.*
+- **Step 62 — End-to-End Impact Explanation Integration:**<br>
+  [`learning/implementations/phase-09/step-62-impact-explanation-integration.md`](implementations/phase-09/step-62-impact-explanation-integration.md)<br>
+  *Covers end-to-end integration connecting completed deterministic impact analysis to Step 60 context assembly, Step 59 Model Gateway, Step 61 validation, durable tenant-isolated persistence in `ai_analyses` (Migration 0028), worker failure isolation boundary, authenticated `GET /api/v1/ai-analyses/:id` and extended impact analysis APIs, and `AIExplanationPanel` in explorer change mode.*
 
 #### Technical Learning Notes
 - **Note 59:** [`learning/notes/59. Model Gateway Foundation.md`](notes/59.%20Model%20Gateway%20Foundation.md)
 - **Note 60:** [`learning/notes/60. Impact Explanation Context Assembler.md`](notes/60.%20Impact%20Explanation%20Context%20Assembler.md)
 - **Note 61:** [`learning/notes/61. Structured Output Schemas and Evidence Grounding Validator.md`](notes/61.%20Structured%20Output%20Schemas%20and%20Evidence%20Grounding%20Validator.md)
+- **Note 62:** [`learning/notes/62. End-to-End Impact Explanation Integration.md`](notes/62.%20End-to-End%20Impact%20Explanation%20Integration.md)
 
 #### Architectural Decision Records
 - **ADR-013 — Single Controlled Model Gateway Boundary with Secondary Model Fallback:**<br>
@@ -203,11 +207,15 @@ Phase 9 implements Fluxora's AI reasoning layer, establishing a controlled Model
 - **ADR-014 — Strict Whole-Response Rejection for Ungrounded Structured Output Citations:**<br>
   [`learning/decisions/adr-014-strict-whole-response-rejection-for-ungrounded-citations.md`](decisions/adr-014-strict-whole-response-rejection-for-ungrounded-citations.md)<br>
   *Covers atomic pass/fail validation boundary, rejection of ungrounded or duplicate evidence citations, prohibition of silent claim stripping or partial acceptance, bounded corrective retry limit (max 2 attempts), and clear separation from Step 66 deterministic template fallback.*
+- **ADR-015 — Durable Tenant-Scoped AIAnalysis Persistence and Failure-Isolated Pipeline Orchestration:**<br>
+  [`learning/decisions/adr-015-durable-tenant-scoped-ai-analysis-persistence-and-failure-isolated-orchestration.md`](decisions/adr-015-durable-tenant-scoped-ai-analysis-persistence-and-failure-isolated-orchestration.md)<br>
+  *Covers dedicated `ai_analyses` table with unique constraint and RLS, worker failure isolation preventing LLM errors from failing deterministic jobs, safe withholding of ungrounded completions, and decoupled REST APIs.*
 
 #### Interview Preparation
 - **Step 59 Interview Sheet:** [`learning/interviews/59. Step 59 Model Gateway Interview CheatSheet.md`](interviews/59.%20Step%2059%20Model%20Gateway%20Interview%20CheatSheet.md)
 - **Step 60 Interview Sheet:** [`learning/interviews/60. Step 60 Context Assembler Interview CheatSheet.md`](interviews/60.%20Step%2060%20Context%20Assembler%20Interview%20CheatSheet.md)
 - **Step 61 Interview Sheet:** [`learning/interviews/61. Step 61 Structured Output Validator Interview CheatSheet.md`](interviews/61.%20Step%2061%20Structured%20Output%20Validator%20Interview%20CheatSheet.md)
+- **Step 62 Interview Sheet:** [`learning/interviews/62. Step 62 Impact Explanation Integration Interview CheatSheet.md`](interviews/62.%20Step%2062%20Impact%20Explanation%20Integration%20Interview%20CheatSheet.md)
 
 ---
 

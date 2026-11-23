@@ -23,6 +23,8 @@ export interface NormalizedChangeModeState {
   readonly enabled: boolean;
   readonly pullRequestId: string | null;
   readonly impactAnalysisId: string | null;
+  readonly aiAnalysisId?: string | null | undefined;
+  readonly aiAnalysisStatus?: string | null | undefined;
   readonly headCommit?: string | null | undefined;
   readonly status: ChangeModeStatus;
   readonly executionStatus?: ImpactAnalysisStatus | undefined;
@@ -55,6 +57,8 @@ export const DEFAULT_CHANGE_MODE_STATE: NormalizedChangeModeState = {
   enabled: false,
   pullRequestId: null,
   impactAnalysisId: null,
+  aiAnalysisId: null,
+  aiAnalysisStatus: null,
   headCommit: null,
   status: "idle",
   directNodeIds: new Set(),
@@ -289,11 +293,19 @@ export function normalizeImpactAnalysisResponse(
   const headCommitVal =
     (typeof rawResponse.head_commit_sha === "string" ? rawResponse.head_commit_sha : null) ??
     (typeof rawResponse.headCommit === "string" ? rawResponse.headCommit : null);
+  const aiAnalysisId =
+    (typeof rawResponse.ai_analysis_id === "string" ? rawResponse.ai_analysis_id : null) ??
+    (typeof rawResponse.aiAnalysisId === "string" ? rawResponse.aiAnalysisId : null);
+  const aiAnalysisStatus =
+    (typeof rawResponse.ai_analysis_status === "string" ? rawResponse.ai_analysis_status : null) ??
+    (typeof rawResponse.aiAnalysisStatus === "string" ? rawResponse.aiAnalysisStatus : null);
 
   return {
     enabled,
     pullRequestId: response.pull_request_id,
     impactAnalysisId: response.id,
+    aiAnalysisId,
+    aiAnalysisStatus,
     headCommit: headCommitVal,
     status,
     executionStatus: response.status,

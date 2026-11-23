@@ -104,3 +104,23 @@ The model never gets a generic "read any file" or "run arbitrary query" tool —
 ## 9.8 Provenance
 
 Every `AIAnalysis` record stores: `model_used, prompt_version, input_evidence_ids, validation_status`. This makes every piece of AI-generated text in the product fully reproducible and auditable — "why did it say that" always has a concrete answer: this model, this prompt version, these exact evidence records.
+
+## 9.9 End-to-End Impact Explanation Pipeline (Global Step 62)
+
+The production integration connects the completed deterministic impact analysis to the frontend through an isolated, observable pipeline:
+
+1. **Triggering Sequence**:
+   - The worker processor computes and persists deterministic `ImpactAnalysis` and finding evidence records.
+   - Downstream of successful persistence, `orchestrateImpactExplanation` is invoked within an isolated try/catch block.
+   - AI generation failure, network timeouts, or validation rejection NEVER fail the deterministic impact analysis job or trigger recursive queue retries.
+2. **Orchestration Execution (`orchestrateImpactExplanation`)**:
+   - **Idempotency Guard**: Checks for an existing completed `AIAnalysis` record with `(organization_id, subject_type, subject_id)`. If present, returns immediately without making LLM calls.
+   - **Context Assembly (Step 60)**: Loads tenant-scoped impact analysis and evidence, generating `ImpactExplanationContext` and the canonical `allowedEvidenceIds` manifest.
+   - **Model Gateway Dispatch (Step 59)**: Formats `ModelGatewayRequest` (`taskType: "impact_explanation"`, prompt version `impact-explain-v1`), dispatching to primary Claude tier (`claude-sonnet-5-5`).
+   - **Grounding Validation & Retry (Step 61)**: Validates response against `impact-explanation-output-v1`. If ungrounded or invalid, executes at most one corrective retry with deterministic issue guidance.
+   - **Metrics Aggregation**: Aggregates token counts (input + output), microdollar USD cost, and latency across both initial and retry attempts.
+   - **Durable Persistence (Step 62)**: Persists record in `ai_analyses` table (Migration 0028). On success, stores summary in `output_text` and the 4-field object in `output_structured`. On rejection or error, stores `null` in output columns, preserving only sanitized error diagnostics.
+3. **API & UI Delivery**:
+   - `GET /api/v1/impact-analyses/:id` provides `ai_analysis_id` and `ai_analysis_status`.
+   - `GET /api/v1/ai-analyses/:id` returns authenticated, tenant-isolated explanation data.
+   - `AIExplanationPanel` in explorer change mode renders summary, claims with interactive `EvidenceCitationList` chips, model confidence badge, caveats, and safe degradation states.

@@ -8,6 +8,7 @@ import type {
   TraversalDirection,
 } from "./graph.ts";
 import type { PullRequestFile } from "./pull-request.ts";
+import type { AIAnalysisStatus } from "./ai.ts";
 
 /** Default maximum traversal depth for PR blast-radius impact analysis (Step 43). */
 export const DEFAULT_IMPACT_MAX_DEPTH = 5;
@@ -243,6 +244,8 @@ export interface ImpactAnalysisResponse {
   readonly execution_metrics: ImpactAnalysisExecutionMetricsResponse;
   readonly created_at: string;
   readonly evidence?: readonly GraphQueryResponseEvidence[] | undefined;
+  readonly ai_analysis_id?: string | null | undefined;
+  readonly ai_analysis_status?: AIAnalysisStatus | null | undefined;
 }
 
 /**

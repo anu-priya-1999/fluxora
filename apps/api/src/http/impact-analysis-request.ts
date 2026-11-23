@@ -18,6 +18,9 @@ export const PULL_REQUEST_ANALYZE_IMPACT_PATTERN =
 export const IMPACT_ANALYSIS_GET_PATTERN =
   /^\/api\/v1\/impact-analyses\/([^/]+)\/?$/;
 
+export const AI_ANALYSIS_GET_PATTERN =
+  /^\/api\/v1\/ai-analyses\/([^/]+)\/?$/;
+
 export class ImpactRequestValidationError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -67,6 +70,20 @@ export function matchImpactAnalysisGetPath(
 
 export function isImpactAnalysisGetPath(path: string): boolean {
   return matchImpactAnalysisGetPath(path) !== null;
+}
+
+export function matchAIAnalysisGetPath(
+  path: string,
+): { aiAnalysisId: string } | null {
+  const match = AI_ANALYSIS_GET_PATTERN.exec(path);
+  if (!match || !match[1]) {
+    return null;
+  }
+  return { aiAnalysisId: match[1] };
+}
+
+export function isAIAnalysisGetPath(path: string): boolean {
+  return matchAIAnalysisGetPath(path) !== null;
 }
 
 export function mapDirectionToInternal(direction: GraphQueryDirection): TraversalDirection {

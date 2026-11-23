@@ -77,4 +77,5 @@ export * from "./repositories/impact-analysis.ts";
 export * from "./repositories/simulation.ts";
 export * from "./repositories/simulation-rules.ts";
 export * from "./repositories/simulation-engine.ts";
+export * from "./repositories/ai-analysis.ts";
 

@@ -141,8 +141,19 @@ Append-only. Never updated in place — a re-analysis produces new Evidence rows
 ### SimulationResult
 `id, simulation_id, node_id, resulting_state (healthy/degraded/at_risk/failed), propagation_path (JSONB), rule_applied, assumptions (JSONB), confidence`
 
-### AIAnalysis
-`id, subject_type (impact_analysis/simulation/chat_query), subject_id, model_used, prompt_version, input_evidence_ids (array), output_text, output_structured (JSONB), validation_status (passed/rejected/fallback), token_count, cost_usd, latency_ms, created_at`
+### AIAnalysis (Migration 0028)
+`id (UUID PK), organization_id (UUID FK -> organizations), subject_type (impact_analysis/simulation/chat_query), subject_id (VARCHAR(255)), status (pending/completed/rejected/failed), model_used (nullable VARCHAR(255)), prompt_version (VARCHAR(100)), input_evidence_ids (TEXT[]), output_text (nullable TEXT), output_structured (nullable JSONB), validation_status (nullable passed/rejected), token_count (INT default 0), cost_usd (NUMERIC(10,6) default 0.000000), latency_ms (INT default 0), metadata (JSONB default '{}'), error_message (nullable TEXT), created_at (TIMESTAMPTZ default NOW()), updated_at (TIMESTAMPTZ default NOW())`
+- **Constraints & Indexes**:
+  - `UNIQUE (organization_id, subject_type, subject_id)` (guarantees idempotent one-record-per-subject per tenant)
+  - `FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE CASCADE`
+  - `idx_ai_analyses_org_subject ON (organization_id, subject_type, subject_id)`
+  - `idx_ai_analyses_org_created ON (organization_id, created_at DESC)`
+- **RLS & Isolation**:
+  - `ENABLE ROW LEVEL SECURITY` & `FORCE ROW LEVEL SECURITY`
+  - Strict tenant policy checking `organization_id = NULLIF(current_setting('app.current_org_id', true), '')::UUID`
+- **Output Invariants**:
+  - `output_text` and `output_structured` are strictly populated only on `status = 'completed'` and `validation_status = 'passed'`.
+  - On `status = 'rejected'` or `status = 'failed'`, `output_text` and `output_structured` remain `null`, storing only sanitized error diagnostics in `error_message` or `metadata`.
 
 ### TelemetrySource (future)
 `id, repository_id, provider (datadog/otel/newrelic), connection_config (encrypted), status`

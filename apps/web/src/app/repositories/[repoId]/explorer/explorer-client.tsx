@@ -215,6 +215,22 @@ export function ArchitectureExplorerClient({
     setImpactAnalysisFetchTrigger((prev) => prev + 1);
   }, []);
 
+  const handleAIAnalysisDiscovered = useCallback(
+    (discoveredId: string, discoveredStatus?: string | null) => {
+      setChangeModeState((prev) => {
+        if (!prev.enabled || !prev.impactAnalysisId) {
+          return prev;
+        }
+        return {
+          ...prev,
+          aiAnalysisId: discoveredId,
+          aiAnalysisStatus: discoveredStatus ?? prev.aiAnalysisStatus,
+        };
+      });
+    },
+    [],
+  );
+
   // Step 57: Simulation-Mode handlers
   const handleToggleSimulationMode = useCallback((enabled: boolean) => {
     setSimulationModeState((prev) => {
@@ -731,8 +747,10 @@ export function ArchitectureExplorerClient({
           onDismiss: () => setRefreshError(null),
         })
       : null,
-    // Step 46 & Step 49: Change Mode Bar
+    // Step 46 & Step 49 & Step 62: Change Mode Bar
     React.createElement(ChangeModeBar, {
+      apiUrl,
+      getToken,
       state: changeModeState,
       onToggle: handleToggleChangeMode,
       onLoadAnalysis: handleLoadAnalysis,
@@ -743,6 +761,7 @@ export function ArchitectureExplorerClient({
       commitSha: context.commitSha ?? changeModeState.headCommit,
       gitRef: context.ref ?? changeModeState.headCommit,
       analysisRunId: state.analysisRunId,
+      onAIAnalysisDiscovered: handleAIAnalysisDiscovered,
     }),
     // Step 57: Simulation Mode Bar
     React.createElement(SimulationModeBar, {

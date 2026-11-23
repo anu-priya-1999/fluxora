@@ -50,8 +50,14 @@ import {
   type ImpactAnalysisHandlerDependencies,
 } from "./impact-analysis.ts";
 import {
+  handleGetAIAnalysis,
+  type AIAnalysisHandlerDependencies,
+} from "./ai-analysis.ts";
+import {
+  isAIAnalysisGetPath,
   isImpactAnalysisGetPath,
   isPullRequestAnalyzeImpactPath,
+  matchAIAnalysisGetPath,
   matchImpactAnalysisGetPath,
   matchPullRequestAnalyzeImpactPath,
 } from "./impact-analysis-request.ts";
@@ -82,6 +88,7 @@ export interface CreateApiServerOptions {
   githubWebhookDeps?: GithubWebhookHandlerDependencies;
   impactAnalysisDeps?: ImpactAnalysisHandlerDependencies;
   simulationDeps?: SimulationHandlerDependencies;
+  aiAnalysisDeps?: AIAnalysisHandlerDependencies;
 }
 
 export function createApiServer(
@@ -107,6 +114,10 @@ export function createApiServer(
     optionsOrWs && "simulationDeps" in optionsOrWs
       ? optionsOrWs.simulationDeps
       : undefined;
+  const aiAnalysisDeps =
+    optionsOrWs && "aiAnalysisDeps" in optionsOrWs
+      ? optionsOrWs.aiAnalysisDeps
+      : undefined;
 
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
@@ -121,6 +132,7 @@ export function createApiServer(
       githubWebhookDeps,
       impactAnalysisDeps,
       simulationDeps,
+      aiAnalysisDeps,
     ).catch(
       (error: unknown) => {
         if (res.headersSent) {
@@ -153,6 +165,7 @@ async function handleRequest(
   githubWebhookDeps?: GithubWebhookHandlerDependencies,
   impactAnalysisDeps?: ImpactAnalysisHandlerDependencies,
   simulationDeps?: SimulationHandlerDependencies,
+  aiAnalysisDeps?: AIAnalysisHandlerDependencies,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -286,6 +299,35 @@ async function handleRequest(
           match.impactAnalysisId,
           sendJson,
           impactAnalysisDeps,
+        );
+        return;
+      }
+    }
+  }
+
+  if (isAIAnalysisGetPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "GET") {
+      const match = matchAIAnalysisGetPath(path);
+      if (match !== null) {
+        await handleGetAIAnalysis(
+          req,
+          res,
+          match.aiAnalysisId,
+          sendJson,
+          aiAnalysisDeps,
         );
         return;
       }

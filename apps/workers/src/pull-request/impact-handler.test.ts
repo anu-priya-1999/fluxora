@@ -3,6 +3,7 @@ import { describe, it } from "vitest";
 
 import {
   PULL_REQUEST_IMPACT_ANALYSIS_JOB_TYPE,
+  type AIAnalysis,
   type Job,
   type PersistPullRequestImpactAnalysisOptions,
 } from "@fluxora/shared-types";
@@ -161,6 +162,161 @@ describe("PullRequest impact analysis worker handler", () => {
       ingestHandler: async () => {},
     });
     assert.ok(typeof handlers[PULL_REQUEST_IMPACT_ANALYSIS_JOB_TYPE] === "function");
+  });
+
+  it("invokes explainImpact when analysis completes successfully", async () => {
+    let explainCalledWith: { organizationId: string; impactAnalysisId: string } | null = null;
+
+    const mockDeps: PullRequestImpactDependencies = {
+      async persistAnalysis(options) {
+        return {
+          impactAnalysis: {
+            id: options.id ?? ANALYSIS_ID,
+            pullRequestId: options.pullRequestId,
+            analysisRunId: options.analysisRunId ?? RUN_ID,
+            status: "completed",
+            directImpact: [],
+            downstreamImpact: [],
+            affectedApis: [],
+            affectedEvents: [],
+            affectedServices: [],
+            workflowImpactSummary: [],
+            unresolvedFiles: [],
+            truncated: false,
+            truncationReason: null,
+            maxDepthReached: 0,
+            executionMetrics: {
+              totalSeedNodes: 0,
+              totalAffectedNodes: 0,
+              totalEdgesTraversed: 0,
+              durationMs: 10,
+            },
+            metadata: {},
+            createdAt: new Date(),
+          },
+          evidenceRecords: [],
+        };
+      },
+      async explainImpact(options) {
+        explainCalledWith = options;
+        return {
+          status: "completed",
+          aiAnalysis: { id: "ai-123" } as unknown as AIAnalysis,
+        };
+      },
+    };
+
+    const job = createMockJob({
+      pullRequestId: PR_ID,
+      analysisRunId: RUN_ID,
+      impactAnalysisId: ANALYSIS_ID,
+    });
+
+    const result = await processPullRequestImpactJob(job, mockDeps);
+    assert.ok(result);
+    const called = explainCalledWith as { organizationId: string; impactAnalysisId: string } | null;
+    assert.ok(called);
+    assert.equal(called.organizationId, ORG_ID);
+    assert.equal(called.impactAnalysisId, ANALYSIS_ID);
+  });
+
+  it("isolates AI failure: exception in explainImpact does not fail the deterministic impact result", async () => {
+    const mockDeps: PullRequestImpactDependencies = {
+      async persistAnalysis(options) {
+        return {
+          impactAnalysis: {
+            id: options.id ?? ANALYSIS_ID,
+            pullRequestId: options.pullRequestId,
+            analysisRunId: options.analysisRunId ?? RUN_ID,
+            status: "completed",
+            directImpact: [],
+            downstreamImpact: [],
+            affectedApis: [],
+            affectedEvents: [],
+            affectedServices: [],
+            workflowImpactSummary: [],
+            unresolvedFiles: [],
+            truncated: false,
+            truncationReason: null,
+            maxDepthReached: 0,
+            executionMetrics: {
+              totalSeedNodes: 0,
+              totalAffectedNodes: 0,
+              totalEdgesTraversed: 0,
+              durationMs: 10,
+            },
+            metadata: {},
+            createdAt: new Date(),
+          },
+          evidenceRecords: [],
+        };
+      },
+      async explainImpact() {
+        throw new Error("AI provider gateway network failure (503)");
+      },
+    };
+
+    const job = createMockJob({
+      pullRequestId: PR_ID,
+      analysisRunId: RUN_ID,
+      impactAnalysisId: ANALYSIS_ID,
+    });
+
+    // Must NOT throw or reject; must return deterministic result
+    const result = await processPullRequestImpactJob(job, mockDeps);
+    assert.ok(result);
+    assert.equal(result.impactAnalysis.id, ANALYSIS_ID);
+    assert.equal(result.impactAnalysis.status, "completed");
+  });
+
+  it("does not invoke explainImpact when deterministic impact analysis status is not completed", async () => {
+    let explainCalled = false;
+    const mockDeps: PullRequestImpactDependencies = {
+      async persistAnalysis(options) {
+        return {
+          impactAnalysis: {
+            id: options.id ?? ANALYSIS_ID,
+            pullRequestId: options.pullRequestId,
+            analysisRunId: options.analysisRunId ?? RUN_ID,
+            status: "failed",
+            directImpact: [],
+            downstreamImpact: [],
+            affectedApis: [],
+            affectedEvents: [],
+            affectedServices: [],
+            workflowImpactSummary: [],
+            unresolvedFiles: [],
+            truncated: false,
+            truncationReason: null,
+            maxDepthReached: 0,
+            executionMetrics: {
+              totalSeedNodes: 0,
+              totalAffectedNodes: 0,
+              totalEdgesTraversed: 0,
+              durationMs: 5,
+            },
+            metadata: {},
+            createdAt: new Date(),
+          },
+          evidenceRecords: [],
+        };
+      },
+      async explainImpact() {
+        explainCalled = true;
+        throw new Error("Should not be called");
+      },
+    };
+
+    const job = createMockJob({
+      pullRequestId: PR_ID,
+      analysisRunId: RUN_ID,
+      impactAnalysisId: ANALYSIS_ID,
+    });
+
+    const result = await processPullRequestImpactJob(job, mockDeps);
+    assert.ok(result);
+    assert.equal(result.impactAnalysis.status, "failed");
+    assert.equal(explainCalled, false, "explainImpact must not be invoked on non-completed deterministic results");
   });
 });
 

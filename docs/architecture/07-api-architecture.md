@@ -125,8 +125,65 @@ GET  /api/v1/impact-analyses/:id
 
 ```
 GET  /api/v1/ai-analyses/:id
-POST /api/v1/ai-analyses/:id/regenerate
+POST /api/v1/ai-analyses/:id/regenerate (future)
 POST /api/v1/chat/query   // free-form architecture Q&A, scoped to a repo + analysis run
+```
+
+**Example: `GET /api/v1/ai-analyses/:id`**
+```json
+// Response 200 OK (Completed)
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "subject_type": "impact_analysis",
+  "subject_id": "22222222-2222-4222-8222-222222222222",
+  "status": "completed",
+  "model_used": "claude-sonnet-5-5",
+  "prompt_version": "impact-explain-v1",
+  "input_evidence_ids": ["ev-1001", "ev-1002"],
+  "output_text": "PaymentService modifications affect downstream checkout and billing queues.",
+  "output_structured": {
+    "summary": "PaymentService modifications affect downstream checkout and billing queues.",
+    "claims": [
+      {
+        "text": "PaymentService directly modified handler logic.",
+        "evidence_ids": ["ev-1001"]
+      },
+      {
+        "text": "CheckoutService imports modified payment client.",
+        "evidence_ids": ["ev-1002"]
+      }
+    ],
+    "confidence": "high",
+    "caveats": ["Analysis bounded to 3-hop traversal depth."]
+  },
+  "validation_status": "passed",
+  "token_count": 280,
+  "cost_usd": 0.002450,
+  "latency_ms": 750,
+  "schema_version": "impact-explanation-output-v1",
+  "created_at": "2026-11-22T20:00:00.000Z",
+  "updated_at": "2026-11-22T20:00:01.000Z"
+}
+
+// Response 200 OK (Validation Rejected - Raw invalid model output withheld)
+{
+  "id": "11111111-1111-4111-8111-111111111111",
+  "subject_type": "impact_analysis",
+  "subject_id": "22222222-2222-4222-8222-222222222222",
+  "status": "rejected",
+  "model_used": "claude-sonnet-5-5",
+  "prompt_version": "impact-explain-v1",
+  "input_evidence_ids": ["ev-1001"],
+  "output_text": null,
+  "output_structured": null,
+  "validation_status": "rejected",
+  "token_count": 250,
+  "cost_usd": 0.002100,
+  "latency_ms": 600,
+  "schema_version": "impact-explanation-output-v1",
+  "created_at": "2026-11-22T20:00:00.000Z",
+  "updated_at": "2026-11-22T20:00:01.000Z"
+}
 ```
 
 **Example: `POST /api/v1/chat/query`**

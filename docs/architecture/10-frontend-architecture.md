@@ -75,3 +75,16 @@ The `EvidenceCitation` / `EvidenceTrail` components are deliberately called out 
 - **Debounced/throttled graph interaction:** filter changes and pan/zoom-triggered data requests are debounced to avoid request storms during interactive exploration.
 - **Optimistic UI:** actions like "run simulation" immediately show a pending state and job progress via WS, rather than waiting for the full result round-trip.
 - **Web Workers (future):** client-side graph layout computation for very large clusters offloaded to a worker thread to keep the main thread responsive.
+
+## 10.8 AI Explanation Panel Integration (Global Step 62)
+
+The `AIExplanationPanel` (`apps/web/src/components/ai/AIExplanationPanel.tsx`) is integrated into the Architecture Explorer's Change Mode drawer:
+- **Visual Distinction**: Carries an explicit "AI Narration" uppercase badge and indigo gradient framing, separating probabilistic natural-language narration from deterministic graph findings.
+- **Model Confidence vs Graph Confidence**: Displays the LLM's self-assessed narration confidence (`high` / `medium` / `low`) with distinct visual color badges and explanatory tooltip, preventing confusion with deterministic node/edge confidence scores.
+- **Evidence Citation Chips**: Integrates `EvidenceCitationList` to render interactive provenance chips for every claim in the `claims` array, linking directly to underlying source files and lines.
+- **Explicit Lifecycle States**: Gracefully renders distinct UI states:
+  1. *Waiting for impact*: Animated indicator while deterministic traversal is still running.
+  2. *Pending generation*: Active spinner and polling timer when AI explanation is computing.
+  3. *Validation rejected*: Clear banner informing the user that model narration was withheld due to ungrounded claims, assuring them deterministic graph findings are intact.
+  4. *Provider failure*: Neutral fallback card when provider error or rate-limit occurred.
+  5. *Unavailable*: Displayed when no explanation record exists.

@@ -13737,3 +13737,65 @@ The objective is to establish an isolated, strict admission-control boundary tha
   - `pnpm lint`: Clean (0 errors).
   - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
   - `pnpm build`: Clean (Next.js 16 Turbopack build succeeded).
+
+
+---
+
+## Global Step 62: End-to-End Impact Explanation Integration
+
+### 1. Objective and Architectural Context
+Global Step 62 completes the first production end-to-end integration of Fluxora's AI impact-explanation pipeline (**Phase 9 Step 4**):
+
+$$\text{Completed deterministic impact analysis} \longrightarrow \text{Tenant-scoped context assembly (Step 60)} \longrightarrow \text{Model Gateway (Step 59)} \longrightarrow \text{Structured output \& grounding validator (Step 61)} \longrightarrow \text{Durable AIAnalysis persistence (Migration 0028)} \longrightarrow \text{Authenticated API} \longrightarrow \text{AIExplanationPanel UI}$$
+
+The primary goal is connecting existing architectural building blocks while maintaining the core invariant (P1/P10): the deterministic impact analysis engine remains the sole authority for blast-radius truth. The AI layer narrates verified facts without ever altering, delaying, or invalidating deterministic findings.
+
+### 2. Architecture & Decision Highlights (ADR-015)
+- **Dedicated `ai_analyses` Table (Migration 0028)**:
+  - Strongly typed schema: `id`, `organization_id`, `subject_type`, `subject_id`, `status` (`pending` | `completed` | `rejected` | `failed`), `model_used`, `prompt_version`, `input_evidence_ids`, `output_text`, `output_structured`, `validation_status` (`passed` | `rejected`), `token_count`, `cost_usd`, `latency_ms`, `metadata`, `error_message`, `created_at`, `updated_at`.
+  - Multi-tenant security: `ENABLE ROW LEVEL SECURITY` & `FORCE ROW LEVEL SECURITY` with `organization_id = NULLIF(current_setting('app.current_org_id', true), '')::UUID`.
+  - Idempotency & Concurrency: `UNIQUE (organization_id, subject_type, subject_id)` constraint ensures repeated processing updates in-place without duplicating records.
+  - Concurrency Safety & Stale Terminal-State Protection: `ON CONFLICT DO UPDATE SET` clause protects an existing `completed` record against incoming `pending`, `failed`, or `rejected` writes across every persisted column (`status`, `validation_status`, `output_text`, `output_structured`, `model_used`, `prompt_version`, `input_evidence_ids`, `token_count`, `cost_usd`, `latency_ms`, `metadata`, `error_message`, and `updated_at`). For incoming legitimate `completed` writes, `EXCLUDED.input_evidence_ids` is explicitly persisted (even when empty), ensuring exact Step 60 evidence manifest persistence while preserving non-completed array retention rules. Competing completed writes safely update in-place per design policy.
+  - Concurrency Scope & Boundaries: Without distributed locking infrastructure (which is intentionally omitted), simultaneous initial worker executions may invoke the Model Gateway concurrently before either completes; Fluxora does NOT claim distributed exactly-once model execution. However, database uniqueness and conditional upserts guarantee: (1) simultaneous pending writes resolve to a single record without unique constraint collisions, (2) competing completed writes update in-place without corruption, (3) late pending, failed, or rejected writes cannot overwrite an existing completed record or pollute its metadata, and (4) once completed, subsequent worker runs short-circuit at `getAIAnalysisBySubject` and make zero gateway calls.
+  - Safe Output Invariants: `output_text` and `output_structured` populated strictly on `completed` status with `validation_status = 'passed'`. On validation rejection or provider failure, output fields remain `null`.
+- **AI Explanation Orchestrator Service (`apps/workers/src/ai/orchestrator.ts`)**:
+  - `orchestrateImpactExplanation`: Pure injectable orchestration function.
+  - Checks idempotency cache first (`getAIAnalysisBySubject`), returning immediately on existing `completed` records.
+  - Coordinates Step 60 `loadImpactExplanationContext`, Step 59 `createModelGateway`, Step 61 `validateImpactExplanationWithRetry`.
+  - Invariant Retry Boundary: Step 61 structured output validation enforces strictly at most 2 response attempts (1 initial response + at most 1 corrective retry). The `maxRetries` option in `OrchestrateImpactExplanationOptions` strictly bounds job-level redelivery tolerance across worker executions for previously failed records; it does not and cannot alter the Step 61 validation retry ceiling.
+  - Aggregates token usage (input + output), microdollar token costs, and latency across both initial and corrective retry attempts, counting each gateway response exactly once.
+  - Failure Isolation Boundary in worker: Worker handler (`impact-handler.ts`) wraps `deps.explainImpact` in an isolated `try/catch`. Provider 429/500 errors, timeouts, or validation rejections record typed status without throwing, guaranteeing deterministic PR impact analysis jobs succeed and persist without interruption.
+- **Pending AIAnalysis Record Discovery Race Resolution & Bounded Recovery**:
+  - When an impact analysis completes, `GET /api/v1/impact-analyses/:id` may initially return `ai_analysis_id: null` before the worker creates the pending record.
+  - **Bounded Automatic Discovery**: `AIExplanationPanel` executes a bounded, non-blocking discovery poll (up to 5 attempts at 2000ms intervals = 10s budget) targeting `GET /api/v1/impact-analyses/:id`. Polling halts immediately upon finding the record or upon budget exhaustion.
+  - **User-Triggered Bounded Recovery**: If the automatic budget expires and a delayed worker creates the record later, the UI renders an accessible "Check again" action in the unavailable state. Clicking it initiates a fresh bounded discovery budget (5 attempts at 2000ms), guarded against overlapping loops, transitioning to pending on discovery or returning to unavailable if still uncreated. All discovery timers are cleanly cancelled on unmount.
+  - The panel renders `ai-state-unavailable` initially, and seamlessly transitions to `ai-state-pending` as soon as the record is discovered.
+  - Calling `onAIAnalysisDiscovered` keeps parent explorer state synchronized while preserving all deterministic graph findings and LOD slices without reloading or flickering.
+- **Terminal Polling & Stale Response Discarding**:
+  - Polling occurs strictly while status is `pending` and halts immediately upon `completed`, `rejected`, or `failed` terminal states.
+  - Timer references are cancelled on component unmount and state transitions.
+  - `activeRequestIdRef` ensures responses from superseded or slow requests cannot overwrite the active view.
+  - Any persisted `failed` response suppresses unvalidated output, rendering only the clean failure card.
+- **API Endpoints (`apps/api/`)**:
+  - `GET /api/v1/ai-analyses/:id`: Authenticated Clerk JWT endpoint with tenant RLS isolation and UUID validation. Returns safe DTO without leaking server internals or raw rejected text.
+  - Extended `GET /api/v1/impact-analyses/:id`: Automatically fetches associated AI analysis and returns `ai_analysis_id` and `ai_analysis_status` in response DTO.
+- **Frontend `AIExplanationPanel` (`apps/web/src/components/ai/`)**:
+  - Embedded inside Architecture Explorer change-mode drawer (`ChangeModeBar.tsx`).
+  - Carries visual AI Narration badge and model confidence badge (`high` | `medium` | `low`) with distinct styling from deterministic finding confidence.
+  - Renders summary and claims array with interactive clickable `EvidenceCitationList` chips linking directly to source files/lines.
+  - Renders distinct lifecycle and degradation states: waiting for impact, pending generation spinner with polling timer, validation rejected banner (reassuring user deterministic findings are valid), provider failure card, and unavailable placeholder.
+
+### 3. Verification Suite
+- `packages/db/src/repositories/ai-analysis.test.ts`: 25 tests verifying input validation, UUID constraints, completed persistence, pending/failed/rejected state updates, RLS tenant isolation, subject queries, late overwrite prevention (late pending, failed, and rejected writes blocked from overwriting completed), empty and non-empty evidence manifest persistence policy, simultaneous initial pending creation, and competing concurrent writes.
+- `apps/workers/src/ai/orchestrator.test.ts`: 11 tests verifying initial success, bounded corrective retry with token/cost aggregation, validation rejection without raw model text, provider exception isolation, idempotency hit without calling gateway, rejected record reuse, database failure isolation, pending record reuse, concurrent worker execution (late rejection returns already_completed preserving completed row), and Step 61 retry ceiling invariance.
+- `apps/workers/src/pull-request/impact-handler.test.ts`: 7 tests verifying impact handler workflow and failure isolation (provider exception does not fail impact job).
+- `apps/api/src/http/ai-analysis.test.ts`: 7 tests verifying 400 invalid UUID, 401 unauthenticated, 404 missing, 200 completed, 200 pending, 200 rejected, and tenant isolation.
+- `apps/api/src/http/impact-analysis.test.ts`: 10 tests including new Step 62 test verifying `ai_analysis_id` and `ai_analysis_status` integration.
+- `apps/web/src/components/ai/AIExplanationPanel.test.tsx`: 22 tests verifying successful grounded rendering with citations and confidence, waiting for deterministic impact state, pending generation spinner, validation rejected state, provider failure state, unavailable state, empty claims, fetch client validation, discovery race transitions, discovery budget caps (5 attempts), user-triggered bounded recovery ("Check again" button), recovery discovery transitions to pending, overlapping loop protection, unmount timer cleanup, pending-to-completed terminal polling stops, pending-to-rejected polling stops, pending-to-failed polling stops, unvalidated output suppression, and stale response discarding.
+- **Workspace Verification**:
+  - `pnpm lint`: Clean across all packages (0 errors).
+  - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
+  - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
+  - `pnpm test`: Full workspace test suite passed.
+  - `pnpm build`: Clean production build (Next.js 16 Turbopack succeeded).
+  - `git diff --check`: Clean (0 whitespace/syntax issues).

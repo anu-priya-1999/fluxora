@@ -14,3 +14,4 @@ export * from "./gateway.ts";
 export * from "./factory.ts";
 export * from "./context/index.ts";
 export * from "./structured-output/index.ts";
+export * from "./orchestrator.ts";

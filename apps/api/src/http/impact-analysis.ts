@@ -7,6 +7,7 @@ import {
   enqueueJob,
   EvidenceWriter,
   getImpactAnalysisById,
+  getAIAnalysisBySubject,
   getPool,
   getUserById,
   listImpactFindingEvidence,
@@ -23,6 +24,7 @@ import {
   type Job,
   type PullRequestAnalyzeImpactQueuedResponse,
   type User,
+  type AIAnalysis,
 } from "@fluxora/shared-types";
 
 import {
@@ -50,6 +52,7 @@ export interface ImpactAnalysisHandlerDependencies {
   enqueueJob?: (input: EnqueueJobInput) => Promise<Job>;
   getImpactAnalysisById?: typeof getImpactAnalysisById;
   listImpactFindingEvidence?: typeof listImpactFindingEvidence;
+  getAIAnalysisBySubject?: typeof getAIAnalysisBySubject;
   pool?: pg.Pool;
 }
 
@@ -434,7 +437,25 @@ export async function handleGetImpactAnalysis(
       evidenceRecords = [];
     }
 
-    sendJson(res, 200, formatImpactAnalysisResponse(analysis, evidenceRecords));
+    const getAIAnalysis =
+      deps?.getAIAnalysisBySubject ?? getAIAnalysisBySubject;
+    let aiAnalysisRecord: AIAnalysis | null = null;
+    try {
+      aiAnalysisRecord = await getAIAnalysis(
+        pool,
+        user.organizationId,
+        "impact_analysis",
+        impactAnalysisId,
+      );
+    } catch {
+      aiAnalysisRecord = null;
+    }
+
+    sendJson(
+      res,
+      200,
+      formatImpactAnalysisResponse(analysis, evidenceRecords, aiAnalysisRecord),
+    );
   } catch (error) {
     logUnexpectedImpactError(error);
     sendJson(res, 500, {

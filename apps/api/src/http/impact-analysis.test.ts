@@ -876,5 +876,88 @@ describe("Global Step 45: PR Impact Analysis API", () => {
       assert.equal(analysis.evidence[0]?.line_end, 25);
       assert.equal(analysis.evidence[0]?.relationship_description, "Direct service definition");
     });
+
+    it("X. Step 62: GET includes associated ai_analysis_id and ai_analysis_status when present", async () => {
+      const customDeps: ImpactAnalysisHandlerDependencies = {
+        ...env.deps,
+        async getAIAnalysisBySubject() {
+          return {
+            id: "ai-9999-9999-9999-999999999999",
+            organizationId: ORG_A,
+            subjectType: "impact_analysis",
+            subjectId: ANALYSIS_A,
+            status: "completed",
+            modelUsed: "claude-sonnet-5-5",
+            promptVersion: "impact-explain-v1",
+            inputEvidenceIds: ["ev-node-d1"],
+            outputText: "Summary",
+            outputStructured: null,
+            validationStatus: "passed",
+            tokenCount: 100,
+            costUsd: 0.001,
+            latencyMs: 200,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          };
+        },
+      };
+
+      const customServer = createApiServer({
+        wsOptions: { autoStartListener: false },
+        impactAnalysisDeps: customDeps,
+      });
+
+      await new Promise<void>((resolve) => {
+        customServer.listen(0, "127.0.0.1", () => resolve());
+      });
+
+      try {
+        const res = await request(customServer, {
+          method: "GET",
+          path: `/api/v1/impact-analyses/${ANALYSIS_A}`,
+          headers: { authorization: "Bearer token-org-a" },
+        });
+
+        assert.equal(res.statusCode, 200);
+        const analysis = expectAnalysisSuccess(res.body);
+        assert.equal(analysis.ai_analysis_id, "ai-9999-9999-9999-999999999999");
+        assert.equal(analysis.ai_analysis_status, "completed");
+      } finally {
+        await new Promise<void>((resolve) => customServer.close(() => resolve()));
+      }
+    });
+
+    it("XI. Step 62: GET preserves deterministic impact response when AI analysis lookup throws or fails", async () => {
+      const customDeps: ImpactAnalysisHandlerDependencies = {
+        ...env.deps,
+        async getAIAnalysisBySubject() {
+          throw new Error("Transient database failure fetching AI analysis record");
+        },
+      };
+
+      const customServer = createApiServer({
+        wsOptions: { autoStartListener: false },
+        impactAnalysisDeps: customDeps,
+      });
+
+      await new Promise<void>((resolve) => {
+        customServer.listen(0, "127.0.0.1", () => resolve());
+      });
+
+      try {
+        const res = await request(customServer, {
+          method: "GET",
+          path: `/api/v1/impact-analyses/${ANALYSIS_A}`,
+          headers: { authorization: "Bearer token-org-a" },
+        });
+
+        assert.equal(res.statusCode, 200);
+        const analysis = expectAnalysisSuccess(res.body);
+        assert.equal(analysis.id, ANALYSIS_A);
+        assert.equal(analysis.ai_analysis_id, null);
+      } finally {
+        await new Promise<void>((resolve) => customServer.close(() => resolve()));
+      }
+    });
   });
 });

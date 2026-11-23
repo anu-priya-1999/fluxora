@@ -131,3 +131,14 @@ For each component: **responsibility, inputs, outputs, dependencies, failure mod
 - **Outputs:** Job execution, dead-letter routing on repeated failure.
 - **Dependencies:** PostgreSQL (MVP: a `jobs` table with `SELECT ... FOR UPDATE SKIP LOCKED`) → managed queue (SQS) or Kafka at scale.
 - **Failure modes:** Worker crash mid-job → job visibility timeout expires, job becomes claimable again; idempotency key ensures re-execution doesn't duplicate graph writes. Repeated failure (N attempts) → dead-letter, alert, do not retry forever.
+
+## 5.17 AI Explanation Orchestrator Service
+
+- **Responsibility:** Implemented under `apps/workers/src/ai/orchestrator.ts` (Global Step 62). Coordinates the end-to-end impact explanation pipeline downstream of deterministic impact analysis persistence. Loads tenant-scoped context via Step 60, builds provider-independent request, invokes Step 59 Model Gateway, executes Step 61 structured-output and evidence-grounding validation with at most one corrective retry, aggregates usage/cost/latency metrics across attempts, and persists durable results in `ai_analyses` (Migration 0028).
+- **Inputs:** `organizationId`, `impactAnalysisId`.
+- **Outputs:** Typed `AIExplanationOrchestrationResult` (`completed`, `already_completed`, `rejected`, or `failed`).
+- **Dependencies:** Context Assembler (`§5.12`), Model Gateway (`§5.11`), Structured Output Validator (`§5.13`), `AIAnalysis` repository (`packages/db`), `@fluxora/observability`.
+- **Failure modes:**
+  - AI provider outage, rate limits, or network errors → caught by the worker failure boundary; recorded as `status: 'failed'`; deterministic impact findings remain fully valid and completed.
+  - Validation rejection (ungrounded claims) → recorded as `status: 'rejected'` with raw ungrounded output withheld; deterministic impact findings remain unaffected.
+  - Idempotency hit → reuses existing completed record without regenerating or calling the Model Gateway.

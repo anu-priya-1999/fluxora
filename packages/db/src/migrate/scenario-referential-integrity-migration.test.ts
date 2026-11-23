@@ -332,9 +332,9 @@ describe.skipIf(!hasDatabase)("Fix 4: Database Catalog & Migration Invariants (D
           client.release();
         }
 
-        // Step B: Run runner.ts to apply pending migrations (which should be 0027)
+        // Step B: Run runner.ts to apply pending migrations (which includes 0027)
         const migrateResult = await runMigrations(upgradePool);
-        assert.equal(migrateResult.applied.length, 1);
+        assert.ok(migrateResult.applied.length >= 1);
         assert.equal(migrateResult.applied[0], "0027_graph_node_lineage_integrity.sql");
 
         // Step C: Verify that the upgraded trigger function enforces both 0027 rules

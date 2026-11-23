@@ -1,4 +1,5 @@
 import type {
+  AIAnalysis,
   EvidenceRecord,
   GraphQueryResponseEvidence,
   ImpactAnalysis,
@@ -77,6 +78,7 @@ export function formatExecutionMetrics(
 export function formatImpactAnalysisResponse(
   analysis: ImpactAnalysis,
   evidence?: readonly EvidenceRecord[],
+  aiAnalysis?: AIAnalysis | null,
 ): ImpactAnalysisResponse {
   const formattedEvidence =
     evidence !== undefined && evidence.length > 0
@@ -104,6 +106,8 @@ export function formatImpactAnalysisResponse(
         ? analysis.createdAt.toISOString()
         : String(analysis.createdAt),
     ...(formattedEvidence !== undefined ? { evidence: formattedEvidence } : {}),
+    ai_analysis_id: aiAnalysis ? aiAnalysis.id : null,
+    ...(aiAnalysis ? { ai_analysis_status: aiAnalysis.status } : {}),
   };
 }
 
