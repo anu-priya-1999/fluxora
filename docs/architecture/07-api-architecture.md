@@ -234,9 +234,12 @@ GET  /api/v1/simulations/:id
     { "node_id": "node_subscriptions", "state": "at_risk", "rule_applied": "propagate_at_risk", "evidence_id": "ev_3003" }
   ],
   "assumptions": ["No circuit breaker detected on CheckoutService->PaymentProvider call"],
-  "ai_analysis_id": "ai_9977..."
+  "ai_analysis_id": "ai_9977...",
+  "ai_analysis_status": "completed"
 }
 ```
+
+*Note on AI Simulation Narration (Global Step 63):* `ai_analysis_id` and `ai_analysis_status` (`pending` | `completed` | `rejected` | `failed`) are populated if an AI narration task is associated with this simulation run. Deterministic simulation execution results remain fully valid and accessible even if `ai_analysis_id` is null or `ai_analysis_status` is failed or rejected.
 
 ### Jobs (polling fallback to WS)
 

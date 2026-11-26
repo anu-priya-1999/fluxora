@@ -22,6 +22,8 @@ import {
   createSimulationRuleInputFromEdge,
   evaluateSimulationRule,
   RULE_ID_TARGET_FAILURE,
+  SIMULATION_NARRATION_JOB_TYPE,
+  simulationNarrationIdempotencyKey,
 } from "@fluxora/shared-types";
 import type pg from "pg";
 
@@ -382,6 +384,7 @@ export function runSimulationEngine(
 export interface ExecuteSimulationOptions {
   readonly ruleTable?: SimulationRuleTable;
   readonly maxIterations?: number;
+  readonly enqueueNarrationJob?: boolean;
 }
 
 export interface ExecuteSimulationResult {
@@ -389,6 +392,7 @@ export interface ExecuteSimulationResult {
   readonly engineResult: SimulationEngineResult;
   readonly savedResults: readonly SimulationResult[];
   readonly evidence: readonly EvidenceRecord[];
+  readonly enqueuedJobId?: string | null;
 }
 
 interface ScenarioDbRow {
@@ -668,6 +672,34 @@ export async function executeSimulation(
         [simulationId],
       );
 
+      // 11. Transactional Job Handoff (Transactional Outbox pattern)
+      // Persists the simulation.narration job atomically within the exact same PostgreSQL transaction.
+      let enqueuedJobId: string | null = null;
+      if (options?.enqueueNarrationJob) {
+        const jobRes = await client.query<{ id: string }>(
+          `INSERT INTO jobs (
+             organization_id,
+             type,
+             payload,
+             idempotency_key,
+             max_attempts,
+             configured_max_attempts,
+             available_at
+           )
+           VALUES ($1, $2, $3, $4, 3, 3, now())
+           ON CONFLICT (organization_id, idempotency_key)
+           DO UPDATE SET id = jobs.id
+           RETURNING id`,
+          [
+            organizationId,
+            SIMULATION_NARRATION_JOB_TYPE,
+            JSON.stringify({ simulationId }),
+            simulationNarrationIdempotencyKey(simulationId),
+          ],
+        );
+        enqueuedJobId = jobRes.rows[0]?.id ?? null;
+      }
+
       const completedRow = completedSimRes.rows[0]!;
       const finalSimulation: Simulation = {
         id: completedRow.id,
@@ -682,6 +714,7 @@ export async function executeSimulation(
         engineResult,
         savedResults,
         evidence: writtenEvidence,
+        enqueuedJobId,
       };
     });
   } catch (error) {

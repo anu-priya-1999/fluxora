@@ -347,3 +347,26 @@ export function parsePullRequestImpactAnalysisJobPayload(
     ...(typeof includeEvidence === "boolean" ? { includeEvidence } : {}),
   };
 }
+
+/** PostgreSQL job type handled for simulation narration (Step 63). */
+export const SIMULATION_NARRATION_JOB_TYPE = "simulation.narration" as const;
+
+export interface SimulationNarrationJobPayload {
+  readonly simulationId: string;
+}
+
+/** Stable idempotency key for simulation narration job enqueueing. */
+export function simulationNarrationIdempotencyKey(simulationId: string): string {
+  return `${SIMULATION_NARRATION_JOB_TYPE}:${simulationId}`;
+}
+
+export function parseSimulationNarrationJobPayload(
+  payload: JobPayload,
+): SimulationNarrationJobPayload | null {
+  const simulationId = payload["simulationId"];
+  if (typeof simulationId !== "string" || !UUID_PATTERN.test(simulationId)) {
+    return null;
+  }
+
+  return { simulationId };
+}

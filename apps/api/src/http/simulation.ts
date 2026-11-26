@@ -4,6 +4,7 @@ import type pg from "pg";
 import {
   createScenario,
   createSimulation,
+  enqueueJob,
   executeSimulation,
   getPool,
   getScenarioById,
@@ -11,6 +12,7 @@ import {
   getUserById,
   listSimulationResults,
   provisionGithubUser,
+  getAIAnalysisBySubject,
   ScenarioNotFoundError,
   SimulationConvergenceError,
   SimulationEngineValidationError,
@@ -22,6 +24,9 @@ import {
 } from "@fluxora/db";
 import {
   isCanonicalGithubId,
+  SIMULATION_NARRATION_JOB_TYPE,
+  simulationNarrationIdempotencyKey,
+  type AIAnalysis,
   type Scenario,
   type Simulation,
   type User,
@@ -58,6 +63,9 @@ export interface SimulationHandlerDependencies {
   getSimulationById?: typeof getSimulationById;
   executeSimulation?: typeof executeSimulation;
   listSimulationResults?: typeof listSimulationResults;
+  getAIAnalysisBySubject?: typeof getAIAnalysisBySubject;
+  narrateSimulation?: ((options: { organizationId: string; simulationId: string }) => Promise<unknown>) | undefined;
+  enqueueJob?: typeof enqueueJob;
   resolveAnalysisRunAndRepo?: (
     pool: pg.Pool,
     organizationId: string,
@@ -753,7 +761,59 @@ export async function handleRunScenario(
 
   // 11. Execute Simulation Engine
   try {
-    const execResult = await execSim(pool, user.organizationId, simulation.id);
+    // In production (deps undefined), the authoritative narration job enqueue occurs
+    // atomically inside executeSimulation via the Transactional Outbox pattern (enqueueNarrationJob: true).
+    // The post-simulation deps.narrateSimulation and deps.enqueueJob hooks below exist
+    // exclusively for test harnesses where executeSimulation is mocked in-memory without a database.
+    const execResult = await execSim(pool, user.organizationId, simulation.id, {
+      enqueueNarrationJob: !deps?.narrateSimulation && !deps?.enqueueJob,
+    });
+
+    // Post-simulation AI narration trigger (isolated from deterministic simulation result)
+    if (deps?.narrateSimulation) {
+      try {
+        await deps.narrateSimulation({
+          organizationId: user.organizationId,
+          simulationId: simulation.id,
+        });
+      } catch (narrationError) {
+        console.error(
+          `[simulation-handler] AI narration isolation catch: ${narrationError instanceof Error ? narrationError.message : String(narrationError)}`,
+        );
+      }
+    } else if (deps?.enqueueJob) {
+      try {
+        const enqueue = deps.enqueueJob;
+        await enqueue(
+          {
+            organizationId: user.organizationId,
+            type: SIMULATION_NARRATION_JOB_TYPE,
+            idempotencyKey: simulationNarrationIdempotencyKey(simulation.id),
+            payload: {
+              simulationId: simulation.id,
+            },
+          },
+          pool,
+        );
+      } catch (enqueueError) {
+        console.error(
+          `[simulation-handler] AI narration job enqueue isolation catch: ${enqueueError instanceof Error ? enqueueError.message : String(enqueueError)}`,
+        );
+      }
+    }
+
+    const getAIAnalysis = deps?.getAIAnalysisBySubject ?? getAIAnalysisBySubject;
+    let aiAnalysisRecord: AIAnalysis | null = null;
+    try {
+      aiAnalysisRecord = await getAIAnalysis(
+        pool,
+        user.organizationId,
+        "simulation",
+        simulation.id,
+      );
+    } catch {
+      aiAnalysisRecord = null;
+    }
 
     sendJson(
       res,
@@ -765,6 +825,7 @@ export async function handleRunScenario(
           converged: execResult.engineResult.converged,
           iterations: execResult.engineResult.iterations,
         },
+        aiAnalysisRecord,
       ),
     );
   } catch (error) {
@@ -954,7 +1015,20 @@ export async function handleGetSimulation(
     }
 
     const results = await listResults(pool, user.organizationId, simulationId);
-    sendJson(res, 200, formatSimulationResponse(simulation, results));
+    const getAIAnalysis = deps?.getAIAnalysisBySubject ?? getAIAnalysisBySubject;
+    let aiAnalysisRecord: AIAnalysis | null = null;
+    try {
+      aiAnalysisRecord = await getAIAnalysis(
+        pool,
+        user.organizationId,
+        "simulation",
+        simulationId,
+      );
+    } catch {
+      aiAnalysisRecord = null;
+    }
+
+    sendJson(res, 200, formatSimulationResponse(simulation, results, undefined, aiAnalysisRecord));
   } catch (error) {
     logUnexpectedSimulationError(error);
     sendJson(res, 500, {

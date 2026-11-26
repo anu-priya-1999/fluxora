@@ -59,6 +59,7 @@ Next.js (App Router) + React + TypeScript + Tailwind + shadcn/ui, deployed as a 
     SimulationResultOverlay.tsx   — composes GraphCanvas + simulation-mode styling
   /ai
     AIExplanationPanel.tsx        — renders AIAnalysis, visually distinct "AI narration" styling
+    AISimulationNarrationPanel.tsx — renders AI simulation narration, synthetic scenario disclaimer, bounded polling
     ChatInterface.tsx
     EvidenceCitation.tsx          — clickable citation chip -> jumps to evidence in graph
   /shared
@@ -88,3 +89,11 @@ The `AIExplanationPanel` (`apps/web/src/components/ai/AIExplanationPanel.tsx`) i
   3. *Validation rejected*: Clear banner informing the user that model narration was withheld due to ungrounded claims, assuring them deterministic graph findings are intact.
   4. *Provider failure*: Neutral fallback card when provider error or rate-limit occurred.
   5. *Unavailable*: Displayed when no explanation record exists.
+
+## 10.9 AI Simulation Narration Panel Integration (Global Step 63)
+
+The `AISimulationNarrationPanel` (`apps/web/src/components/ai/AISimulationNarrationPanel.tsx`) is integrated into `SimulationStudio.tsx`:
+- **Visual Distinction & Synthetic Disclaimer**: Carries an explicit "AI Narration" uppercase badge, model confidence badge (`high` | `medium` | `low`), and a prominent synthetic scenario disclaimer warning users that findings represent simulated "what-if" fault conditions rather than actual production observations.
+- **Evidence Citation Chips**: Integrates `EvidenceCitationList` to render interactive provenance chips for every claim in the `claims` array, linking directly to underlying node and edge evidence.
+- **Bounded Discovery Polling & User Recovery**: When a simulation completes and returns `ai_analysis_id: null`, executes a bounded background polling routine (up to 5 attempts at 2000ms intervals = 10s budget) targeting `GET /api/v1/simulations/:id`. If budget expires, renders an accessible "Check again" user-recovery button that resets the bounded budget without page reloads or layout shift.
+- **Explicit Lifecycle States**: Seamlessly renders waiting, pending generation spinner, validation rejected banner, provider failure card, and unavailable placeholder.

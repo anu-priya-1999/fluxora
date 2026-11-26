@@ -13799,3 +13799,69 @@ The primary goal is connecting existing architectural building blocks while main
   - `pnpm test`: Full workspace test suite passed.
   - `pnpm build`: Clean production build (Next.js 16 Turbopack succeeded).
   - `git diff --check`: Clean (0 whitespace/syntax issues).
+
+---
+
+## Global Step 63: End-to-End AI Simulation Narration
+
+### 1. Objective and Architectural Context
+Global Step 63 completes the end-to-end integration of Fluxora's AI simulation narration pipeline (**Phase 9 Step 5**):
+
+$$\text{Completed deterministic simulation execution} \longrightarrow \text{Tenant-scoped context assembly} \longrightarrow \text{Model Gateway} \longrightarrow \text{Structured output \& grounding validator} \longrightarrow \text{Durable AIAnalysis persistence} \longrightarrow \text{Authenticated API} \longrightarrow \text{AISimulationNarrationPanel UI}$$
+
+The primary goal is connecting failure simulation execution to AI narration while preserving the core product invariant (P1/P10): the deterministic simulation engine remains the sole authority for failure injection, cascade rules, propagation paths, hop distances, affected nodes, and circuit-breaker containment. The LLM acts strictly as an evidence-grounded narrator, explaining verified simulation findings without ever modifying deterministic outcomes or confusing synthetic scenarios with real-world incidents.
+
+### 2. Architecture & Decision Highlights (ADR-016)
+- **Deterministic Context Assembly (`apps/workers/src/ai/simulation-context/`)**:
+  - `types.ts`: Strongly typed interfaces for `SimulationNarrationContext`, `BoundedSimulationResultItem`, `BoundedEvidenceRecord`, `SimulationTruncationDetails`, and `SimulationContextLimits` (`DEFAULT_SIMULATION_CONTEXT_LIMITS`).
+  - `assembler.ts`: Pure deterministic context assembler (`assembleSimulationNarrationContext`). Implements canonical 4-key sorting: `confidence DESC → severity DESC` (`failed` > `degraded` > `at_risk` > `healthy`, with unknown states defaulting to `0`) `→ hopDistance ASC → nodeId ASC` (stable lexicographical tie-breaker). Higher-confidence outcomes take priority even over lower-confidence outcomes with greater severity, and this ordering determines which results survive `maxResults` and `maxTotalCharacters` context budgets (`capped` is tracked as a separate boolean flag on each result, not a severity level). Verifies structural evidence association: `subjectType === 'simulation_state'`, matching `analysisRunId`, matching `simulationId` in metadata, with `subjectId` pointing to `simulation_result.id` (mapped to `item.nodeId`). Strictly synchronizes the `allowedEvidenceIds` manifest with retained evidence records after transparent character budgeting.
+  - `loader.ts`: Tenant-scoped context loader (`loadSimulationNarrationContext`) fetching completed `SimulationRecord` via `getSimulationById` and state evidence via `listSimulationEvidence` under PostgreSQL RLS boundaries.
+  - `request-builder.ts`: Formats provider-independent `ModelGatewayRequest` with versioned prompt `simulation-narrate-v1`, task type `simulation_narration`, strict system instructions enforcing deterministic authority, clear differentiation between synthetic scenarios and real production observations, untrusted scenario label containment, and `<simulation_context>` JSON containment with Unicode escaping (`\u003c`, `\u003e`, `\u0026`).
+- **Strict Structured Output Validation (`apps/workers/src/ai/structured-output/`)**:
+  - `simulation-validator.ts`: Schema validator (`validateSimulationNarrationOutput` and `validateSimulationNarrationWithRetry`) validating against `SIMULATION_NARRATION_OUTPUT_SCHEMA_VERSION = "simulation-narration-output-v1"`.
+  - Rejects unknown properties, empty strings, nulls, and type coercions.
+  - Enforces atomic whole-response rejection on ungrounded claims (ADR-014/ADR-016): any citation absent from `allowedEvidenceIds`, empty citations, or duplicate citations within a claim invalidates the entire response.
+  - Bounded corrective retry: maximum two attempts (1 initial + at most 1 corrective retry with deterministic issue guidance).
+- **Simulation AI Orchestration Service (`apps/workers/src/ai/simulation-orchestrator.ts`)**:
+  - `orchestrateSimulationNarration`: Pure injectable orchestration service.
+  - Checks idempotency cache first (`getAIAnalysisBySubject` with `subject_type = 'simulation'` and `subject_id = simulationId`), returning immediately on existing `completed` records.
+  - Records atomic `pending` placeholder to prevent duplicate concurrent runs.
+  - Coordinates context loading, Model Gateway invocation (`claude-sonnet-5-5` primary, `claude-haiku-5-5` fallback, 30s timeout, 2048 maxTokens), and validation with retry.
+  - Aggregates token usage (input + output), microdollar USD costs, and latency across attempts.
+  - Persists durable result in polymorphic `ai_analyses` table with `subject_type = 'simulation'`, `subject_id = simulationId`, and `UNIQUE (organization_id, subject_type, subject_id)`. Polymorphic subject columns are canonically `subject_type` and `subject_id`, with supported values `'impact_analysis'` for Step 62 impact explanations, `'simulation'` for Step 63 failure narrations, and `'chat_query'` for Step 64 interactive Q&A.
+  - Strict failure isolation: provider errors, timeouts, or validation rejections record typed status without throwing, ensuring deterministic simulation execution never fails.
+- **Durable Job Handoff & Failure Recovery (`packages/db/` & `apps/api/`)**:
+  - **Transactional Outbox Handoff**: In production, `executeSimulation` enqueues the `simulation.narration` job within the exact same database transaction that commits the deterministic simulation and its evidence (`enqueueNarrationJob: true`). If the job insert fails, the transaction rolls back atomically, no completed simulation is committed, and status is marked `'failed'`.
+  - **Queue Insertion Isolation**: In the API layer (`handleRunScenario`), the transactional outbox inside `executeSimulation` is the authoritative production path. The post-simulation queue enqueue fallback is isolated in a try/catch block and exists strictly as a dependency-injection seam for in-memory unit tests (where `executeSimulation` is mocked without database access).
+  - **Worker Crash Recovery**: Worker job processing uses PostgreSQL lease-based claiming (`fluxora_claim_next_job`). If a worker crashes before completion (Scenario C), the lease expires and the job is reclaimed by another worker; idempotency checks prevent duplicate model execution.
+  - **AI Provider Failure Isolation**: When model providers or persistence operations fail (Scenario D), the failure is safely recorded as `failed` or `rejected` in `ai_analyses`, raw model output is withheld, and the deterministic simulation results remain 100% authoritative and uninterrupted.
+  - **Operational Reconciliation Utilities**: Exported functions `reconcileSimulationNarrationJob` and `reconcileMissingSimulationNarrationJobs` in `@fluxora/db` provide idempotent recovery for orphaned completed simulations. As verified by audit, these are operational utilities for administrative runbooks, not active background sweepers (Fluxora currently has no active cron scheduler daemon).
+- **Authenticated API Integration (`apps/api/`)**:
+  - `apps/api/src/http/simulation.ts` and `apps/api/src/http/simulation-response.ts`: Enriched `GET /api/v1/simulations/:id` and `POST /api/v1/scenarios/:id/run` to query associated AI analysis and expose `ai_analysis_id` and `ai_analysis_status` (`pending` | `completed` | `rejected` | `failed` | null) in response DTO.
+- **Frontend `AISimulationNarrationPanel` (`apps/web/src/components/ai/`)**:
+  - Embedded inside `SimulationStudio.tsx` below the Deterministic Impact Summary.
+  - Displays prominent synthetic scenario disclaimer ("Synthetic Simulation Scenario — For Planning & Resilience Testing Only").
+  - Displays "AI Narration" uppercase badge and self-assessed model confidence badge (`high` | `medium` | `low`).
+  - Renders summary, claims with interactive `EvidenceCitationList` chips, caveats, and transparent truncation notes.
+  - Bounded automatic discovery polling (up to 5 attempts at 2000ms intervals = 10s budget) targeting `GET /api/v1/simulations/:id` to resolve worker creation races without layout flicker.
+  - Accessible "Check again" user-recovery button when discovery budget expires, initiating a fresh bounded budget without page reloads.
+  - Clean unmount lifecycle management preventing timer leaks.
+
+### 3. Verification Suite
+- `apps/workers/src/ai/simulation-context/assembler.test.ts`: 8 tests verifying deterministic assembly, confidence/severity/hop/nodeId sorting, truncation budgeting, manifest synchronization, and cross-run evidence rejection.
+- `apps/workers/src/ai/simulation-context/loader.test.ts`: 5 tests verifying tenant RLS isolation, missing simulation handling, uncompleted status rejection, and evidence association.
+- `apps/workers/src/ai/simulation-context/request-builder.test.ts`: 4 tests verifying prompt version `simulation-narrate-v1`, Unicode XML escaping, and guardrails.
+- `apps/workers/src/ai/structured-output/simulation-validator.test.ts`: 13 tests verifying schema validation, unknown property rejection, manifest grounding, atomic rejection, duplicate citation checks, and bounded corrective retry guidance.
+- `apps/workers/src/ai/simulation-orchestrator.test.ts`: 7 tests verifying end-to-end orchestration, idempotency hits, corrective retry with metric aggregation, validation rejection handling, provider error isolation, and terminal state preservation.
+- `apps/workers/src/simulation/narration-handler.test.ts`: 9 tests verifying worker handler execution, tenant scoping, payload parsing, provider failure isolation, validation rejection isolation, unexpected error containment, and repeated delivery idempotency.
+- `packages/db/src/repositories/simulation.test.ts`: 23 tests verifying simulation persistence, `listSimulationEvidence` queries, and `reconcileSimulationNarrationJob` / `reconcileMissingSimulationNarrationJobs` recovery behavior.
+- `packages/db/src/repositories/simulation-engine.test.ts`: 32 tests verifying pure simulation propagation, rule table execution, convergence, evidence creation via `EvidenceWriter`, and transactional job enqueue handoff.
+- `apps/api/src/http/simulation.test.ts`: 48 tests verifying authenticated simulation endpoints, RLS isolation, `ai_analysis_id` / `ai_analysis_status` payload formatting, queue failure isolation, and read-only GET isolation.
+- `apps/web/src/components/ai/AISimulationNarrationPanel.test.tsx`: 11 tests verifying grounded rendering, synthetic disclaimer, confidence badges, citations, caveats, truncation warnings, waiting/pending/rejected/failed states, bounded discovery polling, and user recovery.
+- **Full Workspace Verification**:
+  - `pnpm lint`: Clean across all packages (0 errors, 0 warnings).
+  - `pnpm lint:evidence`: Clean (5/5 conclusion-producing files verified).
+  - `pnpm typecheck`: Clean across all 7 workspace packages (0 errors).
+  - `pnpm test`: Full workspace test suite passed (99 test files passed, 1,434 tests passing, 9 skipped, 0 failed).
+  - `pnpm build`: Clean production build (Next.js 16 Turbopack succeeded).
+  - `git diff --check`: Clean (0 whitespace/syntax issues).

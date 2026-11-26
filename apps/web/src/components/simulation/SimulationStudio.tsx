@@ -30,6 +30,7 @@ import {
   type SupportedFailureType,
 } from "./simulation-types.ts";
 import { buildExplorerSimulationUrl } from "../graph/simulation-mode-data.ts";
+import { AISimulationNarrationPanel } from "../ai/AISimulationNarrationPanel.tsx";
 
 export interface SimulationStudioProps {
   readonly apiUrl: string;
@@ -800,76 +801,101 @@ export function SimulationStudio({
         <div className="lg:col-span-7 flex flex-col gap-6">
           {/* Simulation Impact Summary */}
           {simulationResults.length > 0 ? (
-            <section
-              className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4"
-              data-testid="studio-impact-summary"
-              aria-label="Impact Summary"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-2">
-                <div className="flex items-center gap-3">
-                  <h2 className="text-base font-semibold text-slate-900">Deterministic Impact Summary</h2>
-                  {explorerSimulationUrl && (
-                    <Link
-                      href={explorerSimulationUrl}
-                      data-testid="view-on-architecture-graph-link"
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-colors"
-                    >
-                      <span>View on Architecture Graph</span>
-                      <span aria-hidden="true">→</span>
-                    </Link>
-                  )}
+            <>
+              <section
+                className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm flex flex-col gap-4"
+                data-testid="studio-impact-summary"
+                aria-label="Impact Summary"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-2">
+                  <div className="flex items-center gap-3">
+                    <h2 className="text-base font-semibold text-slate-900">Deterministic Impact Summary</h2>
+                    {explorerSimulationUrl && (
+                      <Link
+                        href={explorerSimulationUrl}
+                        data-testid="view-on-architecture-graph-link"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-colors"
+                      >
+                        <span>View on Architecture Graph</span>
+                        <span aria-hidden="true">→</span>
+                      </Link>
+                    )}
+                  </div>
+                  <span className="text-xs font-mono text-slate-500">
+                    {impactSummary.ruleTableVersion ? `Rule Table v${impactSummary.ruleTableVersion}` : "Rule Table: Active"}
+                    {impactSummary.iterations !== undefined ? ` · ${impactSummary.iterations} iteration${impactSummary.iterations === 1 ? "" : "s"}` : ""}
+                    {impactSummary.converged !== undefined ? ` · ${impactSummary.converged ? "Converged" : "Unconverged"}` : ""}
+                  </span>
                 </div>
-                <span className="text-xs font-mono text-slate-500">
-                  {impactSummary.ruleTableVersion ? `Rule Table v${impactSummary.ruleTableVersion}` : "Rule Table: Active"}
-                  {impactSummary.iterations !== undefined ? ` · ${impactSummary.iterations} iteration${impactSummary.iterations === 1 ? "" : "s"}` : ""}
-                  {impactSummary.converged !== undefined ? ` · ${impactSummary.converged ? "Converged" : "Unconverged"}` : ""}
-                </span>
-              </div>
 
-              {/* Metric Chips */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
-                <div className="bg-slate-50 border border-slate-200 rounded p-3 text-center">
-                  <span className="block text-2xl font-bold text-slate-800" data-testid="metric-total-affected">
-                    {impactSummary.totalAffected}
-                  </span>
-                  <span className="text-xs text-slate-500 uppercase font-semibold">Total Affected</span>
+                {/* Metric Chips */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded p-3 text-center">
+                    <span className="block text-2xl font-bold text-slate-800" data-testid="metric-total-affected">
+                      {impactSummary.totalAffected}
+                    </span>
+                    <span className="text-xs text-slate-500 uppercase font-semibold">Total Affected</span>
+                  </div>
+                  <div className="bg-red-50 border border-red-200 rounded p-3 text-center">
+                    <span className="block text-2xl font-bold text-red-700" data-testid="metric-failed">
+                      {impactSummary.failedCount}
+                    </span>
+                    <span className="text-xs text-red-700 uppercase font-semibold">Failed</span>
+                  </div>
+                  <div className="bg-amber-50 border border-amber-200 rounded p-3 text-center">
+                    <span className="block text-2xl font-bold text-amber-700" data-testid="metric-degraded">
+                      {impactSummary.degradedCount}
+                    </span>
+                    <span className="text-xs text-amber-700 uppercase font-semibold">Degraded</span>
+                  </div>
+                  <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-center">
+                    <span className="block text-2xl font-bold text-yellow-700" data-testid="metric-at-risk">
+                      {impactSummary.atRiskCount}
+                    </span>
+                    <span className="text-xs text-yellow-700 uppercase font-semibold">At Risk</span>
+                  </div>
+                  <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-center">
+                    <span className="block text-2xl font-bold text-emerald-700" data-testid="metric-healthy">
+                      {impactSummary.healthyCount}
+                    </span>
+                    <span className="text-xs text-emerald-700 uppercase font-semibold">Healthy</span>
+                  </div>
+                  <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-center">
+                    <span className="block text-2xl font-bold text-indigo-700" data-testid="metric-capped">
+                      {impactSummary.cappedCount}
+                    </span>
+                    <span className="text-xs text-indigo-700 uppercase font-semibold">Capped (Breaker)</span>
+                  </div>
                 </div>
-                <div className="bg-red-50 border border-red-200 rounded p-3 text-center">
-                  <span className="block text-2xl font-bold text-red-700" data-testid="metric-failed">
-                    {impactSummary.failedCount}
-                  </span>
-                  <span className="text-xs text-red-700 uppercase font-semibold">Failed</span>
-                </div>
-                <div className="bg-amber-50 border border-amber-200 rounded p-3 text-center">
-                  <span className="block text-2xl font-bold text-amber-700" data-testid="metric-degraded">
-                    {impactSummary.degradedCount}
-                  </span>
-                  <span className="text-xs text-amber-700 uppercase font-semibold">Degraded</span>
-                </div>
-                <div className="bg-yellow-50 border border-yellow-200 rounded p-3 text-center">
-                  <span className="block text-2xl font-bold text-yellow-700" data-testid="metric-at-risk">
-                    {impactSummary.atRiskCount}
-                  </span>
-                  <span className="text-xs text-yellow-700 uppercase font-semibold">At Risk</span>
-                </div>
-                <div className="bg-emerald-50 border border-emerald-200 rounded p-3 text-center">
-                  <span className="block text-2xl font-bold text-emerald-700" data-testid="metric-healthy">
-                    {impactSummary.healthyCount}
-                  </span>
-                  <span className="text-xs text-emerald-700 uppercase font-semibold">Healthy</span>
-                </div>
-                <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-center">
-                  <span className="block text-2xl font-bold text-indigo-700" data-testid="metric-capped">
-                    {impactSummary.cappedCount}
-                  </span>
-                  <span className="text-xs text-indigo-700 uppercase font-semibold">Capped (Breaker)</span>
-                </div>
-              </div>
 
-              <p className="text-xs text-slate-500 italic">
-                Notice: Simulation confidence values reflect static analysis completeness and rule assumptions. They do not represent real-world statistical failure probabilities or uptime metrics.
-              </p>
-            </section>
+                <p className="text-xs text-slate-500 italic">
+                  Notice: Simulation confidence values reflect static analysis completeness and rule assumptions. They do not represent real-world statistical failure probabilities or uptime metrics.
+                </p>
+              </section>
+
+              {/* AI Simulation Narration Panel */}
+              {simulation && (
+                <AISimulationNarrationPanel
+                  apiUrl={apiUrl}
+                  getToken={getToken}
+                  simulationId={simulation.id}
+                  aiAnalysisId={simulation.ai_analysis_id}
+                  simulationStatus={simulation.status}
+                  analysisRunId={analysisRunId}
+                  onAIAnalysisDiscovered={(foundId, foundStatus) => {
+                    setSimulation((prev) =>
+                      prev
+                        ? {
+                            ...prev,
+                            ai_analysis_id: foundId,
+                            ...(foundStatus ? { ai_analysis_status: foundStatus as SimulationResponse["ai_analysis_status"] } : {}),
+                          }
+                        : null,
+                    );
+                  }}
+                />
+              )}
+            </>
           ) : isRunningSimulation ? (
             <div className="bg-white border border-slate-200 rounded-lg p-12 text-center text-slate-500 shadow-sm flex flex-col items-center justify-center gap-3">
               <span className="w-8 h-8 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />

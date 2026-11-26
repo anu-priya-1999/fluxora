@@ -1,4 +1,5 @@
 import type {
+  AIAnalysis,
   Scenario,
   ScenarioResponse,
   Simulation,
@@ -54,6 +55,7 @@ export function formatSimulationResponse(
     readonly converged?: boolean | undefined;
     readonly iterations?: number | undefined;
   } | undefined,
+  aiAnalysis?: AIAnalysis | null,
 ): SimulationResponse {
   const createdAtIso =
     simulation.createdAt instanceof Date
@@ -73,6 +75,8 @@ export function formatSimulationResponse(
       status: simulation.status,
       created_at: createdAtIso,
     },
+    ai_analysis_id: aiAnalysis ? aiAnalysis.id : null,
+    ...(aiAnalysis ? { ai_analysis_status: aiAnalysis.status } : {}),
   };
 
   if (results !== undefined) {

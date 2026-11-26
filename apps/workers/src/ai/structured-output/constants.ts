@@ -10,6 +10,12 @@
 export const IMPACT_EXPLANATION_OUTPUT_SCHEMA_VERSION = "impact-explanation-output-v1";
 
 /**
+ * Explicit canonical schema version for the simulation_narration task output.
+ * Kept strictly independent from the prompt template version ('simulation-narrate-v1').
+ */
+export const SIMULATION_NARRATION_OUTPUT_SCHEMA_VERSION = "simulation-narration-output-v1";
+
+/**
  * Conservative validation limits matching the Step 59 cost model and application consumption bounds.
  */
 export const IMPACT_EXPLANATION_LIMITS = Object.freeze({

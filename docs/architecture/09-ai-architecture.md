@@ -70,6 +70,14 @@ To ensure architectural clarity, Fluxora separates evidence guarantees into thre
 
 For free-form Q&A where a user asks something genuinely open-ended ("explain what this function does"), a small, explicitly-scoped code excerpt (the specific function body, with line numbers, already identified deterministically by the graph as the relevant symbol) can be included — but it is always labeled as "source excerpt, for explanatory context" and any claim about *relationships/dependencies* still must cite a graph-derived evidence id, never be inferred fresh from the snippet by the model.
 
+### 9.4.3 Simulation Narration Context Assembler Implementation (Global Step 63)
+
+Implemented under `apps/workers/src/ai/simulation-context/`:
+- **Contracts (`types.ts`):** `SimulationNarrationContext`, `BoundedSimulationResultItem`, `BoundedEvidenceRecord`, `SimulationTruncationDetails`, and `SimulationContextLimits` (`DEFAULT_SIMULATION_CONTEXT_LIMITS`).
+- **Pure Assembler (`assembler.ts`):** Deterministic transformation of `SimulationRecord` and `EvidenceRecord[]` into a bounded context. Enforces canonical 4-key sorting: `confidence DESC → severity DESC` (`failed` > `degraded` > `at_risk` > `healthy`, with unknown states defaulting to `0`) `→ hopDistance ASC → nodeId ASC` (`capped` is tracked as a separate boolean flag, not a severity state), determining which results survive the context budget. Verifies structural evidence association (`subjectType === "simulation_state"`, `analysisRunId`, `simulationId` in metadata, and exact `subjectId === nodeId`). Synchronizes the allowed evidence manifest (`allowedEvidenceIds`) strictly with retained evidence records.
+- **Tenant-Scoped Loader (`loader.ts`):** Fetches completed simulation results and associated state evidence via existing PostgreSQL RLS methods (`getSimulationById`, `listSimulationEvidence`) under tenant boundaries.
+- **Request Builder (`request-builder.ts`):** Formats provider-independent `ModelGatewayRequest` with stable prompt version `simulation-narrate-v1`, task type `simulation_narration`, strict system instruction enforcing deterministic authority, clear differentiation between synthetic scenarios and real production observations, untrusted scenario label containment, and explicit `<simulation_context>` JSON containment with safe unicode escaping of markup-significant characters (`\u003c`, `\u003e`, `\u0026`).
+
 ## 9.5 Tool calling
 
 For free-form chat queries where the user's question doesn't map to a pre-computed `ImpactAnalysis`/`SimulationResult`, the model is given a small, explicit tool set rather than open-ended repository access:
@@ -87,6 +95,12 @@ The model never gets a generic "read any file" or "run arbitrary query" tool —
   - Schema contains exactly four fields: `{ "summary": string, "claims": [{ "text": string, "evidence_ids": string[] }], "confidence": "high"|"medium"|"low", "caveats": string[] }`.
   - Enforces explicit limits: `summary` $\le 2,000$ chars, `claims` $\le 50$ items, `claim.text` $\le 1,200$ chars, `evidence_ids` $\le 20$ IDs per claim, individual evidence ID string $\le 128$ chars, `caveats` $\le 20$ items ($\le 500$ chars each).
   - Unknown properties at any object level, empty strings, nulls, and type coercions are rejected.
+- **Simulation Narration Output Contract (`simulation-narration-output-v1` — Global Step 63):**
+  - Schema contains four fields: `{ "summary": string, "claims": [{ "text": string, "evidence_ids": string[] }], "confidence": "high"|"medium"|"low", "caveats": string[] }`.
+  - Validates under `SIMULATION_NARRATION_OUTPUT_SCHEMA_VERSION = "simulation-narration-output-v1"`.
+  - Enforces explicit bounds identical to impact explanation with strict rejection of unknown properties, empty strings, and type coercion.
+  - Enforces strict manifest grounding: citations must strictly belong to the simulation's `allowedEvidenceIds` manifest with atomic whole-response rejection (ADR-014/ADR-016).
+  - Bounded corrective retry: maximum two attempts (1 initial + at most 1 corrective retry with deterministic issue guidance).
 - **Strict JSON parsing:** Parses the complete response text as strict JSON. Markdown code fences (````json ... ````), leading or trailing prose, arrays, primitives, and empty responses are rejected without permissive auto-repair or extraction.
 - **Grounding validation & Whole-Response Rejection (ADR-014):** Every `evidence_ids` entry in every claim is checked against the trusted `allowedEvidenceIds` manifest assembled in context (§9.4.1, §9.4.2). Every claim in the `claims` array must cite at least one evidence ID (`EMPTY_EVIDENCE_IDS`). Duplicate citations within the same claim fail validation with `DUPLICATE_EVIDENCE_ID`. Citations citing evidence IDs absent from the trusted manifest fail validation with `UNKNOWN_EVIDENCE_ID`. Fluxora enforces atomic whole-response rejection: any ungrounded citation invalidates the entire response; claims are never silently stripped or partially accepted. Validation failure results return up to 20 deterministic validation issues (`MAX_VALIDATION_ISSUES = 20`) in the discriminated failure result; downstream orchestration may consume them for error handling and diagnostics.
 - **Bounded Corrective Retry:** Maximum two total attempts allowed (initial response plus one corrective retry). On initial failure, a bounded, deterministic corrective system instruction is provided quoting at most 10 validation error codes and property paths (`MAX_CORRECTIVE_FEEDBACK_ISSUES = 10`) without echoing raw untrusted output, preventing prompt bloat while keeping instructions focused.
@@ -96,8 +110,8 @@ The model never gets a generic "read any file" or "run arbitrary query" tool —
 ## 9.7 Hallucination mitigation — summary of layered defenses
 
 1. Structural: the model is never the source of graph/impact/simulation facts (P1).
-2. Contextual (Step 60): only verified, scoped evidence is provided (`subjectType === "impact_finding"`, matching analysis run and ID, exact `subjectId === finding.node.id`), with an explicit allowed-citation manifest synchronized strictly with retained evidence (§9.4.1, §9.4.2).
-3. Output-level (Step 61): schema validation + grounding validation enforce strict whole-response rejection (ADR-014) whenever any claim cites an evidence ID outside the allowed manifest (§9.6); claims are never silently stripped or partially accepted. Note that manifest membership enforces citation provenance and allowlist compliance, not semantic correctness.
+2. Contextual (Steps 60 & 63): only verified, scoped evidence is provided (`subjectType === "impact_finding"` for impact analyses; `subjectType === "simulation_state"` for simulations), with an explicit allowed-citation manifest synchronized strictly with retained evidence (§9.4.1, §9.4.2, §9.4.3).
+3. Output-level (Steps 61 & 63): schema validation + grounding validation enforce strict whole-response rejection (ADR-014, ADR-016) whenever any claim cites an evidence ID outside the allowed manifest (§9.6); claims are never silently stripped or partially accepted. Note that manifest membership enforces citation provenance and allowlist compliance, not semantic correctness.
 4. Presentational: the UI visually distinguishes AI narration from graph-derived fact, and confidence/caveats surfaced by the model are always rendered, never hidden.
 5. Evaluation (Step 65): a continuously-run AI eval suite tracks groundedness, semantic support, and hallucination rate over time as a first-class metric (`12-testing-strategy.md §AI evaluation`), not a one-time check.
 
@@ -124,3 +138,23 @@ The production integration connects the completed deterministic impact analysis 
    - `GET /api/v1/impact-analyses/:id` provides `ai_analysis_id` and `ai_analysis_status`.
    - `GET /api/v1/ai-analyses/:id` returns authenticated, tenant-isolated explanation data.
    - `AIExplanationPanel` in explorer change mode renders summary, claims with interactive `EvidenceCitationList` chips, model confidence badge, caveats, and safe degradation states.
+
+## 9.10 End-to-End Simulation Narration Pipeline (Global Step 63)
+
+The production integration connects completed deterministic failure simulations to the frontend:
+
+1. **Triggering Sequence**:
+   - The simulation engine computes and persists deterministic `SimulationRecord` and state evidence (`subject_type = 'simulation_state'`).
+   - Downstream of successful persistence, `orchestrateSimulationNarration` is invoked within an isolated try/catch block.
+   - AI generation failure, network timeouts, or validation rejection NEVER fail the deterministic simulation or invalidate simulation results.
+2. **Orchestration Execution (`orchestrateSimulationNarration`)**:
+   - **Idempotency Guard**: Checks for an existing completed `AIAnalysis` record with `subject_type = 'simulation'` and `subject_id = simulationId`. If present, returns immediately without making LLM calls.
+   - **Context Assembly (Step 63)**: Loads tenant-scoped simulation result and state evidence, generating `SimulationNarrationContext` and the canonical `allowedEvidenceIds` manifest.
+   - **Model Gateway Dispatch (Step 59)**: Formats `ModelGatewayRequest` (`taskType: "simulation_narration"`, prompt version `simulation-narrate-v1`), dispatching to primary Claude tier (`claude-sonnet-5-5`).
+   - **Grounding Validation & Retry (Step 63)**: Validates response against `simulation-narration-output-v1`. If ungrounded or invalid, executes at most one corrective retry with deterministic issue guidance.
+   - **Metrics Aggregation**: Aggregates token counts (input + output), microdollar USD cost, and latency across both initial and retry attempts.
+   - **Durable Persistence (Step 63)**: Persists record in `ai_analyses` table with `subject_type = 'simulation'`. On success, stores summary in `output_text` and structured JSON in `output_structured`. On rejection or error, stores `null` in output columns, preserving sanitized error diagnostics in `metadata`.
+3. **API & UI Delivery**:
+   - `GET /api/v1/simulations/:id` provides `ai_analysis_id` and `ai_analysis_status`.
+   - `GET /api/v1/ai-analyses/:id` returns authenticated, tenant-isolated narration data.
+   - `AISimulationNarrationPanel` in `SimulationStudio` renders summary, claims with interactive `EvidenceCitationList` chips, model confidence badge, synthetic scenario disclaimer, caveats, and safe degradation states with bounded discovery polling.

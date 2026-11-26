@@ -2,6 +2,8 @@ import type {
   CreateScenarioInput,
   CreateSimulationInput,
   CreateSimulationResultInput,
+  EvidenceRecord,
+  EvidenceSubjectType,
   ListScenariosOptions,
   Scenario,
   ScenarioFailureType,
@@ -12,12 +14,15 @@ import type {
 } from "@fluxora/shared-types";
 import {
   ScenarioFailureTypes,
+  SIMULATION_NARRATION_JOB_TYPE,
+  simulationNarrationIdempotencyKey,
   SimulationResultStates,
   SimulationStatuses,
 } from "@fluxora/shared-types";
 import type pg from "pg";
 
 import { withTenant } from "../tenant.ts";
+import { enqueueJob } from "./job.ts";
 
 const UUID_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -100,6 +105,42 @@ interface SimulationResultRow {
   assumptions: string[];
   confidence: number;
   created_at: Date;
+}
+
+interface EvidenceRow {
+  id: string;
+  analysis_run_id: string;
+  subject_type: string;
+  subject_id: string;
+  file_path: string;
+  symbol_id: string | null;
+  line_start: number | null;
+  line_end: number | null;
+  column_start: number | null;
+  column_end: number | null;
+  relationship_description: string;
+  confidence: number;
+  metadata: Record<string, unknown>;
+  created_at: Date;
+}
+
+function mapEvidenceRow(row: EvidenceRow): EvidenceRecord {
+  return {
+    id: row.id,
+    analysisRunId: row.analysis_run_id,
+    subjectType: row.subject_type as EvidenceSubjectType,
+    subjectId: row.subject_id,
+    filePath: row.file_path,
+    symbolId: row.symbol_id,
+    lineStart: row.line_start,
+    lineEnd: row.line_end,
+    columnStart: row.column_start,
+    columnEnd: row.column_end,
+    relationshipDescription: row.relationship_description,
+    confidence: row.confidence,
+    metadata: row.metadata ?? {},
+    createdAt: row.created_at,
+  };
 }
 
 function mapScenarioRow(row: ScenarioRow): Scenario {
@@ -703,4 +744,203 @@ export async function listSimulationResults(
     );
     return res.rows.map(mapSimulationResultRow);
   });
+}
+
+/**
+ * Retrieves all simulation_state evidence records associated with a specific simulation run.
+ * Enforces tenant isolation by verifying the simulation belongs to the organization's scenario.
+ */
+export async function listSimulationEvidence(
+  pool: pg.Pool,
+  organizationId: string,
+  simulationId: string,
+): Promise<EvidenceRecord[]> {
+  if (!UUID_REGEX.test(simulationId) || !UUID_REGEX.test(organizationId)) {
+    return [];
+  }
+  return withTenant(pool, organizationId, async (client) => {
+    const checkRes = await client.query<{ id: string }>(
+      `SELECT sim.id
+       FROM simulations sim
+       JOIN scenarios s ON s.id = sim.scenario_id
+       WHERE sim.id = $1::uuid AND s.organization_id = $2::uuid`,
+      [simulationId, organizationId],
+    );
+    if (!checkRes.rows[0]) {
+      return [];
+    }
+
+    const res = await client.query<EvidenceRow>(
+      `SELECT id, analysis_run_id, subject_type, subject_id, file_path, symbol_id,
+              line_start, line_end, column_start, column_end, relationship_description,
+              confidence, metadata, created_at
+       FROM evidence
+       WHERE subject_type = 'simulation_state'
+         AND metadata->>'simulationId' = $1
+       ORDER BY created_at ASC, id ASC`,
+      [simulationId],
+    );
+    return res.rows.map(mapEvidenceRow);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Step 63: Narration Job Reconciliation & Recovery
+// ---------------------------------------------------------------------------
+
+export interface ReconcileSimulationNarrationResult {
+  readonly recovered: boolean;
+  readonly reason?: string | undefined;
+  readonly jobId?: string | undefined;
+}
+
+export interface ReconcileMissingSimulationNarrationJobsOptions {
+  readonly organizationId?: string | undefined;
+  readonly olderThanSeconds?: number | undefined;
+  readonly limit?: number | undefined;
+}
+
+export interface ReconcileMissingSimulationNarrationJobsResult {
+  readonly reconciledCount: number;
+  readonly enqueuedJobIds: readonly string[];
+}
+
+/**
+ * Checks a specific completed simulation for missing AI narration and enqueues a job if missing.
+ * Safe to call concurrently or repeatedly: uses idempotency keys to prevent duplicate jobs.
+ */
+export async function reconcileSimulationNarrationJob(
+  pool: pg.Pool,
+  organizationId: string,
+  simulationId: string,
+): Promise<ReconcileSimulationNarrationResult> {
+  if (!UUID_REGEX.test(organizationId) || !UUID_REGEX.test(simulationId)) {
+    return { recovered: false, reason: "invalid_uuid" };
+  }
+
+  return withTenant(pool, organizationId, async (client) => {
+    // 1. Verify simulation exists, belongs to tenant, and is completed
+    const simRes = await client.query<{ id: string; status: string }>(
+      `SELECT sim.id, sim.status
+       FROM simulations sim
+       JOIN scenarios s ON s.id = sim.scenario_id
+       WHERE sim.id = $1::uuid AND s.organization_id = $2::uuid`,
+      [simulationId, organizationId],
+    );
+    const sim = simRes.rows[0];
+    if (!sim) {
+      return { recovered: false, reason: "simulation_not_found" };
+    }
+    if (sim.status !== "completed") {
+      return { recovered: false, reason: "simulation_not_completed" };
+    }
+
+    // 2. Check if AI analysis record already exists in terminal completed state
+    const analysisRes = await client.query<{ id: string; status: string }>(
+      `SELECT id, status
+       FROM ai_analyses
+       WHERE organization_id = $1::uuid
+         AND subject_type = 'simulation'
+         AND subject_id = $2::uuid`,
+      [organizationId, simulationId],
+    );
+    const analysis = analysisRes.rows[0];
+    if (analysis && (analysis.status === "completed" || analysis.status === "rejected")) {
+      return { recovered: false, reason: "already_completed" };
+    }
+
+    // 3. Check if an active/pending job is currently in flight
+    const jobKey = simulationNarrationIdempotencyKey(simulationId);
+    const activeJobRes = await client.query<{ id: string; status: string }>(
+      `SELECT id, status
+       FROM jobs
+       WHERE organization_id = $1::uuid
+         AND type = $2
+         AND idempotency_key = $3
+         AND status IN ('pending', 'running')`,
+      [organizationId, SIMULATION_NARRATION_JOB_TYPE, jobKey],
+    );
+    if (activeJobRes.rows.length > 0) {
+      return { recovered: false, reason: "job_already_active", jobId: activeJobRes.rows[0]?.id ?? undefined };
+    }
+
+    // 4. Enqueue recovery job via idempotency upsert
+    const enqueued = await enqueueJob(
+      {
+        organizationId,
+        type: SIMULATION_NARRATION_JOB_TYPE,
+        idempotencyKey: jobKey,
+        payload: { simulationId },
+      },
+      pool,
+    );
+
+    return { recovered: true, jobId: enqueued.id };
+  });
+}
+
+/**
+ * Sweeper/reconciler that finds completed simulations lacking AI narration and active jobs,
+ * and enqueues simulation.narration jobs to ensure no narration job remains permanently lost.
+ */
+export async function reconcileMissingSimulationNarrationJobs(
+  pool: pg.Pool,
+  options?: ReconcileMissingSimulationNarrationJobsOptions,
+): Promise<ReconcileMissingSimulationNarrationJobsResult> {
+  const olderThanSeconds = options?.olderThanSeconds ?? 5;
+  const limit = options?.limit ?? 50;
+  const organizationId = options?.organizationId;
+
+  const query = `
+    SELECT sim.id, s.organization_id
+    FROM simulations sim
+    JOIN scenarios s ON s.id = sim.scenario_id
+    LEFT JOIN ai_analyses a
+      ON a.organization_id = s.organization_id
+      AND a.subject_type = 'simulation'
+      AND a.subject_id = sim.id
+    LEFT JOIN jobs j
+      ON j.organization_id = s.organization_id
+      AND j.type = $1
+      AND j.idempotency_key = $2 || sim.id::text
+      AND j.status IN ('pending', 'running')
+    WHERE sim.status = 'completed'
+      AND sim.created_at < now() - ($3 || ' seconds')::interval
+      AND a.id IS NULL
+      AND j.id IS NULL
+      ${organizationId ? "AND s.organization_id = $4::uuid" : ""}
+    ORDER BY sim.created_at ASC
+    LIMIT ${limit}
+  `;
+
+  const params: unknown[] = [
+    SIMULATION_NARRATION_JOB_TYPE,
+    "simulation.narration:",
+    olderThanSeconds,
+  ];
+  if (organizationId) {
+    params.push(organizationId);
+  }
+
+  const res = await pool.query<{ id: string; organization_id: string }>(query, params);
+  const enqueuedJobIds: string[] = [];
+
+  for (const row of res.rows) {
+    const jobKey = simulationNarrationIdempotencyKey(row.id);
+    const job = await enqueueJob(
+      {
+        organizationId: row.organization_id,
+        type: SIMULATION_NARRATION_JOB_TYPE,
+        idempotencyKey: jobKey,
+        payload: { simulationId: row.id },
+      },
+      pool,
+    );
+    enqueuedJobIds.push(job.id);
+  }
+
+  return {
+    reconciledCount: enqueuedJobIds.length,
+    enqueuedJobIds,
+  };
 }

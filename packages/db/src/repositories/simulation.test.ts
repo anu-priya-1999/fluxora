@@ -23,10 +23,14 @@ import {
   saveSimulationResults,
   getSimulationResultById,
   listSimulationResults,
+  listSimulationEvidence,
+  reconcileSimulationNarrationJob,
+  reconcileMissingSimulationNarrationJobs,
   SimulationPersistenceValidationError,
   ScenarioNotFoundError,
   SimulationNotFoundError,
 } from "./simulation.ts";
+import { executeSimulation } from "./simulation-engine.ts";
 
 loadRootEnvFile();
 
@@ -80,7 +84,7 @@ async function ensureRlsTestRole(pool: ReturnType<typeof getPool>): Promise<void
   await pool.query(`GRANT SELECT ON TABLE organizations TO fluxora_rls_test`);
   await pool.query(`
     GRANT SELECT, INSERT, UPDATE, DELETE
-    ON TABLE repositories, repository_snapshots, commits, analysis_runs, graph_nodes, graph_edges, evidence, pull_requests, pull_request_files, impact_analyses, scenarios, simulations, simulation_results
+    ON TABLE repositories, repository_snapshots, commits, analysis_runs, graph_nodes, graph_edges, evidence, pull_requests, pull_request_files, impact_analyses, scenarios, simulations, simulation_results, ai_analyses, jobs
     TO fluxora_rls_test
   `);
 
@@ -762,6 +766,175 @@ describe.skipIf(!hasDatabase)("Step 52: Simulation Persistence - PostgreSQL Inte
 
     const fetchedResults = await listSimulationResults(pool, orgA.id, sim.id);
     assert.deepEqual(fetchedResults, [], "Simulation results must cascade delete");
+  });
+
+  it("13. listSimulationEvidence: retrieves simulation evidence and enforces tenant isolation", async () => {
+    // Invalid UUID returns empty
+    const invalidList = await listSimulationEvidence(pool, "bad-uuid", "bad-uuid");
+    assert.deepEqual(invalidList, []);
+
+    // Create scenario and simulation
+    const scenario = await createScenario(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      name: "Evidence test scenario",
+      targetNodeId: nodeA1.id,
+      failureType: "unavailable",
+    });
+
+    const sim = await createSimulation(pool, orgA.id, {
+      scenarioId: scenario.id,
+      analysisRunId: runA1.id,
+    });
+
+    // Cross-tenant lookup returns empty
+    const crossTenantList = await listSimulationEvidence(pool, orgB.id, sim.id);
+    assert.deepEqual(crossTenantList, []);
+
+    // Same-tenant lookup with no evidence yet returns empty
+    const sameTenantEmpty = await listSimulationEvidence(pool, orgA.id, sim.id);
+    assert.deepEqual(sameTenantEmpty, []);
+
+    // Execute simulation to persist SimulationResult and simulation_state Evidence records
+    const execRes = await executeSimulation(pool, orgA.id, sim.id);
+    assert.equal(execRes.simulation.status, "completed");
+    assert.ok(execRes.savedResults.length > 0);
+    assert.ok(execRes.evidence.length > 0);
+
+    // Retrieve evidence via listSimulationEvidence
+    const retrievedEvidence = await listSimulationEvidence(pool, orgA.id, sim.id);
+    assert.equal(retrievedEvidence.length, execRes.evidence.length);
+
+    // Verify evidence association contract:
+    // 1. simulation.id vs simulation_result.id vs metadata.simulationId are distinct
+    // 2. evidence.subject_id points to simulation_result.id (NOT simulation.id)
+    // 3. evidence.metadata.simulationId points to parent simulation.id
+    // 4. evidence.metadata.simulationResultId matches evidence.subject_id
+    const resultIds = new Set(execRes.savedResults.map((r) => r.id));
+    for (const ev of retrievedEvidence) {
+      assert.equal(ev.subjectType, "simulation_state");
+      assert.ok(
+        resultIds.has(ev.subjectId),
+        `ev.subjectId (${ev.subjectId}) must match an actual simulation_result.id`,
+      );
+      assert.notEqual(
+        ev.subjectId,
+        sim.id,
+        "evidence.subject_id must be distinct from simulation.id",
+      );
+      assert.equal(
+        ev.metadata?.simulationId,
+        sim.id,
+        "ev.metadata.simulationId must match parent simulation.id",
+      );
+      assert.equal(
+        ev.metadata?.simulationResultId,
+        ev.subjectId,
+        "ev.metadata.simulationResultId must match subjectId",
+      );
+      assert.equal(
+        ev.metadata?.nodeId,
+        nodeA1.id,
+        "ev.metadata.nodeId must match target node ID",
+      );
+    }
+
+    // Cross-tenant lookup returns empty even when evidence exists for orgA
+    const crossTenantWithEvidence = await listSimulationEvidence(pool, orgB.id, sim.id);
+    assert.deepEqual(crossTenantWithEvidence, []);
+  });
+
+  it("14. reconcileSimulationNarrationJob: handles missing and non-completed simulations safely", async () => {
+    // Invalid UUID
+    const badUuid = await reconcileSimulationNarrationJob(pool, "bad", "bad");
+    assert.equal(badUuid.recovered, false);
+    assert.equal(badUuid.reason, "invalid_uuid");
+
+    // Non-existent simulation
+    const missing = await reconcileSimulationNarrationJob(
+      pool,
+      orgA.id,
+      "00000000-0000-0000-0000-000000000099",
+    );
+    assert.equal(missing.recovered, false);
+    assert.equal(missing.reason, "simulation_not_found");
+
+    // Pending simulation (not yet completed)
+    const scenario = await createScenario(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      name: "Pending Sim Scenario",
+      targetNodeId: nodeA1.id,
+      failureType: "unavailable",
+    });
+    const pendingSim = await createSimulation(pool, orgA.id, {
+      scenarioId: scenario.id,
+      analysisRunId: runA1.id,
+      status: "pending",
+    });
+
+    const pendingResult = await reconcileSimulationNarrationJob(pool, orgA.id, pendingSim.id);
+    assert.equal(pendingResult.recovered, false);
+    assert.equal(pendingResult.reason, "simulation_not_completed");
+  });
+
+  it("15. reconcileSimulationNarrationJob: recovers orphaned completed simulation by enqueuing narration job", async () => {
+    const scenario = await createScenario(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      name: "Orphaned Sim Scenario",
+      targetNodeId: nodeA1.id,
+      failureType: "unavailable",
+    });
+    const sim = await createSimulation(pool, orgA.id, {
+      scenarioId: scenario.id,
+      analysisRunId: runA1.id,
+      status: "completed",
+    });
+
+    // Reconcile creates the missing job
+    const recovered = await reconcileSimulationNarrationJob(pool, orgA.id, sim.id);
+    assert.equal(recovered.recovered, true);
+    assert.ok(typeof recovered.jobId === "string");
+
+    // Subsequent reconcile recognizes job is already active
+    const secondCall = await reconcileSimulationNarrationJob(pool, orgA.id, sim.id);
+    assert.equal(secondCall.recovered, false);
+    assert.equal(secondCall.reason, "job_already_active");
+  });
+
+  it("16. reconcileMissingSimulationNarrationJobs: scans and bulk reconciles orphaned simulations", async () => {
+    const scenario = await createScenario(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      name: "Bulk Reconcile Scenario",
+      targetNodeId: nodeA1.id,
+      failureType: "unavailable",
+    });
+    const sim = await createSimulation(pool, orgA.id, {
+      scenarioId: scenario.id,
+      analysisRunId: runA1.id,
+      status: "completed",
+    });
+
+    // Run bulk reconciliation with 0-second threshold for testing
+    const result = await reconcileMissingSimulationNarrationJobs(pool, {
+      organizationId: orgA.id,
+      olderThanSeconds: 0,
+      limit: 10,
+    });
+
+    assert.ok(result.reconciledCount >= 1);
+    assert.ok(result.enqueuedJobIds.length >= 1);
+    assert.ok(sim.id);
+
+    // Second call without threshold returns 0 because jobs are now pending
+    const secondResult = await reconcileMissingSimulationNarrationJobs(pool, {
+      organizationId: orgA.id,
+      olderThanSeconds: 0,
+      limit: 10,
+    });
+    assert.equal(secondResult.reconciledCount, 0);
   });
 });
 

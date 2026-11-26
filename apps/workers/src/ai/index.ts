@@ -15,3 +15,5 @@ export * from "./factory.ts";
 export * from "./context/index.ts";
 export * from "./structured-output/index.ts";
 export * from "./orchestrator.ts";
+export * from "./simulation-context/index.ts";
+export * from "./simulation-orchestrator.ts";

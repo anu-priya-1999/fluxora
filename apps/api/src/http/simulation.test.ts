@@ -10,6 +10,7 @@ import {
   UnsupportedScenarioFailureTypeError,
 } from "@fluxora/db";
 import type {
+  AIAnalysis,
   EvidenceRecord,
   Scenario,
   ScenarioResponse,
@@ -231,6 +232,12 @@ function setupTestEnvironment() {
   let lastExecutedSimulationId: string | null = null;
   let executeSimulationError: Error | null = null;
   let listSimulationResultsError: Error | null = null;
+  let getAIAnalysisError: Error | null = null;
+  const aiAnalysesStore = new Map<string, AIAnalysis>();
+  const narrateSimulationCalls: { organizationId: string; simulationId: string }[] = [];
+  const enqueuedJobCalls: import("@fluxora/shared-types").EnqueueJobInput[] = [];
+  let enqueueJobError: Error | null = null;
+  let enableDirectNarrateSimulation = false;
 
   const deps: SimulationHandlerDependencies = {
     async authenticateClerkToken(authHeader: string | undefined): Promise<string> {
@@ -371,6 +378,49 @@ function setupTestEnvironment() {
       return resultsStore.get(`${organizationId}:${simulationId}`) ?? [];
     },
 
+    async getAIAnalysisBySubject(_pool, organizationId, subjectType, subjectId) {
+      if (getAIAnalysisError) {
+        throw getAIAnalysisError;
+      }
+      return aiAnalysesStore.get(`${organizationId}:${subjectType}:${subjectId}`) ?? null;
+    },
+
+    async enqueueJob(input) {
+      if (enqueueJobError) {
+        throw enqueueJobError;
+      }
+      enqueuedJobCalls.push(input);
+      return {
+        id: "job-sim-1",
+        organizationId: input.organizationId,
+        type: input.type,
+        payload: input.payload ?? {},
+        status: "pending",
+        idempotencyKey: input.idempotencyKey,
+        attemptCount: 0,
+        maxAttempts: 3,
+        configuredMaxAttempts: 3,
+        availableAt: new Date(),
+        lockedAt: null,
+        lockedBy: null,
+        leaseExpiresAt: null,
+        lastError: null,
+        createdAt: new Date(),
+        startedAt: null,
+        completedAt: null,
+        failedAt: null,
+      };
+    },
+
+    get narrateSimulation() {
+      if (!enableDirectNarrateSimulation) {
+        return undefined;
+      }
+      return async (options: { organizationId: string; simulationId: string }) => {
+        narrateSimulationCalls.push(options);
+      };
+    },
+
     async executeSimulation(_pool, organizationId, simulationId) {
       executeSimulationInvocations += 1;
       lastExecutedSimulationId = simulationId;
@@ -472,6 +522,30 @@ function setupTestEnvironment() {
     },
     setListSimulationResultsError: (err: Error | null) => {
       listSimulationResultsError = err;
+    },
+    setGetAIAnalysisError: (err: Error | null) => {
+      getAIAnalysisError = err;
+    },
+    setAIAnalysis: (orgId: string, subjectType: string, subjectId: string, analysis: AIAnalysis | null) => {
+      if (analysis) {
+        aiAnalysesStore.set(`${orgId}:${subjectType}:${subjectId}`, analysis);
+      } else {
+        aiAnalysesStore.delete(`${orgId}:${subjectType}:${subjectId}`);
+      }
+    },
+    getNarrateSimulationCalls: () => narrateSimulationCalls,
+    getEnqueuedJobCalls: () => enqueuedJobCalls,
+    setEnqueueJobError: (err: Error | null) => {
+      enqueueJobError = err;
+    },
+    clearEnqueuedJobCalls: () => {
+      enqueuedJobCalls.length = 0;
+    },
+    setDirectNarrateSimulation: (enabled: boolean) => {
+      enableDirectNarrateSimulation = enabled;
+    },
+    clearNarrateSimulationCalls: () => {
+      narrateSimulationCalls.length = 0;
     },
   };
 }
@@ -1055,6 +1129,75 @@ describe("Simulation HTTP APIs (Step 55)", () => {
       assert.equal(data.total_results, 0);
       assert.deepEqual(data.assumptions, []);
     });
+
+    it("19d. Simulation retrieval returns ai_analysis_id and ai_analysis_status when AIAnalysis record exists", async () => {
+      const mockAI: AIAnalysis = {
+        id: "ai-analysis-sim-1",
+        organizationId: ORG_A,
+        subjectType: "simulation",
+        subjectId: SIMULATION_A,
+        status: "completed",
+        modelUsed: "claude-sonnet-5-5",
+        promptVersion: "simulation-narrate-v1",
+        inputEvidenceIds: ["ev-1"],
+        outputText: "Summary",
+        outputStructured: null,
+        validationStatus: "passed",
+        tokenCount: 100,
+        costUsd: 0.001,
+        latencyMs: 120,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      testEnv.setAIAnalysis(ORG_A, "simulation", SIMULATION_A, mockAI);
+
+      const res = await request(server, {
+        method: "GET",
+        path: `/simulations/${SIMULATION_A}`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const data = res.body as SimulationResponse;
+      assert.equal(data.id, SIMULATION_A);
+      assert.equal(data.ai_analysis_id, "ai-analysis-sim-1");
+      assert.equal(data.ai_analysis_status, "completed");
+
+      // Reset
+      testEnv.setAIAnalysis(ORG_A, "simulation", SIMULATION_A, null);
+    });
+
+    it("19e. Simulation retrieval returns ai_analysis_id: null when no AIAnalysis record exists", async () => {
+      testEnv.setAIAnalysis(ORG_A, "simulation", SIMULATION_A, null);
+
+      const res = await request(server, {
+        method: "GET",
+        path: `/simulations/${SIMULATION_A}`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const data = res.body as SimulationResponse;
+      assert.equal(data.id, SIMULATION_A);
+      assert.equal(data.ai_analysis_id, null);
+    });
+
+    it("19f. Simulation retrieval survives getAIAnalysisBySubject error without failing simulation response", async () => {
+      testEnv.setGetAIAnalysisError(new Error("Transient db error"));
+
+      const res = await request(server, {
+        method: "GET",
+        path: `/simulations/${SIMULATION_A}`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const data = res.body as SimulationResponse;
+      assert.equal(data.id, SIMULATION_A);
+      assert.equal(data.ai_analysis_id, null);
+
+      testEnv.setGetAIAnalysisError(null);
+    });
   });
 
   // =========================================================================
@@ -1447,6 +1590,92 @@ describe("Simulation HTTP APIs (Step 55)", () => {
       );
       assert.equal(resolved, null);
       assert.equal(isReleased(), true);
+    });
+  });
+
+  describe("Simulation Narration Production Trigger and Failure Isolation (Step 63)", () => {
+    it("successfully persisted deterministic simulation triggers simulation.narration job enqueue with tenant scope", async () => {
+      testEnv.clearEnqueuedJobCalls();
+      testEnv.setEnqueueJobError(null);
+      testEnv.setDirectNarrateSimulation(false);
+
+      const res = await request(server, {
+        method: "POST",
+        path: `/scenarios/${SCENARIO_A}/run`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const enqueued = testEnv.getEnqueuedJobCalls();
+      assert.ok(enqueued.length > 0);
+      const lastJob = enqueued[enqueued.length - 1]!;
+      assert.equal(lastJob.type, "simulation.narration");
+      assert.equal(lastJob.organizationId, ORG_A);
+      const simId = testEnv.getLastExecutedSimId();
+      assert.ok(simId);
+      assert.deepEqual(lastJob.payload, { simulationId: simId });
+      assert.equal(lastJob.idempotencyKey, `simulation.narration:${simId}`);
+    });
+
+    it("AI narration enqueue failure does not invalidate or fail deterministic simulation response", async () => {
+      testEnv.clearEnqueuedJobCalls();
+      testEnv.setDirectNarrateSimulation(false);
+      testEnv.setEnqueueJobError(new Error("Job queue storage connection drop"));
+
+      const res = await request(server, {
+        method: "POST",
+        path: `/scenarios/${SCENARIO_A}/run`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      // Deterministic simulation response MUST succeed with 200 OK despite queue failure
+      assert.equal(res.statusCode, 200);
+      const body = res.body as Record<string, unknown>;
+      assert.ok(body.simulation);
+      assert.ok(body.results);
+      assert.equal((body.simulation as Record<string, unknown>).status, "completed");
+
+      // Reset error
+      testEnv.setEnqueueJobError(null);
+    });
+
+    it("direct narrateSimulation callback is invoked when provided in dependencies", async () => {
+      testEnv.clearNarrateSimulationCalls();
+      testEnv.setDirectNarrateSimulation(true);
+
+      const res = await request(server, {
+        method: "POST",
+        path: `/scenarios/${SCENARIO_A}/run`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const narrateCalls = testEnv.getNarrateSimulationCalls();
+      assert.ok(narrateCalls.length > 0);
+      const lastCall = narrateCalls[narrateCalls.length - 1]!;
+      assert.equal(lastCall.organizationId, ORG_A);
+      assert.equal(lastCall.simulationId, testEnv.getLastExecutedSimId());
+
+      testEnv.setDirectNarrateSimulation(false);
+    });
+
+    it("read-only GET /simulations/:id returns ai_analysis metadata but never triggers job enqueue or narration", async () => {
+      testEnv.clearEnqueuedJobCalls();
+      testEnv.clearNarrateSimulationCalls();
+      testEnv.setDirectNarrateSimulation(false);
+
+      const res = await request(server, {
+        method: "GET",
+        path: `/simulations/${SIMULATION_A}`,
+        headers: { Authorization: "Bearer token-org-a" },
+      });
+
+      assert.equal(res.statusCode, 200);
+      const body = res.body as Record<string, unknown>;
+      assert.ok(body.simulation);
+      // Verify NO job was enqueued and NO narration was triggered on read request
+      assert.equal(testEnv.getEnqueuedJobCalls().length, 0);
+      assert.equal(testEnv.getNarrateSimulationCalls().length, 0);
     });
   });
 });

@@ -142,3 +142,14 @@ For each component: **responsibility, inputs, outputs, dependencies, failure mod
   - AI provider outage, rate limits, or network errors → caught by the worker failure boundary; recorded as `status: 'failed'`; deterministic impact findings remain fully valid and completed.
   - Validation rejection (ungrounded claims) → recorded as `status: 'rejected'` with raw ungrounded output withheld; deterministic impact findings remain unaffected.
   - Idempotency hit → reuses existing completed record without regenerating or calling the Model Gateway.
+
+## 5.18 Simulation Narration Orchestrator Service
+
+- **Responsibility:** Implemented under `apps/workers/src/ai/simulation-orchestrator.ts` (Global Step 63). Coordinates the end-to-end failure simulation narration pipeline downstream of deterministic scenario execution (`executeSimulation`). Loads tenant-scoped simulation result and associated state evidence via `loadSimulationNarrationContext` and `listSimulationEvidence`, builds provider-independent request under prompt version `simulation-narrate-v1` with Unicode XML escaping, invokes Step 59 Model Gateway with `taskType: "simulation_narration"`, executes Step 63 structured-output and evidence-grounding validation (`simulation-narration-output-v1`) with at most one corrective retry, aggregates usage/cost/latency metrics across attempts, and persists durable results in `ai_analyses` (`subject_type = 'simulation'`).
+- **Inputs:** `organizationId`, `simulationId`.
+- **Outputs:** Typed `SimulationNarrationOrchestrationResult` (`completed`, `already_completed`, `rejected`, or `failed`).
+- **Dependencies:** Simulation Context Assembler (`apps/workers/src/ai/simulation-context/`), Model Gateway (`apps/workers/src/ai/gateway/`), Simulation Output Validator (`apps/workers/src/ai/structured-output/simulation-validator.ts`), `SimulationRepository` & `AIAnalysisRepository` (`packages/db`), `@fluxora/observability`.
+- **Failure modes:**
+  - AI provider outage, rate limits, or network errors → caught by the worker failure boundary; recorded as `status: 'failed'`; deterministic simulation execution outcomes remain fully valid and completed.
+  - Validation rejection (ungrounded claims, hallucinated propagation paths, unknown properties) → recorded as `status: 'rejected'` with raw ungrounded output withheld; deterministic simulation results remain unaffected.
+  - Idempotency hit → reuses existing completed record without regenerating or calling the Model Gateway.

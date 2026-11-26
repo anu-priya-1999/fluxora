@@ -1,3 +1,4 @@
+import type { AIAnalysisStatus } from "./ai.ts";
 import type {
   GraphEdge,
   GraphEdgeProvenance,
@@ -491,6 +492,8 @@ export interface SimulationResponse {
   readonly total_results?: number | undefined;
   readonly converged?: boolean | undefined;
   readonly iterations?: number | undefined;
+  readonly ai_analysis_id?: string | null | undefined;
+  readonly ai_analysis_status?: AIAnalysisStatus | undefined;
 }
 
 /**

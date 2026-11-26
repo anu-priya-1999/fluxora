@@ -3,6 +3,7 @@ import {
   PULL_REQUEST_IMPACT_ANALYSIS_JOB_TYPE,
   PULL_REQUEST_WEBHOOK_JOB_TYPE,
   REPOSITORY_INGEST_JOB_TYPE,
+  SIMULATION_NARRATION_JOB_TYPE,
 } from "@fluxora/shared-types";
 
 import { testEchoHandler } from "./handlers/test-echo.ts";
@@ -18,6 +19,10 @@ import {
   createProductionPullRequestImpactDependencies,
   createPullRequestImpactAnalysisHandler,
 } from "./pull-request/impact-handler.ts";
+import {
+  createProductionSimulationNarrationDependencies,
+  createSimulationNarrationHandler,
+} from "./simulation/narration-handler.ts";
 
 export type JobHandler = (job: Job) => Promise<void>;
 
@@ -31,10 +36,16 @@ export const pullRequestImpactAnalysisJobHandler: JobHandler =
     createProductionPullRequestImpactDependencies(),
   );
 
+export const simulationNarrationJobHandler: JobHandler =
+  createSimulationNarrationHandler(
+    createProductionSimulationNarrationDependencies(),
+  );
+
 export function createDefaultJobHandlers(options?: {
   ingestHandler?: JobHandler;
   pullRequestWebhookHandler?: JobHandler;
   pullRequestImpactAnalysisHandler?: JobHandler;
+  simulationNarrationHandler?: JobHandler;
 }): JobHandlerRegistry {
   return {
     "test.echo": testEchoHandler,
@@ -48,6 +59,11 @@ export function createDefaultJobHandlers(options?: {
       options?.pullRequestImpactAnalysisHandler ??
       createPullRequestImpactAnalysisHandler(
         createProductionPullRequestImpactDependencies(),
+      ),
+    [SIMULATION_NARRATION_JOB_TYPE]:
+      options?.simulationNarrationHandler ??
+      createSimulationNarrationHandler(
+        createProductionSimulationNarrationDependencies(),
       ),
   };
 }

@@ -201,7 +201,7 @@ Broken into phases; each phase's features are further broken into small, sequent
 2. [x] Implement the Context Assembler (`§9.4`) for the impact-explanation task type first (Global Step 60).
 3. [x] Implement structured-output schemas + the Validator (`§9.6`), including the grounding check against the evidence-id manifest (Global Step 61).
 4. [x] Wire impact-analysis completion → AI explanation generation → `AIExplanationPanel` in the UI (Global Step 62).
-5. Repeat 2–4 for simulation narration (Global Step 63).
+5. [x] Repeat 2–4 for simulation narration (Global Step 63).
 6. Implement the tool-calling free-form chat interface (`§9.5`) with the `query_graph`/`get_evidence`/`run_simulation` tool set (Global Step 64).
 7. Build the initial AI evaluation suite (`12-testing-strategy.md §12.5`) against the golden-fixture repo's impact analyses, establish baseline groundedness/hallucination-rate metrics (Global Step 65).
 8. Implement the deterministic-fallback explanation path for when AI generation fails validation after retries (Global Step 66).

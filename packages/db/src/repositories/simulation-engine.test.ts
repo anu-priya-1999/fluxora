@@ -85,7 +85,7 @@ async function ensureRlsTestRole(pool: pg.Pool): Promise<void> {
   await pool.query(`GRANT SELECT ON TABLE organizations TO fluxora_rls_test`);
   await pool.query(`
     GRANT SELECT, INSERT, UPDATE, DELETE
-    ON TABLE repositories, repository_snapshots, commits, analysis_runs, graph_nodes, graph_edges, evidence, pull_requests, pull_request_files, impact_analyses, scenarios, simulations, simulation_results
+    ON TABLE repositories, repository_snapshots, commits, analysis_runs, graph_nodes, graph_edges, evidence, pull_requests, pull_request_files, impact_analyses, scenarios, simulations, simulation_results, jobs
     TO fluxora_rls_test
   `);
 
@@ -1265,5 +1265,46 @@ describe.skipIf(!hasDatabase)("Step 54: Simulation Engine - PostgreSQL Persisten
     } finally {
       EvidenceWriter.writeEvidenceBatchTx = originalWriteEvidenceBatchTx;
     }
+  });
+
+  it("6. executeSimulation with enqueueNarrationJob: true enqueues simulation.narration atomically in same transaction", async () => {
+    const scenario = await createScenario(pool, {
+      organizationId: orgA.id,
+      repositoryId: repoA.id,
+      name: "Transactional Job Enqueue Scenario",
+      targetNodeId: nodePayment.id,
+      failureType: "unavailable",
+    });
+
+    const sim = await createSimulation(pool, orgA.id, {
+      scenarioId: scenario.id,
+      analysisRunId: runA1.id,
+    });
+
+    const res = await executeSimulation(pool, orgA.id, sim.id, {
+      enqueueNarrationJob: true,
+    });
+
+    assert.equal(res.simulation.status, "completed");
+    assert.ok(typeof res.enqueuedJobId === "string");
+
+    // Verify job was persisted in database with correct payload
+    const jobCheck = await pool.query<{
+      id: string;
+      type: string;
+      status: string;
+      payload: Record<string, unknown>;
+    }>(
+      `SELECT id, type, status, payload
+       FROM jobs
+       WHERE id = $1::uuid`,
+      [res.enqueuedJobId],
+    );
+
+    assert.equal(jobCheck.rows.length, 1);
+    const job = jobCheck.rows[0]!;
+    assert.equal(job.type, "simulation.narration");
+    assert.equal(job.status, "pending");
+    assert.equal(job.payload["simulationId"], sim.id);
   });
 });

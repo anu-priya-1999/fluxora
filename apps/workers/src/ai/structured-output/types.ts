@@ -39,6 +39,37 @@ export interface ImpactExplanationOutput {
 }
 
 /**
+ * Model-assessed confidence level in its simulation narration explanation.
+ */
+export type SimulationNarrationConfidence = "high" | "medium" | "low";
+
+/**
+ * A single factual statement about a simulated failure or propagation path,
+ * citing one or more verified evidence IDs from the trusted simulation manifest.
+ */
+export interface SimulationNarrationClaim {
+  readonly text: string;
+  readonly evidence_ids: readonly string[];
+}
+
+/**
+ * The canonical validated simulation-narration payload conforming to
+ * Phase 9 Step 63.
+ *
+ * Contains exactly four fields: summary, claims, confidence, caveats.
+ */
+export interface SimulationNarrationOutput {
+  /** Concise narrative explaining the simulated failure scenario and propagation results. */
+  readonly summary: string;
+  /** Factual statements, each citing one or more verified evidence IDs from the simulation manifest. */
+  readonly claims: readonly SimulationNarrationClaim[];
+  /** Model-assessed confidence in its explanation narrative ('high' | 'medium' | 'low'). */
+  readonly confidence: SimulationNarrationConfidence;
+  /** Limitations, scenario bounds, and relevant caveats. */
+  readonly caveats: readonly string[];
+}
+
+/**
  * Category of a validation issue:
  * - 'parse': strict JSON parsing failures (syntax error, markdown fences, non-object root, empty input)
  * - 'schema': structure, required fields, types, string length, array bounds, unrecognized fields
