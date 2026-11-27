@@ -60,6 +60,13 @@ Treated as a distinct, continuously-run test suite — not a manual spot-check.
 **Latency & cost**
 - Every eval run records p50/p95 latency and cost per call type, tracked over time alongside quality metrics — a prompt change that improves groundedness but doubles cost/latency is a real trade-off decision, not a free win, and the eval suite should make that trade-off visible.
 
+**Step 65 Implementation & Execution Modes (`apps/workers/src/ai/eval/`)**
+- **Versioned Dataset (`fixtures/golden/ai-eval-dataset.json`):** Covers `impact_explanation`, `simulation_narration`, and `chat_query` against the pinned `shadcn-ui/taxonomy` golden fixtures (`298a8857c7128a0d121e7f699dfd729f23b3966d`), using stable evidence selectors and provisional reference annotations (`supported`, `unsupported`, `contradicted`, `ambiguous`).
+- **Adversarial Prompt-Injection Fixture (`fixtures/golden/adversarial-injection-fixture.json`):** Clean/adversarial pair testing README overrides, code-comment dependency/evidence-ID injection, XML breakout payloads, and cross-tenant chat exfiltration while preserving identical verified architectural facts.
+- **Deterministic CI Mode (`ci_mock`):** Runs offline via `pnpm test` and `pnpm eval:ai` using `MockModelProvider` without network calls or API keys; never fabricates mock token/cost metrics (`null`).
+- **Opt-In Live Mode (`live`):** Requires explicit `--mode=live`, `USE_REAL_LLM=true`, and `ANTHROPIC_API_KEY`, enforcing hard case, token, cost, and duration budgets.
+- **Release Gates & Statistical Honesty:** Enforces zero invalid citations, 100% schema validity within 2 attempts, no rising retry regression, 100% adversarial containment, and `<2%` hallucination promotion target with `>= 20` live claims; mock or undersized runs report `inconclusive` rather than a false `pass`.
+
 ## 12.6 Test pyramid summary
 
 ```mermaid

@@ -8,6 +8,7 @@
   },
   "scripts": {
     "start": "node --experimental-strip-types src/run.ts",
+    "eval:ai": "node --experimental-strip-types src/ai/eval/cli.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },

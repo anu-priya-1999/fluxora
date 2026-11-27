@@ -1,0 +1,288 @@
+{
+  "datasetVersion": "ai-eval-dataset-v1",
+  "description": "Provisional golden evaluation dataset for Fluxora Phase 9 AI tasks (impact_explanation, simulation_narration, chat_query) anchored to shadcn-ui/taxonomy; reference annotations are provisional pending human review.",
+  "goldenRepository": "shadcn-ui/taxonomy",
+  "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+  "createdAt": "2026-11-27T00:00:00Z",
+  "cases": [
+    {
+      "caseId": "eval-impact-taxonomy-pr42-subscription",
+      "taskType": "impact_explanation",
+      "promptVersion": "impact-explain-v1",
+      "goldenFixtureId": "golden-taxonomy-pr-subscription-v1",
+      "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+      "title": "PR #42 subscription plan validation blast radius",
+      "description": "Evaluates AI explanation of deterministic impact findings for PR #42 modifying lib/subscription.ts and adding content/docs/billing.mdx.",
+      "expectedFindings": [
+        "lib/subscription.ts and getUserSubscriptionPlan are directly impacted",
+        "app/(dashboard)/dashboard/billing/page.tsx, app/api/posts/route.ts, and app/api/users/stripe/route.ts are directly impacted",
+        "Affected APIs include GET /api/posts, POST /api/posts, and GET /api/users/stripe",
+        "content/docs/billing.mdx is an unresolved changed file",
+        "Graph traversal was truncated at maxDepth 2"
+      ],
+      "expectedEntities": [
+        "lib/subscription.ts",
+        "getUserSubscriptionPlan",
+        "app/(dashboard)/dashboard/billing/page.tsx",
+        "app/api/posts/route.ts",
+        "app/api/users/stripe/route.ts",
+        "content/docs/billing.mdx",
+        "GET /api/posts",
+        "POST /api/posts",
+        "GET /api/users/stripe"
+      ],
+      "expectedEvidenceSelectors": [
+        {
+          "selectorId": "sel-impact-sub",
+          "subjectType": "impact_finding",
+          "canonicalId": "mod:lib/subscription.ts",
+          "filePath": "lib/subscription.ts",
+          "relationshipDescriptionContains": "subscription"
+        },
+        {
+          "selectorId": "sel-impact-billing-page",
+          "subjectType": "impact_finding",
+          "canonicalId": "mod:app/(dashboard)/dashboard/billing/page.tsx",
+          "filePath": "app/(dashboard)/dashboard/billing/page.tsx",
+          "relationshipDescriptionContains": "billing"
+        },
+        {
+          "selectorId": "sel-impact-posts-api",
+          "subjectType": "impact_finding",
+          "canonicalId": "mod:app/api/posts/route.ts",
+          "filePath": "app/api/posts/route.ts",
+          "relationshipDescriptionContains": "posts"
+        },
+        {
+          "selectorId": "sel-impact-stripe-api",
+          "subjectType": "impact_finding",
+          "canonicalId": "mod:app/api/users/stripe/route.ts",
+          "filePath": "app/api/users/stripe/route.ts",
+          "relationshipDescriptionContains": "stripe"
+        }
+      ],
+      "expectedCaveats": [
+        "Traversal truncated at maxDepth 2",
+        "content/docs/billing.mdx is unresolved in the code graph"
+      ],
+      "prohibitedClaims": [
+        "app/api/webhooks/stripe/route.ts is affected",
+        "components/site-footer.tsx is affected",
+        "All 177 repository files were analyzed without truncation"
+      ],
+      "humanReferenceAnnotations": [
+        {
+          "claimPattern": "lib/subscription.ts",
+          "requiredSelectorIds": ["sel-impact-sub"],
+          "expectedLabel": "supported",
+          "rationale": "Directly backed by impact_finding evidence on mod:lib/subscription.ts"
+        },
+        {
+          "claimPattern": "billing/page.tsx",
+          "requiredSelectorIds": ["sel-impact-billing-page"],
+          "expectedLabel": "supported",
+          "rationale": "Directly backed by impact_finding evidence on billing page module"
+        },
+        {
+          "claimPattern": "/api/posts",
+          "requiredSelectorIds": ["sel-impact-posts-api"],
+          "expectedLabel": "supported",
+          "rationale": "Directly backed by impact_finding evidence on app/api/posts/route.ts"
+        },
+        {
+          "claimPattern": "/api/users/stripe",
+          "requiredSelectorIds": ["sel-impact-stripe-api"],
+          "expectedLabel": "supported",
+          "rationale": "Directly backed by impact_finding evidence on app/api/users/stripe/route.ts"
+        }
+      ]
+    },
+    {
+      "caseId": "eval-impact-taxonomy-pr42-truncation-caveat",
+      "taskType": "impact_explanation",
+      "promptVersion": "impact-explain-v1",
+      "goldenFixtureId": "golden-taxonomy-pr-subscription-v1",
+      "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+      "title": "PR #42 truncation and unresolved file honesty",
+      "description": "Verifies that when impact context is truncated and contains unresolved files, the explanation surfaces both limitations without fabricating coverage.",
+      "expectedFindings": [
+        "lib/subscription.ts is directly impacted",
+        "content/docs/billing.mdx could not be resolved to graph symbols"
+      ],
+      "expectedEntities": [
+        "lib/subscription.ts",
+        "content/docs/billing.mdx"
+      ],
+      "expectedEvidenceSelectors": [
+        {
+          "selectorId": "sel-impact-sub",
+          "subjectType": "impact_finding",
+          "canonicalId": "mod:lib/subscription.ts",
+          "filePath": "lib/subscription.ts",
+          "relationshipDescriptionContains": "subscription"
+        }
+      ],
+      "expectedCaveats": [
+        "truncated",
+        "unresolved"
+      ],
+      "prohibitedClaims": [
+        "No files were unresolved",
+        "Impact analysis is 100% complete without truncation"
+      ],
+      "humanReferenceAnnotations": [
+        {
+          "claimPattern": "lib/subscription.ts",
+          "requiredSelectorIds": ["sel-impact-sub"],
+          "expectedLabel": "supported",
+          "rationale": "Backed by mod:lib/subscription.ts finding evidence"
+        }
+      ]
+    },
+    {
+      "caseId": "eval-simulation-taxonomy-subscription-unavailable",
+      "taskType": "simulation_narration",
+      "promptVersion": "simulation-narrate-v1",
+      "goldenFixtureId": "golden-taxonomy-simulation-v1",
+      "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+      "title": "Simulation of lib/subscription.ts unavailability",
+      "description": "Evaluates AI narration of deterministic simulation where mod:lib/subscription.ts fails and mod:app/api/users/stripe/route.ts becomes degraded.",
+      "expectedFindings": [
+        "mod:lib/subscription.ts transitions to failed via target_failure with confidence 1.0",
+        "mod:app/api/users/stripe/route.ts transitions to degraded via CALLS+sync+no_fallback with confidence 0.9",
+        "This is a synthetic failure simulation, not an observed production outage"
+      ],
+      "expectedEntities": [
+        "lib/subscription.ts",
+        "app/api/users/stripe/route.ts",
+        "getUserSubscriptionPlan",
+        "target_failure",
+        "CALLS+sync+no_fallback"
+      ],
+      "expectedEvidenceSelectors": [
+        {
+          "selectorId": "sel-sim-sub-failed",
+          "subjectType": "simulation_state",
+          "canonicalId": "mod:lib/subscription.ts",
+          "filePath": "lib/subscription.ts",
+          "resultingState": "failed",
+          "ruleApplied": "target_failure"
+        },
+        {
+          "selectorId": "sel-sim-stripe-degraded",
+          "subjectType": "simulation_state",
+          "canonicalId": "mod:app/api/users/stripe/route.ts",
+          "filePath": "app/api/users/stripe/route.ts",
+          "resultingState": "degraded",
+          "ruleApplied": "CALLS+sync+no_fallback"
+        }
+      ],
+      "expectedCaveats": [
+        "Simulated scenario based on static dependencies, not a live production incident",
+        "Assumes no circuit breaker or fallback handler on the synchronous call"
+      ],
+      "prohibitedClaims": [
+        "app/api/users/stripe/route.ts is failed",
+        "components/site-footer.tsx is degraded",
+        "Production telemetry confirmed this outage"
+      ],
+      "humanReferenceAnnotations": [
+        {
+          "claimPattern": "failed",
+          "requiredSelectorIds": ["sel-sim-sub-failed"],
+          "expectedLabel": "supported",
+          "rationale": "Backed by simulation_state evidence for target_failure on mod:lib/subscription.ts"
+        },
+        {
+          "claimPattern": "degraded",
+          "requiredSelectorIds": ["sel-sim-stripe-degraded"],
+          "expectedLabel": "supported",
+          "rationale": "Backed by simulation_state evidence for CALLS+sync+no_fallback on app/api/users/stripe/route.ts"
+        }
+      ]
+    },
+    {
+      "caseId": "eval-chat-taxonomy-subscription-callers",
+      "taskType": "chat_query",
+      "promptVersion": "chat-query-v1",
+      "goldenFixtureId": "golden-taxonomy-v1",
+      "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+      "title": "Architecture chat query: callers and impact of lib/subscription.ts",
+      "description": "Evaluates tool-calling architecture chat answering which endpoints depend on lib/subscription.ts.",
+      "query": "Which API routes depend on lib/subscription.ts and what happens if it becomes unavailable?",
+      "expectedToolBehavior": {
+        "allowedTools": ["query_graph", "get_evidence", "run_simulation"],
+        "expectedMinToolCalls": 1,
+        "expectedToolsUsed": ["query_graph", "run_simulation"]
+      },
+      "expectedFindings": [
+        "app/api/users/stripe/route.ts calls getUserSubscriptionPlan in lib/subscription.ts",
+        "Simulated unavailability of lib/subscription.ts degrades app/api/users/stripe/route.ts"
+      ],
+      "expectedEntities": [
+        "lib/subscription.ts",
+        "app/api/users/stripe/route.ts",
+        "getUserSubscriptionPlan"
+      ],
+      "expectedEvidenceSelectors": [
+        {
+          "selectorId": "sel-chat-graph-edge",
+          "subjectType": "graph_edge",
+          "canonicalId": "mod:app/api/users/stripe/route.ts",
+          "filePath": "app/api/users/stripe/route.ts",
+          "relationshipDescriptionContains": "getUserSubscriptionPlan"
+        },
+        {
+          "selectorId": "sel-chat-sim-degraded",
+          "subjectType": "simulation_state",
+          "canonicalId": "mod:app/api/users/stripe/route.ts",
+          "filePath": "app/api/users/stripe/route.ts",
+          "resultingState": "degraded",
+          "ruleApplied": "CALLS+sync+no_fallback"
+        }
+      ],
+      "expectedCaveats": [
+        "Simulation results are synthetic, not observed production incidents"
+      ],
+      "prohibitedClaims": [
+        "app/api/og/route.tsx calls lib/subscription.ts",
+        "components/site-footer.tsx is degraded"
+      ],
+      "humanReferenceAnnotations": [
+        {
+          "claimPattern": "app/api/users/stripe/route.ts",
+          "requiredSelectorIds": ["sel-chat-graph-edge", "sel-chat-sim-degraded"],
+          "expectedLabel": "supported",
+          "rationale": "Backed by tool-returned graph_edge and simulation_state evidence"
+        }
+      ]
+    },
+    {
+      "caseId": "eval-chat-taxonomy-missing-evidence-abstention",
+      "taskType": "chat_query",
+      "promptVersion": "chat-query-v1",
+      "goldenFixtureId": "golden-taxonomy-v1",
+      "pinnedCommitSha": "298a8857c7128a0d121e7f699dfd729f23b3966d",
+      "title": "Architecture chat abstention when no graph evidence exists",
+      "description": "Evaluates that chat_query returns empty claims and surfaces caveats when a queried component has no verified evidence.",
+      "query": "What Kafka topics does Taxonomy publish to?",
+      "expectedToolBehavior": {
+        "allowedTools": ["query_graph", "get_evidence", "run_simulation"],
+        "expectedMinToolCalls": 1,
+        "expectedToolsUsed": ["query_graph"]
+      },
+      "expectedFindings": [
+        "No verified graph evidence identifies Kafka topics or publishers for Taxonomy; the assistant must abstain from claiming any"
+      ],
+      "expectedEntities": [],
+      "expectedEvidenceSelectors": [],
+      "expectedCaveats": [
+        "No verified evidence found for Kafka topics"
+      ],
+      "prohibitedClaims": [
+        "Taxonomy publishes billing events to Kafka"
+      ],
+      "humanReferenceAnnotations": []
+    }
+  ]
+}

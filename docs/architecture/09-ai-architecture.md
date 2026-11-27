@@ -113,7 +113,7 @@ The model never gets a generic "read any file", "run arbitrary query", or mutati
 2. Contextual (Steps 60 & 63): only verified, scoped evidence is provided (`subjectType === "impact_finding"` for impact analyses; `subjectType === "simulation_state"` for simulations), with an explicit allowed-citation manifest synchronized strictly with retained evidence (§9.4.1, §9.4.2, §9.4.3).
 3. Output-level (Steps 61 & 63): schema validation + grounding validation enforce strict whole-response rejection (ADR-014, ADR-016) whenever any claim cites an evidence ID outside the allowed manifest (§9.6); claims are never silently stripped or partially accepted. Note that manifest membership enforces citation provenance and allowlist compliance, not semantic correctness.
 4. Presentational: the UI visually distinguishes AI narration from graph-derived fact, and confidence/caveats surfaced by the model are always rendered, never hidden.
-5. Evaluation (Step 65): a continuously-run AI eval suite tracks groundedness, semantic support, and hallucination rate over time as a first-class metric (`12-testing-strategy.md §AI evaluation`), not a one-time check.
+5. Evaluation (Step 65): a continuously-run AI eval suite (`apps/workers/src/ai/eval/`, `pnpm eval:ai`) tracks semantic groundedness, entity hallucinations, retry rates, latency/cost, and prompt-injection resistance over time as a first-class metric (`12-testing-strategy.md §12.5`), separating offline `ci_mock` harness checks from opt-in budget-bounded `live` model baselines.
 
 ## 9.8 Provenance
 

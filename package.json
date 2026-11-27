@@ -17,6 +17,7 @@
     "dev": "pnpm -r --if-present dev",
     "lint": "eslint .",
     "lint:evidence": "node --experimental-strip-types scripts/evidence-lint.ts",
+    "eval:ai": "pnpm --filter @fluxora/workers eval:ai",
     "format": "pnpm -r --if-present format",
     "test": "pnpm -r --if-present test"
   },

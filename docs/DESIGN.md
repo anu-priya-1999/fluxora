@@ -13904,3 +13904,30 @@ Unlike PR impact explanation (Step 62) and simulation narration (Step 63), which
 - `apps/workers/src/ai/chat/chat-orchestrator.test.ts`: 5 tests verifying end-to-end tool-calling orchestration and `AIAnalysis` persistence, fabricated evidence ID rejection, XML delimiter escaping on prompt-injection attempts, `MAX_TOOL_ROUNDS` enforcement, and `chat.query` job handler execution.
 - `apps/api/src/http/chat-query.test.ts`: 4 tests verifying `401` unauthenticated rejection, `404` on cross-tenant or missing repository/analysis run, `202 Accepted` + `chat.query` job enqueueing with session-derived `organizationId`, and `400` validation for invalid question/history.
 - `apps/web/src/components/ai/ArchitectureChatPanel.test.tsx`: 3 tests verifying empty state/accessible input, pending/completed/rejected/failed rendering with tool activity and evidence citations, and `POST /api/v1/chat/query` submission + failure handling.
+
+---
+
+## Global Step 65: AI Evaluation Suite, Groundedness & Hallucination Baselines
+
+### 1. Objective and Architectural Context
+Global Step 65 implements **Phase 9 Step 7**: Fluxora's initial continuously-run AI evaluation suite (`apps/workers/src/ai/eval/`) against the pinned `shadcn-ui/taxonomy` golden fixtures (`298a8857c7128a0d121e7f699dfd729f23b3966d`), covering all three Phase 9 AI task types (`impact_explanation`, `simulation_narration`, `chat_query`).
+
+### 2. Implemented Components (ADR-018)
+- **Versioned Dataset & Adversarial Fixture (`fixtures/golden/`)**:
+  - `ai-eval-dataset.json` (`ai-eval-dataset-v1`): 5 provisional golden evaluation cases with stable evidence selectors, expected entities/paths, expected caveats, prohibited claims, and provisional reference annotations (`supported`, `unsupported`, `contradicted`, `ambiguous`; pending formal human review).
+  - `adversarial-injection-fixture.json` (`golden-taxonomy-adversarial-v1`): Clean/adversarial fixture pair testing README overrides, comment dependency/evidence-ID injection, XML breakout payloads, and cross-tenant chat exfiltration while preserving identical verified architectural facts.
+  - `ai-eval-baseline.json` (`ai-eval-baseline-v1`): Initial `mock_harness` baseline explicitly separated from live Claude quality baselines (`mock_harness` results are deterministic harness validation, not live-model quality evidence). Persisted baseline metrics:
+    - `evaluatedCasesCount`: number of golden evaluation cases executed.
+    - `evaluatedClaimsCount`: number of factual claims evaluated.
+    - `hallucinationRate`: `(unsupported + contradicted) / evaluatedClaimsCount`.
+    - `conservativeHallucinationRate`: existing conservative metric sourced directly from `semanticGroundedness.conservativeHallucinationRate` (`(unsupported + contradicted + ambiguous) / evaluatedClaimsCount`), accounting for ambiguous claims without silently classifying them as supported.
+    - `sampleCount`: legacy alias for `evaluatedCasesCount` retained for backward compatibility (kept equal to `evaluatedCasesCount`, distinct from `evaluatedClaimsCount`).
+- **Evaluation Engine (`apps/workers/src/ai/eval/`)**:
+  - `semantic-evaluator.ts`: Evaluates manifest membership, selector-level human reference alignment, deterministic contradiction detection, substantive evidence support, and optional bounded held-out judge refinement, explicitly tracking `ambiguous` claims separately without silently classifying them as `supported`.
+  - `entity-checker.ts`: Deterministically extracts file paths, HTTP APIs, canonical IDs, and internal service hostnames, flagging unsupported entities, absent relationships, and simulation state mismatches.
+  - `metrics.ts`: Aggregates citation provenance, semantic groundedness, hallucination rate, structured-output/retry rates, entity hallucinations, and `p50`/`p95`/mean latency and token/cost metrics (preserving `null` when `MockModelProvider` reports no real usage).
+  - `runner.ts` & `cli.ts`: Supports offline `ci_mock` mode (`pnpm test`, `pnpm eval:ai`) and opt-in budget-bounded `live` mode (`--mode=live` with `USE_REAL_LLM=true` and `ANTHROPIC_API_KEY`).
+  - `baseline.ts`: Enforces explicit `--update-baseline` approval and release gates (`pass` / `fail` / `inconclusive`).
+
+### 3. Verification Suite
+- `apps/workers/src/ai/eval/eval.test.ts`: 6 tests verifying dataset/fixture integrity, three-level grounding separation, entity hallucination detection, corrective retry accounting, adversarial containment, baseline overwrite protection, and fail-closed live mode configuration.
