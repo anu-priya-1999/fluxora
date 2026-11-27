@@ -370,3 +370,81 @@ export function parseSimulationNarrationJobPayload(
 
   return { simulationId };
 }
+
+/** PostgreSQL job type handled for tool-calling architecture chat (Step 64). */
+export const CHAT_QUERY_JOB_TYPE = "chat.query" as const;
+
+export interface ChatQueryJobPayload {
+  readonly chatQueryId: string;
+  readonly repositoryId: string;
+  readonly analysisRunId: string;
+  readonly question: string;
+  readonly history?: ReadonlyArray<{ readonly role: "user" | "assistant"; readonly content: string }> | undefined;
+  readonly sessionId?: string | undefined;
+}
+
+/** Stable idempotency key for chat query job enqueueing. */
+export function chatQueryIdempotencyKey(chatQueryId: string): string {
+  return `${CHAT_QUERY_JOB_TYPE}:${chatQueryId}`;
+}
+
+export function parseChatQueryJobPayload(
+  payload: JobPayload,
+): ChatQueryJobPayload | null {
+  const chatQueryId = payload["chatQueryId"];
+  const repositoryId = payload["repositoryId"];
+  const analysisRunId = payload["analysisRunId"];
+  const question = payload["question"];
+  const history = payload["history"];
+  const sessionId = payload["sessionId"];
+
+  if (typeof chatQueryId !== "string" || !UUID_PATTERN.test(chatQueryId)) {
+    return null;
+  }
+  if (typeof repositoryId !== "string" || !UUID_PATTERN.test(repositoryId)) {
+    return null;
+  }
+  if (typeof analysisRunId !== "string" || !UUID_PATTERN.test(analysisRunId)) {
+    return null;
+  }
+  if (typeof question !== "string" || question.trim().length === 0) {
+    return null;
+  }
+  if (
+    sessionId !== undefined &&
+    (typeof sessionId !== "string" || !UUID_PATTERN.test(sessionId))
+  ) {
+    return null;
+  }
+
+  let parsedHistory: Array<{ readonly role: "user" | "assistant"; readonly content: string }> | undefined;
+  if (history !== undefined) {
+    if (!Array.isArray(history)) {
+      return null;
+    }
+    parsedHistory = [];
+    for (const item of history) {
+      if (
+        typeof item !== "object" ||
+        item === null ||
+        (item["role"] !== "user" && item["role"] !== "assistant") ||
+        typeof item["content"] !== "string"
+      ) {
+        return null;
+      }
+      parsedHistory.push({
+        role: item["role"],
+        content: item["content"],
+      });
+    }
+  }
+
+  return {
+    chatQueryId,
+    repositoryId,
+    analysisRunId,
+    question,
+    ...(parsedHistory !== undefined ? { history: parsedHistory } : {}),
+    ...(typeof sessionId === "string" ? { sessionId } : {}),
+  };
+}

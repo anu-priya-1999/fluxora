@@ -64,13 +64,14 @@ export class MockModelProvider implements ModelProviderAdapter {
       }
       if (next) {
         return {
-          text: next.text ?? this.buildDefaultText(params),
+          text: next.text ?? (next.toolUses && next.toolUses.length > 0 ? "" : this.buildDefaultText(params)),
+          ...(next.toolUses && next.toolUses.length > 0 ? { toolUses: next.toolUses } : {}),
           model: next.model ?? params.model,
           inputTokens: next.inputTokens ?? null,
           outputTokens: next.outputTokens ?? null,
           totalTokens: next.totalTokens ?? null,
           providerRequestId: next.providerRequestId ?? `mock-req-${this.callCount}`,
-          stopReason: next.stopReason ?? "end_turn",
+          stopReason: next.stopReason ?? (next.toolUses && next.toolUses.length > 0 ? "tool_use" : "end_turn"),
         };
       }
     }
@@ -91,9 +92,18 @@ export class MockModelProvider implements ModelProviderAdapter {
       .reverse()
       .find((m) => m.role === "user");
 
-    const excerpt = lastUserMessage
-      ? lastUserMessage.content.slice(0, 32).trim()
-      : "no content";
+    let rawExcerpt = "no content";
+    if (lastUserMessage) {
+      if (lastUserMessage.content.length > 0) {
+        rawExcerpt = lastUserMessage.content;
+      } else if (lastUserMessage.blocks && lastUserMessage.blocks.length > 0) {
+        const textBlock = lastUserMessage.blocks.find((b) => b.type === "text");
+        const toolResultBlock = lastUserMessage.blocks.find((b) => b.type === "tool_result");
+        rawExcerpt = textBlock?.text ?? toolResultBlock?.content ?? "content blocks";
+      }
+    }
+
+    const excerpt = rawExcerpt.slice(0, 32).trim();
 
     return `[MOCK_OUTPUT] Model: ${params.model}. Processed prompt excerpt: "${excerpt}".`;
   }
@@ -119,6 +129,7 @@ export class MockModelGateway implements ModelGateway {
       model: "mock-model",
       systemInstruction: request.systemInstruction,
       messages: request.messages,
+      ...(request.tools ? { tools: request.tools } : {}),
       maxTokens: request.maxTokens ?? 1024,
       timeoutMs: request.timeoutMs ?? 1000,
       signal: request.signal,
@@ -127,6 +138,7 @@ export class MockModelGateway implements ModelGateway {
 
     return {
       text: result.text,
+      ...(result.toolUses && result.toolUses.length > 0 ? { toolUses: result.toolUses } : {}),
       provider: "mock",
       model: result.model,
       taskType: request.taskType,

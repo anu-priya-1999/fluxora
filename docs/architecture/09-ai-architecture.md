@@ -80,13 +80,13 @@ Implemented under `apps/workers/src/ai/simulation-context/`:
 
 ## 9.5 Tool calling
 
-For free-form chat queries where the user's question doesn't map to a pre-computed `ImpactAnalysis`/`SimulationResult`, the model is given a small, explicit tool set rather than open-ended repository access:
+For free-form chat queries where the user's question doesn't map to a pre-computed `ImpactAnalysis`/`SimulationResult`, the model is given a small, explicit, provider-independent tool set (`apps/workers/src/ai/chat/tools.ts`) rather than open-ended repository access:
 
-- `query_graph(start_node, direction, max_depth, edge_types)` → calls the deterministic Graph Query engine (§7.2) and returns structured results
-- `get_evidence(evidence_id)` → fetches a specific evidence record
-- `run_simulation(target_node, failure_type)` → triggers the deterministic Simulation Engine (bounded, rate-limited per session to prevent abuse/cost blowup)
+- `query_graph(start_node, direction, max_depth, edge_types)` → **read-only**; resolves the start node within the authorized `analysisRunId`, enforces `HARD_MAX_TRAVERSAL_DEPTH` (20, default 3), calls the deterministic Graph Query engine (`traverseGraph`), and accumulates returned evidence IDs into the trusted manifest.
+- `get_evidence(evidence_id)` → **read-only**; fetches a specific evidence record via tenant-scoped `getEvidenceById`, rejecting missing, cross-tenant, or cross-analysis-run records.
+- `run_simulation(target_node, failure_type)` → the **sole bounded, non-destructive state-creating operation**; validates the target node and supported failure type (`unavailable` | `latency`), creates new synthetic `Scenario` (tagged `source: "chat_query"`) and `Simulation` records through the deterministic simulation engine (`executeSimulation(..., { enqueueNarrationJob: false })`), enforces per-request (`MAX_SIMULATIONS_PER_REQUEST = 2`) and per-session (`MAX_SIMULATIONS_PER_SESSION = 5`) limits, and caches `(resolvedNode.id, failureType)` within the request for idempotency.
 
-The model never gets a generic "read any file" or "run arbitrary query" tool — every tool call still routes through the deterministic core and its evidence/confidence machinery.
+The model never gets a generic "read any file", "run arbitrary query", or mutation tool — it cannot modify source code, repositories, existing graph records, infrastructure, or existing simulations, and bounded synthetic simulation creation is not unrestricted database mutation or autonomous remediation. Every tool call routes through the deterministic core and its evidence/confidence machinery, with unknown tools, non-object inputs, and unrecognized keys rejected before execution and unexpected tool errors contained as `tool_execution_error` results. Tenant (`organizationId`), `repositoryId`, and `analysisRunId` scope are always derived from trusted server context (`TrustedChatContext`), never from model-generated arguments. Execution is bounded by `MAX_TOOL_ROUNDS = 5`, `MAX_TOTAL_TOOL_CALLS = 10`, `MAX_EXECUTION_TIME_MS = 45_000`, and `MAX_TOOL_RESULT_CHARS = 16_000`.
 
 ## 9.6 Structured outputs & validation
 
@@ -158,3 +158,16 @@ The production integration connects completed deterministic failure simulations 
    - `GET /api/v1/simulations/:id` provides `ai_analysis_id` and `ai_analysis_status`.
    - `GET /api/v1/ai-analyses/:id` returns authenticated, tenant-isolated narration data.
    - `AISimulationNarrationPanel` in `SimulationStudio` renders summary, claims with interactive `EvidenceCitationList` chips, model confidence badge, synthetic scenario disclaimer, caveats, and safe degradation states with bounded discovery polling.
+
+## 9.11 End-to-End Tool-Calling Architecture Chat Pipeline (Global Step 64)
+
+1. **API Enqueue (`POST /api/v1/chat/query`)**:
+   - Authenticates via Clerk, derives `organizationId` from session, verifies repository and analysis-run ownership, creates a pending `AIAnalysis` (`subject_type = 'chat_query'`, `subject_id = chatQueryId`), enqueues `chat.query` job, and returns `202 Accepted` with `ai_analysis_id`.
+2. **Orchestration Execution (`orchestrateChatQuery`)**:
+   - Checks idempotency via `getAIAnalysisBySubject`.
+   - Builds `chat-query-v1` prompt with bounded, XML-escaped conversation history and question.
+   - Executes up to `MAX_TOOL_ROUNDS = 5` / `MAX_TOTAL_TOOL_CALLS = 10` through `ModelGateway` using only `query_graph`, `get_evidence`, and `run_simulation`.
+   - Accumulates `allowedEvidenceIds` from successful tool outputs and validates the final JSON against `chat-query-output-v1` (max 1 corrective retry, atomic whole-response rejection).
+   - Persists results, usage/cost/latency metrics, and `toolActivity` metadata in `ai_analyses`.
+3. **UI Delivery**:
+   - `ArchitectureChatPanel` in the Architecture Explorer polls `GET /api/v1/ai-analyses/:id` and renders conversation turns, tool activity indicators, `EvidenceCitationList` chips, and retry recovery.

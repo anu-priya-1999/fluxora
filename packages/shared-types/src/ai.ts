@@ -73,6 +73,42 @@ export interface AIAnalysisResponse {
   readonly latency_ms: number;
   readonly schema_version?: string | null | undefined;
   readonly error_message?: string | null | undefined;
+  readonly metadata?: Record<string, unknown> | undefined;
   readonly created_at: string;
   readonly updated_at: string;
+}
+
+/**
+ * Step 64: Tool-Calling Free-Form Architecture Chat contracts.
+ */
+export const CHAT_QUERY_PATH = "/api/v1/chat/query" as const;
+
+export type ChatToolName = "query_graph" | "get_evidence" | "run_simulation";
+
+export type ChatMessageRole = "user" | "assistant";
+
+export interface ChatHistoryMessageDto {
+  readonly role: ChatMessageRole;
+  readonly content: string;
+}
+
+export interface ChatToolActivityDto {
+  readonly tool_name: ChatToolName;
+  readonly status: "completed" | "failed";
+  readonly summary?: string | undefined;
+}
+
+export interface ChatQueryRequest {
+  readonly repository_id: string;
+  readonly analysis_run_id: string;
+  readonly question: string;
+  readonly history?: readonly ChatHistoryMessageDto[] | undefined;
+  readonly session_id?: string | undefined;
+}
+
+export interface ChatQueryAcceptedResponse {
+  readonly chat_query_id: string;
+  readonly ai_analysis_id: string;
+  readonly status: "pending" | "completed" | "rejected" | "failed";
+  readonly job_id: string;
 }

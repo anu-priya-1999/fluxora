@@ -161,6 +161,7 @@ export class ProductionModelGateway implements ModelGateway {
             model: activeModel,
             systemInstruction: request.systemInstruction,
             messages: request.messages,
+            ...(request.tools ? { tools: request.tools } : {}),
             maxTokens,
             timeoutMs,
             signal: request.signal,
@@ -262,6 +263,7 @@ export class ProductionModelGateway implements ModelGateway {
             model: activeModel,
             systemInstruction: request.systemInstruction,
             messages: request.messages,
+            ...(request.tools ? { tools: request.tools } : {}),
             maxTokens,
             timeoutMs,
             signal: request.signal,
@@ -367,6 +369,9 @@ export class ProductionModelGateway implements ModelGateway {
 
       const response: ModelGatewayResponse = {
         text: successResult.text,
+        ...(successResult.toolUses && successResult.toolUses.length > 0
+          ? { toolUses: successResult.toolUses }
+          : {}),
         provider: this.provider.providerId,
         model: successResult.model,
         taskType: request.taskType,

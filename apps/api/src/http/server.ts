@@ -54,6 +54,11 @@ import {
   type AIAnalysisHandlerDependencies,
 } from "./ai-analysis.ts";
 import {
+  handleChatQuery,
+  isChatQueryPath,
+  type ChatQueryHandlerDependencies,
+} from "./chat-query.ts";
+import {
   isAIAnalysisGetPath,
   isImpactAnalysisGetPath,
   isPullRequestAnalyzeImpactPath,
@@ -89,6 +94,7 @@ export interface CreateApiServerOptions {
   impactAnalysisDeps?: ImpactAnalysisHandlerDependencies;
   simulationDeps?: SimulationHandlerDependencies;
   aiAnalysisDeps?: AIAnalysisHandlerDependencies;
+  chatQueryDeps?: ChatQueryHandlerDependencies;
 }
 
 export function createApiServer(
@@ -118,6 +124,10 @@ export function createApiServer(
     optionsOrWs && "aiAnalysisDeps" in optionsOrWs
       ? optionsOrWs.aiAnalysisDeps
       : undefined;
+  const chatQueryDeps =
+    optionsOrWs && "chatQueryDeps" in optionsOrWs
+      ? optionsOrWs.chatQueryDeps
+      : undefined;
 
   const githubAppConfig = loadGithubAppConfig();
   const allowedWebOrigins = loadAllowedWebOrigins();
@@ -133,6 +143,7 @@ export function createApiServer(
       impactAnalysisDeps,
       simulationDeps,
       aiAnalysisDeps,
+      chatQueryDeps,
     ).catch(
       (error: unknown) => {
         if (res.headersSent) {
@@ -166,6 +177,7 @@ async function handleRequest(
   impactAnalysisDeps?: ImpactAnalysisHandlerDependencies,
   simulationDeps?: SimulationHandlerDependencies,
   aiAnalysisDeps?: AIAnalysisHandlerDependencies,
+  chatQueryDeps?: ChatQueryHandlerDependencies,
 ): Promise<void> {
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
   const path = url.pathname;
@@ -441,6 +453,26 @@ async function handleRequest(
     }
   }
 
+  if (isChatQueryPath(path)) {
+    const origin = headerValue(req.headers.origin);
+    const corsHeaders = corsHeadersForAllowedOrigin(origin, allowedWebOrigins);
+
+    if (method === "OPTIONS") {
+      const preflight = githubInstallationPreflight(origin, allowedWebOrigins);
+      applyCorsHeaders(res, preflight.headers);
+      res.writeHead(preflight.status, responseHeaders({}));
+      res.end();
+      return;
+    }
+
+    applyCorsHeaders(res, corsHeaders);
+
+    if (method === "POST") {
+      await handleChatQuery(req, res, sendJson, chatQueryDeps);
+      return;
+    }
+  }
+
   if (isKnownPath(path)) {
     sendJson(res, 405, {
       error: {
@@ -584,7 +616,8 @@ function isKnownPath(path: string): boolean {
     isScenariosPath(path) ||
     isScenarioRunPath(path) ||
     isSimulationGetPath(path) ||
-    isSimulationResultsGetPath(path)
+    isSimulationResultsGetPath(path) ||
+    isChatQueryPath(path)
   );
 }
 

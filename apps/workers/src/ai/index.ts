@@ -17,3 +17,4 @@ export * from "./structured-output/index.ts";
 export * from "./orchestrator.ts";
 export * from "./simulation-context/index.ts";
 export * from "./simulation-orchestrator.ts";
+export * from "./chat/index.ts";

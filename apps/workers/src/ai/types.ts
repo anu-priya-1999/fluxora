@@ -13,9 +13,51 @@ export type ModelTaskType =
 
 export type ModelMessageRole = "user" | "assistant";
 
+/**
+ * Provider-independent tool definition exposed to a model.
+ */
+export interface ToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly inputSchema: {
+    readonly type: "object";
+    readonly properties: Record<string, unknown>;
+    readonly required?: readonly string[] | undefined;
+    readonly additionalProperties?: boolean | undefined;
+  };
+}
+
+/**
+ * Provider-independent content blocks for multi-turn tool-calling conversations.
+ */
+export interface ModelTextBlock {
+  readonly type: "text";
+  readonly text: string;
+}
+
+export interface ModelToolUseBlock {
+  readonly type: "tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: Record<string, unknown>;
+}
+
+export interface ModelToolResultBlock {
+  readonly type: "tool_result";
+  readonly toolUseId: string;
+  readonly content: string;
+  readonly isError?: boolean | undefined;
+}
+
+export type ModelMessageContentBlock =
+  | ModelTextBlock
+  | ModelToolUseBlock
+  | ModelToolResultBlock;
+
 export interface ModelMessage {
   readonly role: ModelMessageRole;
   readonly content: string;
+  readonly blocks?: readonly ModelMessageContentBlock[] | undefined;
 }
 
 /**
@@ -27,6 +69,7 @@ export interface ModelGatewayRequest {
   readonly promptVersion: string;
   readonly systemInstruction?: string | undefined;
   readonly messages: readonly ModelMessage[];
+  readonly tools?: readonly ToolDefinition[] | undefined;
   readonly maxTokens?: number | undefined;
   readonly timeoutMs?: number | undefined;
   readonly signal?: AbortSignal | undefined;
@@ -39,6 +82,7 @@ export interface ProviderGenerateParams {
   readonly model: string;
   readonly systemInstruction?: string | undefined;
   readonly messages: readonly ModelMessage[];
+  readonly tools?: readonly ToolDefinition[] | undefined;
   readonly maxTokens: number;
   readonly timeoutMs: number;
   readonly signal?: AbortSignal | undefined;
@@ -49,6 +93,7 @@ export interface ProviderGenerateParams {
  */
 export interface ProviderGenerateResult {
   readonly text: string;
+  readonly toolUses?: readonly ModelToolUseBlock[] | undefined;
   readonly model: string;
   readonly inputTokens: number | null;
   readonly outputTokens: number | null;
@@ -93,6 +138,7 @@ export interface ModelGatewayAttemptRecord {
  */
 export interface ModelGatewayResponse {
   readonly text: string;
+  readonly toolUses?: readonly ModelToolUseBlock[] | undefined;
   readonly provider: string;
   readonly model: string;
   readonly taskType: ModelTaskType;

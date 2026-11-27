@@ -37,6 +37,7 @@ import {
   getSimulationApi,
   getSimulationResultsApi,
 } from "../../../../components/simulation/simulation-api";
+import { ArchitectureChatPanel } from "../../../../components/ai";
 import {
   createExplorerWebSocketClient,
   type ExplorerWsStatus,
@@ -98,6 +99,7 @@ export function ArchitectureExplorerClient({
   const [state, setState] = useState<ExplorerState>({ status: "loading" });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState<boolean>(false);
   const [liveUpdateTrigger, setLiveUpdateTrigger] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
@@ -728,6 +730,20 @@ export function ArchitectureExplorerClient({
           `Run: ${state.analysisRunId} | Nodes: ${state.graph.nodes.length} | Edges: ${state.graph.edges.length}`,
         ),
         React.createElement(
+          "button",
+          {
+            type: "button",
+            onClick: () => setIsChatOpen((prev) => !prev),
+            "data-testid": "explorer-architecture-chat-toggle",
+            className: `text-xs font-semibold border px-2 py-0.5 rounded ${
+              isChatOpen
+                ? "bg-blue-600 text-white border-blue-600"
+                : "text-blue-600 hover:underline border-blue-200 bg-blue-50"
+            }`,
+          },
+          isChatOpen ? "Inspector" : "Ask AI",
+        ),
+        React.createElement(
           Link as unknown as React.ComponentType<Record<string, unknown>>,
           {
             href: `/simulations?repository_id=${context.repositoryId}&analysis_run_id=${state.analysisRunId}${selectedNodeId ? `&target_node_id=${selectedNodeId}` : ""}`,
@@ -825,18 +841,30 @@ export function ArchitectureExplorerClient({
           "data-testid": "explorer-inspector-aside",
           className: "w-80 md:w-96 border-l border-slate-200 bg-white flex flex-col h-full overflow-hidden shrink-0",
         },
-        React.createElement(NodeInspectorPanel, {
-          node: selectedNode,
-          edge: selectedEdge,
-          evidence: state.graph.evidence,
-          repositoryName: context.repositoryName,
-          commitSha: context.commitSha ?? changeModeState.headCommit,
-          gitRef: context.ref ?? changeModeState.headCommit,
-          analysisRunId: state.analysisRunId,
-          onClose: handleClearSelection,
-          changeMode: changeModeState,
-          simulationMode: simulationModeState,
-        }),
+        isChatOpen
+          ? React.createElement(ArchitectureChatPanel, {
+              apiUrl,
+              getToken,
+              repositoryId: context.repositoryId,
+              analysisRunId: state.analysisRunId,
+              evidencePool: state.graph.evidence,
+              repositoryName: context.repositoryName,
+              commitSha: context.commitSha ?? changeModeState.headCommit,
+              gitRef: context.ref ?? changeModeState.headCommit,
+              onClose: () => setIsChatOpen(false),
+            })
+          : React.createElement(NodeInspectorPanel, {
+              node: selectedNode,
+              edge: selectedEdge,
+              evidence: state.graph.evidence,
+              repositoryName: context.repositoryName,
+              commitSha: context.commitSha ?? changeModeState.headCommit,
+              gitRef: context.ref ?? changeModeState.headCommit,
+              analysisRunId: state.analysisRunId,
+              onClose: handleClearSelection,
+              changeMode: changeModeState,
+              simulationMode: simulationModeState,
+            }),
       ),
     ),
   );

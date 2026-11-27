@@ -68,6 +68,9 @@ export function formatAIAnalysisResponse(analysis: AIAnalysis): AIAnalysisRespon
       (analysis.metadata?.schemaVersion as string | undefined) ??
       (isPassed ? "impact-explanation-output-v1" : null),
     error_message: analysis.status === "failed" ? analysis.errorMessage : null,
+    ...(analysis.metadata?.toolActivity !== undefined
+      ? { metadata: { toolActivity: analysis.metadata.toolActivity } }
+      : {}),
     created_at:
       analysis.createdAt instanceof Date
         ? analysis.createdAt.toISOString()

@@ -10,7 +10,9 @@ import Anthropic from "@anthropic-ai/sdk";
 
 import { ModelGatewayError, sanitizeErrorMessage } from "./errors.ts";
 import type {
+  ModelMessage,
   ModelProviderAdapter,
+  ModelToolUseBlock,
   ProviderGenerateParams,
   ProviderGenerateResult,
 } from "./types.ts";
@@ -78,10 +80,9 @@ export class AnthropicProviderAdapter implements ModelProviderAdapter {
     }
 
     try {
-      const messages: Anthropic.MessageParam[] = params.messages.map((msg) => ({
-        role: msg.role,
-        content: msg.content,
-      }));
+      const messages: Anthropic.MessageParam[] = params.messages.map((msg) =>
+        this.toAnthropicMessage(msg),
+      );
 
       const requestPayload: Anthropic.MessageCreateParamsNonStreaming = {
         model: params.model,
@@ -93,17 +94,34 @@ export class AnthropicProviderAdapter implements ModelProviderAdapter {
         requestPayload.system = params.systemInstruction;
       }
 
+      if (params.tools && params.tools.length > 0) {
+        requestPayload.tools = params.tools.map((tool) => ({
+          name: tool.name,
+          description: tool.description,
+          input_schema: {
+            type: "object" as const,
+            properties: tool.inputSchema.properties,
+            ...(tool.inputSchema.required
+              ? { required: [...tool.inputSchema.required] }
+              : {}),
+          },
+        }));
+      }
+
       const response = await this.client.messages.create(requestPayload, {
         signal: abortController.signal,
         timeout: params.timeoutMs,
       });
 
-      // Extract text content safely
+      // Extract text content and tool_use blocks safely
       const textBlocks = response.content.filter(
         (block): block is Anthropic.TextBlock => block.type === "text",
       );
+      const toolUseBlocks = response.content.filter(
+        (block): block is Anthropic.ToolUseBlock => block.type === "tool_use",
+      );
 
-      if (textBlocks.length === 0) {
+      if (textBlocks.length === 0 && toolUseBlocks.length === 0) {
         throw ModelGatewayError.invalidResponse(
           "Anthropic provider returned empty or non-text content blocks.",
           {
@@ -114,6 +132,17 @@ export class AnthropicProviderAdapter implements ModelProviderAdapter {
       }
 
       const fullText = textBlocks.map((b) => b.text).join("");
+      const toolUses: ModelToolUseBlock[] = toolUseBlocks.map((block) => ({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input:
+          typeof block.input === "object" &&
+          block.input !== null &&
+          !Array.isArray(block.input)
+            ? (block.input as Record<string, unknown>)
+            : {},
+      }));
 
       // Extract reported usage
       const inputTokens =
@@ -141,6 +170,7 @@ export class AnthropicProviderAdapter implements ModelProviderAdapter {
 
       return {
         text: fullText,
+        ...(toolUses.length > 0 ? { toolUses } : {}),
         model: response.model || params.model,
         inputTokens,
         outputTokens,
@@ -188,6 +218,47 @@ export class AnthropicProviderAdapter implements ModelProviderAdapter {
         params.signal.removeEventListener("abort", onCallerAbort);
       }
     }
+  }
+
+  private toAnthropicMessage(msg: ModelMessage): Anthropic.MessageParam {
+    if (!msg.blocks || msg.blocks.length === 0) {
+      return {
+        role: msg.role,
+        content: msg.content,
+      };
+    }
+
+    const blocks: Array<
+      | Anthropic.TextBlockParam
+      | Anthropic.ToolUseBlockParam
+      | Anthropic.ToolResultBlockParam
+    > = msg.blocks.map((block) => {
+      if (block.type === "text") {
+        return {
+          type: "text",
+          text: block.text,
+        };
+      }
+      if (block.type === "tool_use") {
+        return {
+          type: "tool_use",
+          id: block.id,
+          name: block.name,
+          input: block.input,
+        };
+      }
+      return {
+        type: "tool_result",
+        tool_use_id: block.toolUseId,
+        content: block.content,
+        ...(block.isError !== undefined ? { is_error: block.isError } : {}),
+      };
+    });
+
+    return {
+      role: msg.role,
+      content: blocks,
+    };
   }
 
   private mapAnthropicError(error: unknown, model: string): ModelGatewayError {

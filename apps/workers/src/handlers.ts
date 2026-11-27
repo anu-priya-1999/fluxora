@@ -1,5 +1,6 @@
 import type { Job } from "@fluxora/shared-types";
 import {
+  CHAT_QUERY_JOB_TYPE,
   PULL_REQUEST_IMPACT_ANALYSIS_JOB_TYPE,
   PULL_REQUEST_WEBHOOK_JOB_TYPE,
   REPOSITORY_INGEST_JOB_TYPE,
@@ -23,6 +24,10 @@ import {
   createProductionSimulationNarrationDependencies,
   createSimulationNarrationHandler,
 } from "./simulation/narration-handler.ts";
+import {
+  createChatQueryHandler,
+  createProductionChatQueryDependencies,
+} from "./ai/chat/job-handler.ts";
 
 export type JobHandler = (job: Job) => Promise<void>;
 
@@ -41,11 +46,15 @@ export const simulationNarrationJobHandler: JobHandler =
     createProductionSimulationNarrationDependencies(),
   );
 
+export const chatQueryJobHandler: JobHandler =
+  createChatQueryHandler(createProductionChatQueryDependencies());
+
 export function createDefaultJobHandlers(options?: {
   ingestHandler?: JobHandler;
   pullRequestWebhookHandler?: JobHandler;
   pullRequestImpactAnalysisHandler?: JobHandler;
   simulationNarrationHandler?: JobHandler;
+  chatQueryHandler?: JobHandler;
 }): JobHandlerRegistry {
   return {
     "test.echo": testEchoHandler,
@@ -65,5 +74,8 @@ export function createDefaultJobHandlers(options?: {
       createSimulationNarrationHandler(
         createProductionSimulationNarrationDependencies(),
       ),
+    [CHAT_QUERY_JOB_TYPE]:
+      options?.chatQueryHandler ??
+      createChatQueryHandler(createProductionChatQueryDependencies()),
   };
 }

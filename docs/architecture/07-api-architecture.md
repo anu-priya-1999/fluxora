@@ -195,12 +195,12 @@ POST /api/v1/chat/query   // free-form architecture Q&A, scoped to a repo + anal
   "question": "What would break if the Redis cache went down?"
 }
 
-// Response
+// Response (202 Accepted — Async chat.query job enqueued, poll GET /api/v1/ai-analyses/:id)
 {
-  "answer": "Based on the current graph, three services read from the Redis cache node directly: SessionService, RateLimiter, and CheckoutService (cache-aside pattern). If Redis is unavailable, SessionService has no detected fallback (evidence: session.ts:44), so user sessions would likely fail. CheckoutService has a fallback path to Postgres for cart state (evidence: cart-store.ts:112), so it would degrade in latency but likely stay functional.",
-  "evidence_ids": ["ev_2001", "ev_2002", "ev_2003"],
-  "confidence": "high",
-  "ai_analysis_id": "ai_9955..."
+  "chat_query_id": "55555555-5555-4555-8555-555555555555",
+  "ai_analysis_id": "44444444-4444-4444-8444-444444444444",
+  "status": "pending",
+  "job_id": "job_chat_9955..."
 }
 ```
 
