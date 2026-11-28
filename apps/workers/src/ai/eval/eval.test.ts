@@ -356,4 +356,196 @@ describe("AI Evaluation Suite (Global Step 65)", () => {
       "(unsupported + contradicted) / total_evaluated_factual_claims",
     );
   });
+
+  it("evaluates Step 66 deterministic fallback outputs with zero invalid citations and zero hallucinations", async () => {
+    const {
+      generateImpactExplanationFallback,
+      generateSimulationNarrationFallback,
+    } = await import("../fallback/index.ts");
+
+    const evImpact: EvidenceRecord = {
+      id: "ev-eval-sub",
+      analysisRunId: "run-eval-66",
+      subjectType: "impact_finding",
+      subjectId: "node-sub",
+      filePath: "lib/subscription.ts",
+      symbolId: "getUserSubscriptionPlan",
+      lineStart: 1,
+      lineEnd: 20,
+      columnStart: 0,
+      columnEnd: 1,
+      relationshipDescription: "Direct impact on lib/subscription.ts (getUserSubscriptionPlan).",
+      confidence: 1.0,
+      metadata: {},
+      createdAt: new Date("2026-11-27T00:00:00Z"),
+    };
+
+    const impactFallback = generateImpactExplanationFallback({
+      impactAnalysisId: "impact-eval-66",
+      pullRequestId: "pr-42",
+      analysisRunId: "run-eval-66",
+      status: "completed",
+      directImpact: [
+        {
+          nodeId: "node-sub",
+          name: "getUserSubscriptionPlan",
+          nodeType: "function",
+          filePath: "lib/subscription.ts",
+          depth: 0,
+          confidence: 1.0,
+          path: ["lib/subscription.ts"],
+          evidenceIds: ["ev-eval-sub"],
+        },
+      ],
+      downstreamImpact: [],
+      affectedApis: [],
+      affectedEvents: [],
+      affectedServices: [],
+      workflowImpactSummary: [],
+      unresolvedFiles: [],
+      executionMetrics: {
+        totalSeedNodes: 1,
+        totalAffectedNodes: 1,
+        totalEdgesTraversed: 0,
+        durationMs: 5,
+        maxDepthReached: 0,
+      },
+      truncated: false,
+      truncationReason: null,
+      truncation: {
+        isTruncated: false,
+        analysisWasTruncated: false,
+        analysisTruncationReason: null,
+        contextLimitsExceeded: false,
+        reasons: [],
+        omittedFindingsCount: 0,
+        omittedEvidenceCount: 0,
+        omittedUnresolvedFilesCount: 0,
+      },
+      evidenceRecords: [
+        {
+          id: "ev-eval-sub",
+          subjectType: "impact_finding",
+          subjectId: "node-sub",
+          filePath: "lib/subscription.ts",
+          symbolId: "getUserSubscriptionPlan",
+          lineStart: 1,
+          lineEnd: 20,
+          columnStart: 0,
+          columnEnd: 1,
+          relationshipDescription: "Direct impact on lib/subscription.ts (getUserSubscriptionPlan).",
+          confidence: 1.0,
+        },
+      ],
+      allowedEvidenceIds: ["ev-eval-sub"],
+    });
+
+    const evalCase: AIEvalCase = {
+      caseId: "eval-step66-fallback-impact",
+      taskType: "impact_explanation",
+      promptVersion: impactFallback.promptVersion,
+      goldenFixtureId: "golden-taxonomy-pr-subscription-v1",
+      pinnedCommitSha: "298a8857c7128a0d121e7f699dfd729f23b3966d",
+      title: "Step 66 deterministic fallback impact evaluation",
+      description: "Verifies fallback output against Step 65 semantic & entity checks.",
+      expectedFindings: ["lib/subscription.ts"],
+      expectedEntities: ["lib/subscription.ts", "getUserSubscriptionPlan"],
+      expectedEvidenceSelectors: [],
+      expectedCaveats: ["deterministic fallback"],
+      prohibitedClaims: ["components/site-footer.tsx"],
+      humanReferenceAnnotations: [],
+    };
+
+    const context: EvalEvidenceContext = {
+      allowedEvidenceIds: new Set(["ev-eval-sub"]),
+      evidenceById: new Map([["ev-eval-sub", evImpact]]),
+      selectorToEvidenceId: new Map(),
+      knownEntities: new Set(["lib/subscription.ts", "getUserSubscriptionPlan"]),
+      unaffectedEntities: new Set(["components/site-footer.tsx"]),
+    };
+
+    const { claimEvaluations, prohibitedClaimViolations } =
+      await evaluateOutputSemanticGroundedness({
+        output: impactFallback.output,
+        evalCase,
+        context,
+      });
+    expect(prohibitedClaimViolations).toEqual([]);
+    expect(claimEvaluations.length).toBe(1);
+    expect(claimEvaluations[0]?.allCitationsInManifest).toBe(true);
+    expect(claimEvaluations[0]?.contradictsDeterministicFact).toBe(false);
+
+    const entityCheck = checkEntityHallucinations({
+      output: impactFallback.output,
+      evalCase,
+      context,
+    });
+    expect(entityCheck.entityHallucinationCount).toBe(0);
+
+    const simFallback = generateSimulationNarrationFallback({
+      simulationId: "sim-eval-66",
+      scenarioId: "scen-eval-66",
+      analysisRunId: "run-eval-66",
+      status: "completed",
+      scenario: {
+        id: "scen-eval-66",
+        name: "Eval synthetic outage",
+        targetNodeId: "lib/subscription.ts",
+        failureType: "unavailable",
+        parameters: {},
+      },
+      results: [
+        {
+          nodeId: "lib/subscription.ts",
+          resultingState: "failed",
+          ruleApplied: "direct_target_unavailable",
+          assumptions: [],
+          confidence: 1.0,
+          hopDistance: 0,
+          capped: false,
+          propagationPath: [],
+          evidenceIds: ["ev-sim-eval"],
+        },
+      ],
+      executionMetrics: {
+        totalResults: 1,
+        affectedCount: 1,
+        failedCount: 1,
+        degradedCount: 0,
+        atRiskCount: 0,
+        healthyCount: 0,
+        cappedCount: 0,
+        maxHopDistance: 0,
+      },
+      allowedEvidenceIds: ["ev-sim-eval"],
+      evidenceRecords: [
+        {
+          id: "ev-sim-eval",
+          subjectType: "simulation_state",
+          subjectId: "lib/subscription.ts",
+          filePath: "lib/subscription.ts",
+          symbolId: "getUserSubscriptionPlan",
+          lineStart: 1,
+          lineEnd: 20,
+          columnStart: 0,
+          columnEnd: 1,
+          relationshipDescription: "Target failed",
+          confidence: 1.0,
+          nodeId: "lib/subscription.ts",
+          resultingState: "failed",
+          ruleApplied: "direct_target_unavailable",
+        },
+      ],
+      truncated: false,
+      truncationReason: null,
+      truncation: {
+        isTruncated: false,
+        reasons: [],
+        omittedResultsCount: 0,
+        omittedEvidenceCount: 0,
+      },
+    });
+    expect(simFallback.abstained).toBe(false);
+    expect(simFallback.output.claims[0]?.evidence_ids).toEqual(["ev-sim-eval"]);
+  });
 });

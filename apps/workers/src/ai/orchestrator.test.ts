@@ -357,7 +357,7 @@ describe("AI Explanation Orchestrator (Step 62)", () => {
     };
 
     const result = await orchestrateImpactExplanation(
-      { organizationId: ORG_ID, impactAnalysisId: IMPACT_ID },
+      { organizationId: ORG_ID, impactAnalysisId: IMPACT_ID, enableFallback: false },
       deps,
     );
 
@@ -919,6 +919,7 @@ describe("AI Explanation Orchestrator (Step 62)", () => {
         organizationId: ORG_ID,
         impactAnalysisId: IMPACT_ID,
         maxRetries: 100,
+        enableFallback: false,
       },
       deps,
     );

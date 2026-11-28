@@ -25,6 +25,7 @@ import {
   getTracer,
   markSpanError,
   markSpanSuccess,
+  recordAiFallbackExecution,
 } from "@fluxora/observability";
 import type {
   AIAnalysis,
@@ -37,6 +38,14 @@ import {
   loadImpactExplanationContext,
 } from "./context/index.ts";
 import { createModelGateway } from "./factory.ts";
+import {
+  classifyGatewayErrorForFallback,
+  combineInitialAndRetryFailureAccounting,
+  extractGatewayFailureAccounting,
+  generateImpactExplanationFallback,
+  type FallbackTriggerReason,
+  type GatewayFailureAccounting,
+} from "./fallback/index.ts";
 import {
   validateImpactExplanationWithRetry,
   type ValidationIssue,
@@ -61,6 +70,11 @@ export interface OrchestrateImpactExplanationOptions {
    * at most 1 corrective retry).
    */
   readonly maxRetries?: number | undefined;
+  /**
+   * Enable deterministic fallback explanation when AI generation is unavailable or
+   * fails structured-output validation after permitted retries (Step 66, defaults to true).
+   */
+  readonly enableFallback?: boolean | undefined;
 }
 
 export type AIExplanationOrchestrationResult =
@@ -112,6 +126,7 @@ export async function orchestrateImpactExplanation(
   deps?: AIExplanationOrchestratorDependencies,
 ): Promise<AIExplanationOrchestrationResult> {
   const { organizationId, impactAnalysisId } = options;
+  const enableFallback = options.enableFallback ?? true;
 
   const pool = deps?.pool ?? getPool();
   const getSubject = deps?.getAIAnalysisBySubject ?? getAIAnalysisBySubject;
@@ -242,6 +257,98 @@ export async function orchestrateImpactExplanation(
     // 4. Build provider-independent gateway request (Step 60)
     const request = buildReq(context);
 
+    const persistDeterministicFallback = async (params: {
+      triggerReason: FallbackTriggerReason;
+      attempts: number;
+      tokenCount: number;
+      costUsd: number;
+      latencyMs: number;
+      usageUnavailable?: boolean | undefined;
+      costUnavailable?: boolean | undefined;
+      attemptedModel?: string | undefined;
+      attemptedProvider?: string | undefined;
+      errorCategories?: readonly string[] | undefined;
+      attemptSummaries?: GatewayFailureAccounting["attemptSummaries"] | undefined;
+      validationErrors?: readonly ValidationIssue[] | undefined;
+      providerErrorMessage?: string | undefined;
+    }): Promise<AIExplanationOrchestrationResult> => {
+      const fallbackResult = generateImpactExplanationFallback(context);
+
+      span.setAttribute("fluxora.ai.deterministic_fallback", true);
+      span.setAttribute("fluxora.ai.fallback_reason", params.triggerReason);
+      span.setAttribute("fluxora.ai.fallback_abstained", fallbackResult.abstained);
+
+      recordAiFallbackExecution({
+        "ai.task_type": "impact_explanation",
+        "ai.fallback_reason": params.triggerReason,
+        "ai.fallback_abstained": fallbackResult.abstained,
+      });
+
+      const savedFallback = await save(pool, {
+        id: currentRecord?.id,
+        organizationId,
+        subjectType: "impact_analysis",
+        subjectId: impactAnalysisId,
+        status: "completed",
+        modelUsed: null,
+        promptVersion: fallbackResult.promptVersion,
+        inputEvidenceIds: Array.from(context.allowedEvidenceIds),
+        outputText: fallbackResult.output.summary,
+        outputStructured: fallbackResult.output,
+        validationStatus: "fallback",
+        tokenCount: params.tokenCount,
+        costUsd: params.costUsd,
+        latencyMs: params.latencyMs,
+        metadata: {
+          schemaVersion: fallbackResult.schemaVersion,
+          attempts: params.attempts,
+          usedFallback: true,
+          deterministicFallback: true,
+          fallbackReason: params.triggerReason,
+          fallbackAbstained: fallbackResult.abstained,
+          omittedWithoutEvidenceCount: fallbackResult.omittedWithoutEvidenceCount,
+          ...(params.usageUnavailable !== undefined
+            ? { usageUnavailable: params.usageUnavailable }
+            : {}),
+          ...(params.costUnavailable !== undefined
+            ? { costUnavailable: params.costUnavailable }
+            : {}),
+          ...(params.attemptedModel ? { attemptedModel: params.attemptedModel } : {}),
+          ...(params.attemptedProvider ? { attemptedProvider: params.attemptedProvider } : {}),
+          ...(params.errorCategories && params.errorCategories.length > 0
+            ? { errorCategories: params.errorCategories }
+            : {}),
+          ...(params.attemptSummaries && params.attemptSummaries.length > 0
+            ? { gatewayAttempts: params.attemptSummaries }
+            : {}),
+          ...(params.validationErrors
+            ? { validationErrors: params.validationErrors.slice(0, 20) }
+            : {}),
+          ...(params.providerErrorMessage
+            ? { providerError: params.providerErrorMessage }
+            : {}),
+        },
+      });
+
+      if (
+        savedFallback.status === "completed" &&
+        savedFallback.validationStatus === "passed"
+      ) {
+        span.setAttribute("fluxora.ai.concurrency_completed_preserved", true);
+        markSpanSuccess(span);
+        return {
+          status: "already_completed",
+          aiAnalysis: savedFallback,
+        };
+      }
+
+      markSpanSuccess(span);
+      return {
+        status: "completed",
+        aiAnalysis: savedFallback,
+      };
+    };
+
     // 5. Invoke Model Gateway (Step 59) for initial response
     let initialResponse: ModelGatewayResponse;
     let retryResponse: ModelGatewayResponse | null = null;
@@ -250,6 +357,28 @@ export async function orchestrateImpactExplanation(
       initialResponse = await gateway.generate(request);
     } catch (providerError) {
       const sanitized = sanitizeErrorMessage(providerError);
+      const fallbackEligibility = enableFallback
+        ? classifyGatewayErrorForFallback(providerError)
+        : { eligible: false as const };
+
+      if (fallbackEligibility.eligible) {
+        const accounting = extractGatewayFailureAccounting(providerError);
+        return await persistDeterministicFallback({
+          triggerReason: fallbackEligibility.reason,
+          attempts: accounting.attempts,
+          tokenCount: accounting.totalTokens ?? 0,
+          costUsd: accounting.costUsd ?? 0,
+          latencyMs: accounting.latencyMs,
+          usageUnavailable: accounting.usageUnavailable,
+          costUnavailable: accounting.costUnavailable,
+          attemptedModel: accounting.attemptedModel,
+          attemptedProvider: accounting.attemptedProvider,
+          errorCategories: accounting.errorCategories,
+          attemptSummaries: accounting.attemptSummaries,
+          providerErrorMessage: sanitized,
+        });
+      }
+
       try {
         currentRecord = await save(pool, {
           id: currentRecord?.id,
@@ -283,18 +412,49 @@ export async function orchestrateImpactExplanation(
     }
 
     // 6. Validate with bounded corrective retry (Step 61)
-    const validationResult = await validate({
-      initialResponseText: initialResponse.text,
-      allowedEvidenceIds: context.allowedEvidenceIds,
-      retry: async (params) => {
-        const res = await gateway.generate({
-          ...request,
-          systemInstruction: `${request.systemInstruction ?? ""}\n\n${params.correctiveInstruction}`,
+    let validationResult: Awaited<ReturnType<typeof validate>>;
+    try {
+      validationResult = await validate({
+        initialResponseText: initialResponse.text,
+        allowedEvidenceIds: context.allowedEvidenceIds,
+        retry: async (params) => {
+          const res = await gateway.generate({
+            ...request,
+            systemInstruction: `${request.systemInstruction ?? ""}\n\n${params.correctiveInstruction}`,
+          });
+          retryResponse = res;
+          return res.text;
+        },
+      });
+    } catch (retryProviderError) {
+      const sanitized = sanitizeErrorMessage(retryProviderError);
+      const fallbackEligibility = enableFallback
+        ? classifyGatewayErrorForFallback(retryProviderError)
+        : { eligible: false as const };
+
+      if (fallbackEligibility.eligible) {
+        const combined = combineInitialAndRetryFailureAccounting(
+          initialResponse,
+          retryProviderError,
+        );
+        return await persistDeterministicFallback({
+          triggerReason: fallbackEligibility.reason,
+          attempts: combined.attempts,
+          tokenCount: combined.tokenCount,
+          costUsd: combined.costUsd,
+          latencyMs: combined.latencyMs,
+          usageUnavailable: combined.usageUnavailable,
+          costUnavailable: combined.costUnavailable,
+          attemptedModel: combined.attemptedModel,
+          attemptedProvider: combined.attemptedProvider,
+          errorCategories: combined.errorCategories,
+          attemptSummaries: combined.attemptSummaries,
+          providerErrorMessage: sanitized,
         });
-        retryResponse = res;
-        return res.text;
-      },
-    });
+      }
+
+      throw retryProviderError;
+    }
 
     // 7. Aggregate usage, latency, and model metrics across all attempts
     const finalRetryResponse = retryResponse as ModelGatewayResponse | null;
@@ -373,8 +533,23 @@ export async function orchestrateImpactExplanation(
       };
     }
 
-    // 9. Handle Validation Rejection (ADR-014)
-    // Never persist raw invalid model completion. Persist only bounded diagnostics.
+    // 9. Handle Validation Rejection (ADR-014) -> Deterministic Fallback (Step 66 / ADR-010)
+    // Never persist raw invalid model completion.
+    if (enableFallback) {
+      return await persistDeterministicFallback({
+        triggerReason: "validation_failed_after_retries",
+        attempts: validationResult.attempts,
+        tokenCount: totalTokens,
+        costUsd: totalCostUsd,
+        latencyMs: totalLatencyMs,
+        attemptedModel: modelUsed,
+        attemptedProvider: finalRetryResponse
+          ? finalRetryResponse.provider
+          : initialResponse.provider,
+        validationErrors: validationResult.errors,
+      });
+    }
+
     const rejectedRecord = await save(pool, {
       id: currentRecord?.id,
       organizationId,

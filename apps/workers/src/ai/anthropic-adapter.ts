@@ -362,8 +362,63 @@ export class AnthropicProviderAdapter implements ModelProviderAdapter {
       );
     }
 
-    return ModelGatewayError.providerUnavailable(
-      `Unexpected provider error: ${sanitized}`,
+    if (
+      error instanceof TypeError ||
+      error instanceof ReferenceError ||
+      error instanceof RangeError ||
+      error instanceof SyntaxError ||
+      error instanceof EvalError ||
+      error instanceof URIError
+    ) {
+      return ModelGatewayError.internalError(
+        `Internal error in Anthropic adapter (${error.name}): ${sanitized}`,
+        {
+          provider: this.providerId,
+          model,
+          cause: error,
+        },
+      );
+    }
+
+    const errCode =
+      typeof error === "object" && error !== null && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    if (errCode === "ETIMEDOUT" || errCode === "UND_ERR_CONNECT_TIMEOUT") {
+      return ModelGatewayError.timeoutError(
+        `Anthropic transport timed out (${String(errCode)}): ${sanitized}`,
+        {
+          provider: this.providerId,
+          model,
+          cause: error,
+        },
+      );
+    }
+    if (
+      typeof errCode === "string" &&
+      [
+        "ECONNRESET",
+        "ECONNREFUSED",
+        "ENOTFOUND",
+        "EAI_AGAIN",
+        "EPIPE",
+        "UND_ERR_SOCKET",
+        "EHOSTUNREACH",
+        "ENETUNREACH",
+      ].includes(errCode)
+    ) {
+      return ModelGatewayError.providerUnavailable(
+        `Anthropic transport error (${errCode}): ${sanitized}`,
+        {
+          provider: this.providerId,
+          model,
+          cause: error,
+        },
+      );
+    }
+
+    return ModelGatewayError.internalError(
+      `Unclassified adapter error: ${sanitized}`,
       {
         provider: this.providerId,
         model,

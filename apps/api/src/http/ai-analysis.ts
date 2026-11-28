@@ -47,8 +47,24 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 }
 
 export function formatAIAnalysisResponse(analysis: AIAnalysis): AIAnalysisResponse {
-  const isPassed =
-    analysis.status === "completed" && analysis.validationStatus === "passed";
+  const hasDeliverableOutput =
+    analysis.status === "completed" &&
+    (analysis.validationStatus === "passed" ||
+      analysis.validationStatus === "fallback");
+
+  const safeMetadata: Record<string, unknown> = {};
+  if (analysis.metadata?.toolActivity !== undefined) {
+    safeMetadata.toolActivity = analysis.metadata.toolActivity;
+  }
+  if (analysis.validationStatus === "fallback" || analysis.metadata?.deterministicFallback === true) {
+    safeMetadata.deterministicFallback = true;
+    if (typeof analysis.metadata?.fallbackReason === "string") {
+      safeMetadata.fallbackReason = analysis.metadata.fallbackReason;
+    }
+    if (typeof analysis.metadata?.fallbackAbstained === "boolean") {
+      safeMetadata.fallbackAbstained = analysis.metadata.fallbackAbstained;
+    }
+  }
 
   return {
     id: analysis.id,
@@ -58,19 +74,17 @@ export function formatAIAnalysisResponse(analysis: AIAnalysis): AIAnalysisRespon
     model_used: analysis.modelUsed,
     prompt_version: analysis.promptVersion,
     input_evidence_ids: analysis.inputEvidenceIds,
-    output_text: isPassed ? analysis.outputText : null,
-    output_structured: isPassed ? analysis.outputStructured : null,
+    output_text: hasDeliverableOutput ? analysis.outputText : null,
+    output_structured: hasDeliverableOutput ? analysis.outputStructured : null,
     validation_status: analysis.validationStatus,
     token_count: analysis.tokenCount,
     cost_usd: analysis.costUsd,
     latency_ms: analysis.latencyMs,
     schema_version:
       (analysis.metadata?.schemaVersion as string | undefined) ??
-      (isPassed ? "impact-explanation-output-v1" : null),
+      (hasDeliverableOutput ? "impact-explanation-output-v1" : null),
     error_message: analysis.status === "failed" ? analysis.errorMessage : null,
-    ...(analysis.metadata?.toolActivity !== undefined
-      ? { metadata: { toolActivity: analysis.metadata.toolActivity } }
-      : {}),
+    ...(Object.keys(safeMetadata).length > 0 ? { metadata: safeMetadata } : {}),
     created_at:
       analysis.createdAt instanceof Date
         ? analysis.createdAt.toISOString()

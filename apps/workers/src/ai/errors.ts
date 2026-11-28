@@ -16,7 +16,8 @@ export type ModelGatewayErrorCode =
   | "PROVIDER_UNAVAILABLE"
   | "INVALID_RESPONSE"
   | "ABORTED"
-  | "RETRIES_EXHAUSTED";
+  | "RETRIES_EXHAUSTED"
+  | "INTERNAL_ERROR";
 
 export interface ModelGatewayErrorDetails {
   readonly code: ModelGatewayErrorCode;
@@ -29,6 +30,7 @@ export interface ModelGatewayErrorDetails {
   readonly statusCode?: number | undefined;
   readonly primaryError?: ModelGatewayError | undefined;
   readonly attempts?: readonly ModelGatewayAttemptRecord[] | undefined;
+  readonly totalLatencyMs?: number | undefined;
   readonly cause?: unknown;
 }
 
@@ -56,6 +58,7 @@ export class ModelGatewayError extends Error {
   readonly statusCode?: number | undefined;
   readonly primaryError?: ModelGatewayError | undefined;
   readonly attempts?: readonly ModelGatewayAttemptRecord[] | undefined;
+  readonly totalLatencyMs?: number | undefined;
 
   constructor(message: string, details: ModelGatewayErrorDetails) {
     const sanitized = sanitizeErrorMessage(message);
@@ -71,6 +74,7 @@ export class ModelGatewayError extends Error {
     this.statusCode = details.statusCode;
     this.primaryError = details.primaryError;
     this.attempts = details.attempts;
+    this.totalLatencyMs = details.totalLatencyMs;
 
     if (details.cause !== undefined) {
       this.cause = details.cause;
@@ -160,6 +164,17 @@ export class ModelGatewayError extends Error {
   ): ModelGatewayError {
     return new ModelGatewayError(message, {
       code: "RETRIES_EXHAUSTED",
+      retryable: false,
+      ...details,
+    });
+  }
+
+  static internalError(
+    message: string,
+    details?: Partial<ModelGatewayErrorDetails> | undefined,
+  ): ModelGatewayError {
+    return new ModelGatewayError(message, {
+      code: "INTERNAL_ERROR",
       retryable: false,
       ...details,
     });

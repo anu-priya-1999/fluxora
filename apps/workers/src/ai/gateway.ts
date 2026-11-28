@@ -198,7 +198,12 @@ export class ProductionModelGateway implements ModelGateway {
           break;
         } catch (err: unknown) {
           const latencyMs = Date.now() - attemptStartMs;
-          const gatewayErr = this.normalizeError(err, activeModel, request.taskType);
+          const gatewayErr = this.normalizeError(
+            err,
+            activeModel,
+            request.taskType,
+            request.signal,
+          );
           markSpanError(attemptSpan, gatewayErr);
           attemptSpan.end();
 
@@ -299,7 +304,12 @@ export class ProductionModelGateway implements ModelGateway {
           successResult = result;
         } catch (err: unknown) {
           const latencyMs = Date.now() - attemptStartMs;
-          const fallbackErr = this.normalizeError(err, activeModel, request.taskType);
+          const fallbackErr = this.normalizeError(
+            err,
+            activeModel,
+            request.taskType,
+            request.signal,
+          );
           markSpanError(fallbackSpan, fallbackErr);
           fallbackSpan.end();
 
@@ -336,18 +346,32 @@ export class ProductionModelGateway implements ModelGateway {
 
       // 3. Final Result or Failure Finalization
       if (!successResult) {
-        const finalError =
-          lastError ??
-          ModelGatewayError.retriesExhausted("All provider attempts failed.", {
-            provider: this.provider.providerId,
-            model: activeModel,
-            taskType: request.taskType,
-            attemptCount: attempts.length,
-            primaryError,
-            attempts,
-          });
-
         const totalLatencyMs = Date.now() - requestStartMs;
+        const finalError = lastError
+          ? new ModelGatewayError(lastError.message, {
+              code: lastError.code,
+              retryable: lastError.retryable,
+              provider: lastError.provider ?? this.provider.providerId,
+              model: lastError.model ?? activeModel,
+              taskType: lastError.taskType ?? request.taskType,
+              attemptCount: attempts.length,
+              retryAfterMs: lastError.retryAfterMs,
+              statusCode: lastError.statusCode,
+              primaryError: lastError.primaryError,
+              attempts,
+              totalLatencyMs,
+              cause: lastError.cause ?? lastError,
+            })
+          : ModelGatewayError.retriesExhausted("All provider attempts failed.", {
+              provider: this.provider.providerId,
+              model: activeModel,
+              taskType: request.taskType,
+              attemptCount: attempts.length,
+              primaryError,
+              attempts,
+              totalLatencyMs,
+            });
+
         this.recordRequestFailureTelemetry(
           finalError,
           activeModel,
@@ -414,18 +438,120 @@ export class ProductionModelGateway implements ModelGateway {
     error: unknown,
     model: string,
     taskType: ModelGatewayRequest["taskType"],
+    signal?: AbortSignal | undefined,
   ): ModelGatewayError {
     if (error instanceof ModelGatewayError) {
       return error;
     }
-    return ModelGatewayError.providerUnavailable(
+
+    const baseDetails = {
+      provider: this.provider.providerId,
+      model,
+      taskType,
+      cause: error,
+    };
+
+    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) {
+      return ModelGatewayError.aborted(
+        error instanceof Error ? error.message : "Request aborted",
+        baseDetails,
+      );
+    }
+
+    if (error instanceof Error && error.name === "TimeoutError") {
+      return ModelGatewayError.timeoutError(error.message, baseDetails);
+    }
+
+    // Never convert programming/runtime bugs into retryable provider errors
+    if (
+      error instanceof TypeError ||
+      error instanceof ReferenceError ||
+      error instanceof RangeError ||
+      error instanceof SyntaxError ||
+      error instanceof EvalError ||
+      error instanceof URIError
+    ) {
+      return ModelGatewayError.internalError(
+        `Internal ${error.name}: ${error.message}`,
+        baseDetails,
+      );
+    }
+
+    const extractCode = (obj: unknown): string | undefined => {
+      if (typeof obj === "object" && obj !== null && "code" in obj) {
+        const val = (obj as { code?: unknown }).code;
+        return typeof val === "string" ? val : undefined;
+      }
+      return undefined;
+    };
+
+    const transportCode =
+      extractCode(error) ??
+      (error instanceof Error ? extractCode(error.cause) : undefined);
+
+    if (transportCode === "ETIMEDOUT" || transportCode === "UND_ERR_CONNECT_TIMEOUT") {
+      return ModelGatewayError.timeoutError(
+        error instanceof Error ? error.message : `Transport timeout (${transportCode})`,
+        baseDetails,
+      );
+    }
+
+    if (
+      transportCode !== undefined &&
+      [
+        "ECONNRESET",
+        "ECONNREFUSED",
+        "ENOTFOUND",
+        "EAI_AGAIN",
+        "EPIPE",
+        "UND_ERR_SOCKET",
+        "EHOSTUNREACH",
+        "ENETUNREACH",
+      ].includes(transportCode)
+    ) {
+      return ModelGatewayError.providerUnavailable(
+        error instanceof Error ? error.message : `Transport error (${transportCode})`,
+        baseDetails,
+      );
+    }
+
+    const status =
+      typeof error === "object" && error !== null
+        ? ((error as { statusCode?: unknown; status?: unknown }).statusCode ??
+          (error as { status?: unknown }).status)
+        : undefined;
+
+    if (typeof status === "number" && Number.isInteger(status)) {
+      const msg = error instanceof Error ? error.message : `Provider HTTP ${status}`;
+      if (status === 401 || status === 403) {
+        return ModelGatewayError.authenticationError(msg, {
+          ...baseDetails,
+          statusCode: status,
+        });
+      }
+      if (status === 429) {
+        return ModelGatewayError.rateLimitError(msg, {
+          ...baseDetails,
+          statusCode: status,
+        });
+      }
+      if (status >= 500 && status < 600) {
+        return ModelGatewayError.providerUnavailable(msg, {
+          ...baseDetails,
+          statusCode: status,
+        });
+      }
+      if (status >= 400 && status < 500) {
+        return ModelGatewayError.invalidResponse(msg, {
+          ...baseDetails,
+          statusCode: status,
+        });
+      }
+    }
+
+    return ModelGatewayError.internalError(
       error instanceof Error ? error.message : String(error),
-      {
-        provider: this.provider.providerId,
-        model,
-        taskType,
-        cause: error,
-      },
+      baseDetails,
     );
   }
 

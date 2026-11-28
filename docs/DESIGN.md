@@ -13931,3 +13931,29 @@ Global Step 65 implements **Phase 9 Step 7**: Fluxora's initial continuously-run
 
 ### 3. Verification Suite
 - `apps/workers/src/ai/eval/eval.test.ts`: 6 tests verifying dataset/fixture integrity, three-level grounding separation, entity hallucination detection, corrective retry accounting, adversarial containment, baseline overwrite protection, and fail-closed live mode configuration.
+
+---
+
+## Global Step 66: Deterministic Fallback Explanation
+
+### 1. Objective and Architectural Context
+Global Step 66 implements **Phase 9 Step 8**: deterministic, evidence-grounded fallback explanations (`apps/workers/src/ai/fallback/`) for `impact_explanation` and `simulation_narration` when AI generation is unavailable or fails structured-output validation after permitted recovery attempts. Free-form `chat_query` is explicitly excluded from Step 66 fallback.
+
+### 2. Implemented Components (ADR-010, ADR-019)
+- **Failure Classification & Normalization (`apps/workers/src/ai/fallback/classifier.ts`, `gateway.ts`, `errors.ts`)**:
+  - `classifyGatewayErrorForFallback` permits fallback only on terminal `ModelGatewayError` codes `PROVIDER_UNAVAILABLE`, `TIMEOUT_ERROR`, `RATE_LIMIT_ERROR`, `INVALID_RESPONSE`, or `RETRIES_EXHAUSTED` whose `primaryError`, `cause`, and `attempts` provenance are all verified eligible transient provider failures (with cycle detection and bounded depth traversal).
+  - Never masks tenant authorization/ownership errors, invalid inputs, `AUTHENTICATION_ERROR`, `CONFIGURATION_ERROR`, `ABORTED`, `INTERNAL_ERROR`, mixed transient/fatal histories, incomplete provenance, or programming errors (`TypeError`, `ReferenceError`, etc., normalized to non-retryable `INTERNAL_ERROR`).
+- **Gateway Failure Accounting (`apps/workers/src/ai/fallback/accounting.ts`)**:
+  - Preserves actual gateway attempt counts, attempted model/provider, total elapsed latency, error categories, and initial-attempt usage on retry failures; explicitly marks `usageUnavailable` / `costUnavailable` in `metadata` when failed attempts do not report token/cost metrics rather than misrepresenting `0` as a measured zero-cost call.
+- **Deterministic Fallback Generators (`impact-fallback.ts`, `simulation-fallback.ts`)**:
+  - Operate purely on trusted `ImpactExplanationContext` and `SimulationNarrationContext` without calling any LLM or external network.
+  - Restrict all claim `evidence_ids` strictly to `context.allowedEvidenceIds` and self-validate against `impact-explanation-output-v1` and `simulation-narration-output-v1`.
+  - Preserve truncation, unresolved-file, missing-evidence, and synthetic-simulation caveats.
+  - Explicitly abstain (`claims: []`, `confidence: "low"`, `fallbackAbstained: true`) when no verified evidence records are available.
+- **Orchestrator & API Integration**:
+  - `orchestrateImpactExplanation` and `orchestrateSimulationNarration` invoke deterministic fallback at terminal provider/validation failure boundaries, persisting `status: "completed"`, `validationStatus: "fallback"`, `modelUsed: null`, `promptVersion: "impact-explain-fallback-v1" | "simulation-narrate-fallback-v1"`, and safe provenance metadata, while emitting the `fluxora.ai.fallback.executions` OpenTelemetry counter.
+  - `formatAIAnalysisResponse` in `apps/api/src/http/ai-analysis.ts` serves `output_text` and `output_structured` for `validationStatus === "fallback"` alongside `validation_status: "fallback"` and safe fallback provenance metadata.
+
+### 3. Verification Suite
+- `apps/workers/src/ai/fallback/fallback.test.ts`: 14 tests covering successful AI bypass, provider unavailability/timeout, corrective retry before fallback, retry timeout, determinism, trusted-evidence restriction, missing-evidence abstention, truncation/unresolved-file caveats, synthetic simulation narration, auth/policy/abort non-masking, and idempotency.
+- `apps/api/src/http/ai-analysis.test.ts` and `apps/workers/src/ai/eval/eval.test.ts`: Verify fallback API DTO delivery and Step 65 semantic/entity evaluation compliance.

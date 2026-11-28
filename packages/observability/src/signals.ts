@@ -97,6 +97,17 @@ const aiAttemptLatencyHistogram: Histogram = meter.createHistogram(
   },
 );
 
+const aiFallbackExecutionsCounter: Counter = meter.createCounter(
+  "fluxora.ai.fallback.executions",
+  {
+    description: "Total number of deterministic AI fallback explanations executed.",
+  },
+);
+
+export function recordAiFallbackExecution(attributes: Attributes = {}): void {
+  aiFallbackExecutionsCounter.add(1, attributes);
+}
+
 export function recordAiGatewayRequest(attributes: Attributes = {}): void {
   aiRequestsCounter.add(1, attributes);
 }

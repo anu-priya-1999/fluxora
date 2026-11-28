@@ -204,7 +204,7 @@ Broken into phases; each phase's features are further broken into small, sequent
 5. [x] Repeat 2–4 for simulation narration (Global Step 63).
 6. [x] Implement the tool-calling free-form chat interface (`§9.5`) with the `query_graph`/`get_evidence`/`run_simulation` tool set (Global Step 64).
 7. [x] Build the initial AI evaluation suite (`12-testing-strategy.md §12.5`) against the golden-fixture repo's impact analyses, establish baseline groundedness/hallucination-rate metrics (Global Step 65).
-8. Implement the deterministic-fallback explanation path for when AI generation fails validation after retries (Global Step 66).
+8. [x] Implement the deterministic-fallback explanation path for when AI generation fails validation after retries (Global Step 66).
 
 **Database changes:** `AIAnalysis`.
 **AI work:** the bulk of this phase — prompt template design per task type, schema design, eval-suite construction.

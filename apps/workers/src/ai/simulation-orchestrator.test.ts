@@ -281,7 +281,7 @@ describe("Simulation Narration Orchestrator Service (Step 63)", () => {
     };
 
     const result = await orchestrateSimulationNarration(
-      { organizationId: ORG_ID, simulationId: SIM_ID },
+      { organizationId: ORG_ID, simulationId: SIM_ID, enableFallback: false },
       deps,
     );
 

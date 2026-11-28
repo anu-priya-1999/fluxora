@@ -19,3 +19,4 @@ export * from "./simulation-context/index.ts";
 export * from "./simulation-orchestrator.ts";
 export * from "./chat/index.ts";
 export * from "./eval/index.ts";
+export * from "./fallback/index.ts";

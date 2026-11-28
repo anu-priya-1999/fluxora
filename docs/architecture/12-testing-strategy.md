@@ -66,6 +66,7 @@ Treated as a distinct, continuously-run test suite — not a manual spot-check.
 - **Deterministic CI Mode (`ci_mock`):** Runs offline via `pnpm test` and `pnpm eval:ai` using `MockModelProvider` without network calls or API keys; never fabricates mock token/cost metrics (`null`).
 - **Opt-In Live Mode (`live`):** Requires explicit `--mode=live`, `USE_REAL_LLM=true`, and `ANTHROPIC_API_KEY`, enforcing hard case, token, cost, and duration budgets.
 - **Release Gates & Statistical Honesty:** Enforces zero invalid citations, 100% schema validity within 2 attempts, no rising retry regression, 100% adversarial containment, and `<2%` hallucination promotion target with `>= 20` live claims; mock or undersized runs report `inconclusive` rather than a false `pass`.
+- **Step 66 Deterministic Fallback Verification (`apps/workers/src/ai/fallback/fallback.test.ts` & `eval.test.ts`):** Verifies terminal failure classification, corrective retry before fallback, trusted-evidence restriction, missing-evidence abstention, caveat preservation, non-masking of auth/tenant/policy errors, idempotency, and Step 65 semantic/entity evaluation compliance.
 
 ## 12.6 Test pyramid summary
 
