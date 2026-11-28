@@ -11,6 +11,7 @@
 
 - GitHub App installation tokens are short-lived (1 hour, GitHub-issued) and never persisted long-term; only the App's private key and installation ID are stored, encrypted at rest (KMS-backed envelope encryption), used to mint fresh installation tokens per job.
 - Per-repository connection status (`active/needs_reauth/error`) makes revoked/expired access visible rather than silently failing.
+- **Runtime telemetry source credentials (Step 67):** `telemetry_sources.connection_config` enforces an opaque encrypted envelope contract (`^(enc|kms):v[0-9]+:[^\s]+$`) at both the repository and PostgreSQL `CHECK` boundaries, rejecting plaintext JSON or raw API tokens. Real provider credentials must not be persisted until KMS-backed envelope encryption is implemented in `packages/infrastructure` in later Phase 10 steps. Both `telemetry_sources` and `observations` enforce `FORCE ROW LEVEL SECURITY` via `fluxora_repository_in_current_tenant(repository_id)` and composite foreign-key referential integrity `(repository_id, node_id)` to `graph_nodes(repository_id, id)` so observations can never link across repositories or tenants.
 
 ## 11.3 Secrets management
 

@@ -13957,3 +13957,23 @@ Global Step 66 implements **Phase 9 Step 8**: deterministic, evidence-grounded f
 ### 3. Verification Suite
 - `apps/workers/src/ai/fallback/fallback.test.ts`: 14 tests covering successful AI bypass, provider unavailability/timeout, corrective retry before fallback, retry timeout, determinism, trusted-evidence restriction, missing-evidence abstention, truncation/unresolved-file caveats, synthetic simulation narration, auth/policy/abort non-masking, and idempotency.
 - `apps/api/src/http/ai-analysis.test.ts` and `apps/workers/src/ai/eval/eval.test.ts`: Verify fallback API DTO delivery and Step 65 semantic/entity evaluation compliance.
+
+---
+
+## Global Step 67: Runtime Telemetry Data Foundation
+
+### 1. Objective and Architectural Context
+Global Step 67 begins **Phase 10 — Runtime Telemetry** by implementing the persistent, tenant-isolated PostgreSQL data foundation for `TelemetrySource` and `Observation` (`docs/architecture/06-database-schema.md`, ADR-020). Ingestion endpoints, provider API clients, service-name-to-node correlation, graph confidence upgrades, and simulation overrides remain explicitly deferred to later Phase 10 steps.
+
+### 2. Implemented Components (Migration 0029, ADR-020)
+- **Migration (`packages/db/migrations/0029_runtime_telemetry_storage.sql`)**:
+  - `telemetry_sources`: Repository-owned (`repository_id -> repositories(id) ON DELETE CASCADE`), supports `datadog | otel | newrelic`, explicit lifecycle states (`pending | active | error | disabled`, default `pending`), `UNIQUE (repository_id, id)`, immutable `repository_id` trigger, and an opaque encrypted-envelope `CHECK` constraint (`^(enc|kms):v[0-9]+:[^\s]+$`) rejecting plaintext JSON or raw credentials.
+  - `observations`: Linked to `telemetry_sources(repository_id, id) ON DELETE CASCADE`, nullable `node_id` for pre-correlation observations, composite foreign key `(repository_id, node_id) -> graph_nodes(repository_id, id) ON DELETE SET NULL (node_id)` preventing cross-repository or cross-tenant node linking, authoritative `repository_id` derivation and immutability triggers, PostgreSQL `NUMERIC` finite metric values, UTC `timestamptz` `observed_at` timestamps, and B-tree/partial indexes for source history, metric filtering, and mapped-node lookups.
+  - **RLS**: Both tables enforce `ENABLE ROW LEVEL SECURITY` and `FORCE ROW LEVEL SECURITY` using `fluxora_repository_in_current_tenant(repository_id)`.
+- **Shared Types (`packages/shared-types/src/telemetry.ts`)** & **DB Repository (`packages/db/src/repositories/telemetry.ts`)**:
+  - `createTelemetrySource`, `getTelemetrySourceById`, `listTelemetrySources`, `updateTelemetrySource` (enforcing `TELEMETRY_SOURCE_STATUS_TRANSITIONS`), `appendObservation`, and `queryObservations`.
+- **Remaining Limitations**:
+  - `packages/infrastructure` currently provides `SecretsClient` (`getSecret`) without KMS envelope encryption; KMS-backed encryption/decryption must be implemented before real provider credentials are persisted in Phase 10 Step 2+.
+
+### 3. Verification Suite
+- `packages/db/src/repositories/telemetry.test.ts`: 12 integration and migration tests verifying `0029` idempotency, schema/indexes/policies, provider/status/encrypted-envelope constraints, `NUMERIC` precision, UTC `observed_at`, cross-repository/cross-tenant node rejection, `ON DELETE SET NULL (node_id)` unmapping, and `FORCE ROW LEVEL SECURITY` under `fluxora_rls_test`.

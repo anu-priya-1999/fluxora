@@ -20,7 +20,7 @@
 ## 12.2 Integration tests
 
 - **GitHub ingestion:** against a recorded fixture repository (VCR-style HTTP recording of GitHub API responses) — real network calls only in a small, separately-run nightly suite against a real test GitHub org, to keep the main suite fast and deterministic.
-- **Database:** migrations tested up/down against a real Postgres instance (via testcontainers or equivalent) in CI; RLS policies specifically tested by attempting cross-tenant reads and asserting they return empty, not just "no error."
+- **Database:** migrations tested up/down against a real Postgres instance (via testcontainers or equivalent) in CI; RLS policies specifically tested by attempting cross-tenant reads and asserting they return empty, not just "no error." Step 67 (`packages/db/src/repositories/telemetry.test.ts`) additionally verifies `0029_runtime_telemetry_storage.sql` idempotency, encrypted-envelope `CHECK` constraints, `NUMERIC` precision, UTC `observed_at` preservation, composite `(repository_id, node_id)` cross-repository rejection, `ON DELETE SET NULL (node_id)` unmapping, and `FORCE ROW LEVEL SECURITY` under `fluxora_rls_test`.
 - **Queue/workers:** job enqueue → worker pickup → completion tested against a real (test-instance) Postgres-backed queue, including the idempotency-key dedup path (enqueue the same job twice, assert single execution) and the crash-recovery path (kill a worker mid-job, assert the job becomes reclaimable and re-execution doesn't duplicate graph writes).
 
 ## 12.3 Contract tests

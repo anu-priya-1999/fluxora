@@ -222,7 +222,7 @@ Broken into phases; each phase's features are further broken into small, sequent
 **Goal:** Connect real observability data to ground/enrich the static graph.
 
 **Steps (high-level, this phase is intentionally less granular since it follows MVP validation):**
-1. Implement `TelemetrySource`, `Observation` tables.
+1. [x] Implement `TelemetrySource`, `Observation` tables (Global Step 67 — Migration 0029, `@fluxora/shared-types` & `@fluxora/db` persistence foundation; ingestion/correlation deferred to Steps 68+).
 2. Build an OpenTelemetry-compatible ingestion endpoint; map incoming trace/metric data to existing `GraphNode`s where identifiable (service-name matching, with confidence, since this mapping is itself imperfect and should be evidence-tagged like everything else).
 3. Use runtime-observed call data to *upgrade* the confidence of statically-inferred edges (an edge seen both in static analysis and in real traffic gets `provenance: runtime-observed` and higher confidence) and to *surface* dynamically-only-discoverable edges static analysis missed (flagged distinctly, since they weren't code-verified).
 4. Feed real latency/error-rate data into the Simulation Engine's rule table as optional overrides to the static assumptions (e.g., "this call has historically had a circuit breaker trip N times" informs the propagation rule more accurately than the static "no fallback detected" default).

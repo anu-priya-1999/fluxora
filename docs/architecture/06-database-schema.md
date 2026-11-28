@@ -66,7 +66,7 @@ erDiagram
     Simulation ||--o{ SimulationResult : produces
     SimulationResult ||--o{ Evidence : cites
     Simulation ||--o| AIAnalysis : explained_by
-    Repository ||--o{ TelemetrySource : "connects to (future)"
+    Repository ||--o{ TelemetrySource : "connects to"
     TelemetrySource ||--o{ Observation : emits
     Organization ||--o{ Dependency : "external packages"
 ```
@@ -155,11 +155,28 @@ Append-only. Never updated in place — a re-analysis produces new Evidence rows
   - `output_text` and `output_structured` are strictly populated only on `status = 'completed'` and `validation_status = 'passed'`.
   - On `status = 'rejected'` or `status = 'failed'`, `output_text` and `output_structured` remain `null`, storing only sanitized error diagnostics in `error_message` or `metadata`.
 
-### TelemetrySource (future)
-`id, repository_id, provider (datadog/otel/newrelic), connection_config (encrypted), status`
+### TelemetrySource (Migration 0029 — Step 67)
+`id (UUID PK), repository_id (UUID FK -> repositories ON DELETE CASCADE), provider (datadog/otel/newrelic), connection_config (TEXT opaque encrypted envelope ^(enc|kms):v[0-9]+:[^\s]+$), status (pending/active/error/disabled, default pending), created_at (TIMESTAMPTZ), updated_at (TIMESTAMPTZ)`
+- **Constraints & Indexes**:
+  - `UNIQUE (repository_id, id)` (supports composite FK from `observations`)
+  - `telemetry_sources_repository_id_idx ON (repository_id)`
+  - `telemetry_sources_repository_provider_idx ON (repository_id, provider)`
+  - `telemetry_sources_repository_status_idx ON (repository_id, status)`
+  - Immutability trigger preventing `repository_id` mutation on `UPDATE`.
+- **RLS & Isolation**: `ENABLE ROW LEVEL SECURITY` & `FORCE ROW LEVEL SECURITY` using `fluxora_repository_in_current_tenant(repository_id)` for `SELECT`, `INSERT`, `UPDATE`, `DELETE`.
+- **Security**: Plaintext credentials/JSON are rejected at both repository and DB `CHECK` boundaries; KMS envelope encryption in `packages/infrastructure` must be wired before storing real provider credentials in later Phase 10 steps.
 
-### Observation (future)
-`id, telemetry_source_id, node_id (linked graph node), metric_name, value, observed_at`
+### Observation (Migration 0029 — Step 67)
+`id (UUID PK), telemetry_source_id (UUID), repository_id (UUID FK -> repositories ON DELETE CASCADE), node_id (nullable UUID), metric_name (TEXT 1..255 trimmed), value (NUMERIC finite), observed_at (TIMESTAMPTZ UTC), created_at (TIMESTAMPTZ)`
+- **Constraints & Indexes**:
+  - `FOREIGN KEY (repository_id, telemetry_source_id) REFERENCES telemetry_sources (repository_id, id) ON DELETE CASCADE`
+  - `FOREIGN KEY (repository_id, node_id) REFERENCES graph_nodes (repository_id, id) ON DELETE SET NULL (node_id)` (nullable `node_id` supports unmapped observations prior to correlation and unmaps cleanly if a `GraphNode` is pruned; prevents cross-repository and cross-tenant node linking)
+  - Authoritative `BEFORE INSERT` `repository_id` derivation trigger from `telemetry_sources` and `BEFORE UPDATE` immutability trigger on `repository_id` and `telemetry_source_id`.
+  - `observations_source_observed_at_idx ON (telemetry_source_id, observed_at DESC, id DESC)`
+  - `observations_source_metric_observed_at_idx ON (telemetry_source_id, metric_name, observed_at DESC, id DESC)`
+  - `observations_node_observed_at_idx ON (node_id, observed_at DESC, id DESC) WHERE node_id IS NOT NULL`
+  - `observations_repository_node_idx ON (repository_id, node_id) WHERE node_id IS NOT NULL`
+- **RLS & Isolation**: `ENABLE ROW LEVEL SECURITY` & `FORCE ROW LEVEL SECURITY` using `fluxora_repository_in_current_tenant(repository_id)`.
 
 ## 6.4 Design rationale: typed nodes vs. per-type tables
 
